@@ -112,6 +112,7 @@ import com.nuvio.app.features.social.SocialInboxEvent
 import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
 import com.nuvio.app.features.social.SocialRepository
+import com.nuvio.app.features.social.toSocialPopup
 import com.nuvio.app.features.social.SocialPresenceSession
 import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
 import com.nuvio.app.features.social.rememberSocialEnabled
@@ -239,6 +240,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         friendWatchingNotice = null
     }
     val friendWatchingCard = friendWatchingNotice?.takeIf { activeSocialNotification == null && socialEnabled }
+    // The card itself is the phone's banner (2026-10-18), built by the same rules as every pop-up.
+    val socialCard = activeSocialNotification?.toSocialPopup()
+        ?: friendWatchingCard?.toSocialPopup(socialUiState.watchingNow)
     val incomingJoinRequest = socialUiState.notifications.firstOrNull {
         socialEnabled && it.readAt == null && it.kind == SocialNotificationKind.WatchingNowJoinRequest &&
             SocialNotificationAction.Accept in it.availableActions
@@ -1175,6 +1179,12 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 controlsVisible = controlsVisible,
                 gestureFeedbackShowing = currentGestureFeedback != null,
                 horizontalSafePadding = horizontalSafePadding,
+                socialCard = socialCard,
+                // A swipe up: a notice is marked read; a friend-started-watching card simply goes.
+                onDismissSocialCard = {
+                    if (activeSocialNotification != null) handlePlayerControlsEvent("socialNotificationDismiss", 0.0)
+                    else friendWatchingNotice = null
+                },
                 onEvent = { type, value -> handlePlayerControlsEvent(type, value) },
             )
             // Above the pill and the playback overlays, below the modals it can open (Sources).

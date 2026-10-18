@@ -1,6 +1,17 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextAlign
+import com.nuvio.app.features.social.SocialPopup
+import com.nuvio.app.features.social.SocialPopupCard
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -164,16 +175,20 @@ internal fun BoxScope.MobilePartyOverlays(
     controlsVisible: Boolean,
     gestureFeedbackShowing: Boolean,
     horizontalSafePadding: Dp,
+    /** What the in-player social card shows; null hides it. */
+    socialCard: SocialPopup?,
+    onDismissSocialCard: () -> Unit,
     onEvent: (String, Double) -> Boolean,
 ) {
     // Only for the window's height; it draws nothing and takes no input of its own.
     BoxWithConstraints(Modifier.matchParentSize()) {
+        val shortSurface = nuvioWindowClass().isShortSurface
         val layout = mobilePartyStatusLayout(
             status = partyStatus,
             controlsVisible = controlsVisible,
             locked = locked,
             gestureFeedbackShowing = gestureFeedbackShowing,
-            shortSurface = nuvioWindowClass().isShortSurface,
+            shortSurface = shortSurface,
         )
         val top by animateDpAsState(
             targetValue = when {
@@ -197,12 +212,23 @@ internal fun BoxScope.MobilePartyOverlays(
             if (partyStatus.visible) {
                 StatusPill(partyStatus, layout, onEvent = onEvent)
             }
+            // Held across the exit, so the card fades out showing what it showed.
+            var shownCard by remember { mutableStateOf(socialCard) }
+            if (socialCard != null) shownCard = socialCard
             AnimatedVisibility(
-                visible = state.socialNotificationVisible && !locked,
-                enter = fadeIn(),
+                visible = state.socialNotificationVisible && socialCard != null && !locked,
+                enter = slideInVertically { -it / 2 } + fadeIn(),
                 exit = fadeOut(),
             ) {
-                SocialNotificationCard(state, onEvent)
+                shownCard?.let { card ->
+                    SocialNotificationCard(
+                        card = card,
+                        actions = state.socialNotificationActions,
+                        inline = shortSurface,
+                        onDismiss = onDismissSocialCard,
+                        onEvent = onEvent,
+                    )
+                }
             }
         }
     }
@@ -357,41 +383,77 @@ private fun StatusChip(status: PartyStatusBridgeState, toneColor: Color?) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * The in-player social card: the phone's in-app banner (2026-10-18, design A of `SocialJoinSheetHarness`),
+ * so a notice looks the same over a video as anywhere else in the app. Its answer buttons sit inside the
+ * banner on a short (landscape) surface, where a second row would land on the transport controls, and
+ * under it otherwise. No Dismiss button: a swipe up dismisses, and a friend-started-watching card goes by
+ * itself.
+ */
 @Composable
-private fun SocialNotificationCard(state: PlayerControlsState, onEvent: (String, Double) -> Boolean) {
-    val tokens = MaterialTheme.nuvio
-    Surface(
-        color = tokens.colors.surfaceElevated.copy(alpha = 0.96f),
-        contentColor = tokens.colors.textPrimary,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row {
-                Text(
-                    buildString {
-                        append(state.socialNotificationActor)
-                        if (state.socialNotificationMessage.isNotBlank()) append(' ').append(state.socialNotificationMessage)
+private fun SocialNotificationCard(
+    card: SocialPopup,
+    actions: List<String>,
+    inline: Boolean,
+    onDismiss: () -> Unit,
+    onEvent: (String, Double) -> Boolean,
+) {
+    val buttons = mobileSocialNotificationActions(actions).filter { it.event != "socialNotificationDismiss" }
+    var dragY by remember(card.key) { mutableFloatStateOf(0f) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { translationY = dragY.coerceAtMost(0f) }
+            .shadow(12.dp, SocialCardShape)
+            .clip(SocialCardShape)
+            .background(Color(0xFF17181C))
+            .pointerInput(card.key) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (dragY < -24.dp.toPx()) onDismiss()
+                        dragY = 0f
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            // A friend-started-watching card is news, not a question: no buttons, it goes by itself.
-            if (state.socialNotificationActions.isNotEmpty()) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    mobileSocialNotificationActions(state.socialNotificationActions).forEach { OverlayButton(it, onEvent) }
-                }
+                    onDragCancel = { dragY = 0f },
+                ) { _, dy -> dragY += dy }
+            },
+    ) {
+        SocialPopupCard(
+            card,
+            compact = true,
+            trailing = if (inline && buttons.isNotEmpty()) {
+                { buttons.forEach { CardButton(it, onEvent) } }
+            } else {
+                null
+            },
+        )
+        if (!inline && buttons.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                buttons.forEach { CardButton(it, onEvent, Modifier.weight(1f)) }
             }
         }
     }
 }
+
+@Composable
+private fun CardButton(action: MobilePartyAction, onEvent: (String, Double) -> Boolean, modifier: Modifier = Modifier) {
+    val primary = action.emphasis == MobilePartyActionEmphasis.Primary
+    Text(
+        text = action.label,
+        color = if (primary) Color.Black else Color.White,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        modifier = modifier
+            .heightIn(min = 36.dp)
+            .clip(CircleShape)
+            .background(if (primary) Color.White else Color.White.copy(alpha = 0.16f))
+            .clickable(role = Role.Button) { onEvent(action.event, action.value) }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+private val SocialCardShape = RoundedCornerShape(14.dp)
 
 @Composable
 private fun OverlayButton(action: MobilePartyAction, onEvent: (String, Double) -> Boolean) {
