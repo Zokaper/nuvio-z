@@ -563,6 +563,13 @@ object SocialRepository {
         }).decodeAs<SocialRecommendResult>().delivered
     }
 
+    /** Friends who already have [contentId] from you: the picker shows them as Sent. */
+    suspend fun recommendationSentTo(contentId: String): Result<Set<String>> = socialCall {
+        socialRpc("social_recommendation_sent_to", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_content_id", contentId)
+        }).decodeAs<List<String>>().toSet()
+    }
+
     suspend fun togetherStats(friendProfileId: String): Result<SocialTogetherStats> = socialCall {
         socialRpc("social_get_together_stats", buildJsonObject {
             put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)

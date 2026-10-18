@@ -889,6 +889,16 @@ private fun LazyListScope.socialActivityItems(
         }
     }
 
+    // Recommendations (2026-10-18): draws nothing while none are waiting.
+    item(key = "recommended") {
+        SocialRecommendedShelf(
+            horizontalPadding = 0.dp,
+            wide = !compact,
+            onOpenContent = actions.onOpenContent,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+
     if (model.activityGroups.isEmpty()) {
         item(key = "recent-label") { SocialSectionLabel("Recently watched", modifier = Modifier.padding(top = 8.dp)) }
         item(key = "recent-empty") {
@@ -1252,6 +1262,9 @@ private fun SocialInboxEventCard(
         SocialInboxEvent.FriendWatching ->
             if (title != null) socialRich(name to true, " started watching " to false, title to true)
             else socialRich(name to true, " started watching" to false)
+        SocialInboxEvent.RecommendationStarted ->
+            if (title != null) socialRich(name to true, " started watching " to false, title to true, ", your recommendation" to false)
+            else socialRich(name to true, " started watching your recommendation" to false)
         else ->
             if (title != null) socialRich(name to true, " recommends " to false, title to true)
             else socialRich(name to true, " sent you a recommendation" to false)

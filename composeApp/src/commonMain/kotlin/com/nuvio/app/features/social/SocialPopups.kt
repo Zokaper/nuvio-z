@@ -11,7 +11,7 @@ import kotlinx.serialization.json.Json
  * friends you asked to be told about (an inbox event the backend only writes for them). Each pops **once**
  * per profile on a device ([SocialPopupLedger]); where and for how long is the platform's business.
  */
-internal enum class SocialPopupKind { FriendWatching, FriendRequest, PartyInvite, JoinRequest }
+internal enum class SocialPopupKind { FriendWatching, FriendRequest, PartyInvite, JoinRequest, Recommendation }
 
 /** One pop-up: who, what happened, the title it is about, and where a tap takes you. */
 internal data class SocialPopup(
@@ -39,6 +39,9 @@ internal fun socialPopupCandidates(state: SocialUiState): List<Pair<SocialPopup,
         .filter { it.kind == SocialInboxEvent.FriendWatching && it.readAt == null }
         .filter { event -> state.prefsFor(event.actor.profileId).notifyWhenWatching }
         .forEach { event -> popups += event.toSocialPopup(state.watchingNow) to (parseSocialTimestampMs(event.createdAt) ?: 0L) }
+    state.inbox
+        .filter { it.readAt == null && (it.kind == SocialInboxEvent.Recommendation || it.kind == SocialInboxEvent.RecommendationStarted) }
+        .forEach { event -> popups += event.toRecommendationPopup() to (parseSocialTimestampMs(event.createdAt) ?: 0L) }
     return popups
 }
 
@@ -104,6 +107,28 @@ internal fun SocialInboxEvent.toSocialPopup(watchingNow: List<WatchingNowItem>):
         ),
         target = live?.let { SocialNavigationTarget.WatchingSession(it.socialNavigationKey()) }
             ?: SocialNavigationTarget.Inbox,
+    )
+}
+
+/** "Seraph recommends Andor" with the note, or "Seraph started watching your pick". */
+internal fun SocialInboxEvent.toRecommendationPopup(): SocialPopup {
+    val payload = payload
+    val started = kind == SocialInboxEvent.RecommendationStarted
+    return SocialPopup(
+        key = "inbox:$id",
+        kind = SocialPopupKind.Recommendation,
+        person = actor,
+        line = if (started) "started watching your pick" else "recommends",
+        title = payload.title ?: "something",
+        meta = if (started) popupEpisodeLabel(payload.season, payload.episode) else payload.note?.let { "“$it”" },
+        art = SocialArtRef(
+            title = payload.title.orEmpty(),
+            contentType = payload.contentType,
+            contentId = payload.contentId,
+            poster = payload.poster,
+            landscape = listOf(payload.background),
+        ),
+        target = SocialNavigationTarget.Inbox,
     )
 }
 

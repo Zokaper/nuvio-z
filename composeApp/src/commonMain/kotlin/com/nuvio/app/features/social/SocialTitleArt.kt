@@ -45,6 +45,9 @@ data class SocialTitleArt(
     /** Episode stills by video id, and by `season:episode` for addons that number differently. */
     val thumbnailsByVideoId: Map<String, String> = emptyMap(),
     val thumbnailsBySeasonEpisode: Map<String, String> = emptyMap(),
+    /** The addon's year line ("2017", "2008-2013"), for a recommendation's facts. */
+    val releaseInfo: String? = null,
+    val seasonCount: Int = 0,
 ) {
     fun episodeThumbnail(videoId: String?, season: Int?, episode: Int?): String? =
         videoId?.let(thumbnailsByVideoId::get)
@@ -66,6 +69,8 @@ fun socialTitleArt(meta: MetaDetails?): SocialTitleArt {
         thumbnailsBySeasonEpisode = withStills
             .filter { it.season != null && it.episode != null }
             .associate { "${it.season}:${it.episode}" to it.thumbnail!! },
+        releaseInfo = meta.releaseInfo?.takeIf(String::isNotBlank),
+        seasonCount = meta.videos.mapNotNull { it.season }.filter { it > 0 }.distinct().size,
     )
 }
 

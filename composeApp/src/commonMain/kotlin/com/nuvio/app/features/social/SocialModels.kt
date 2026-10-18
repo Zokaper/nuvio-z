@@ -161,7 +161,9 @@ data class SocialInboxEvent(
         const val FriendAccepted = "friend_accepted"
         const val FriendWatching = "friend_watching"
         const val Recommendation = "recommendation"
-        val Known = setOf(FriendAccepted, FriendWatching, Recommendation)
+        /** Someone you recommended a title to started it (2026-10-18). In-app only, never a system push. */
+        const val RecommendationStarted = "recommendation_started"
+        val Known = setOf(FriendAccepted, FriendWatching, Recommendation, RecommendationStarted)
     }
 }
 
