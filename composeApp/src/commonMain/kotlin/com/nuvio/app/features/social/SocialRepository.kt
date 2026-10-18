@@ -1,5 +1,6 @@
 package com.nuvio.app.features.social
 
+import kotlinx.coroutines.delay
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.currentCoroutineContext
@@ -53,6 +54,9 @@ import com.nuvio.app.features.setup.SocialIdentityProbe
 
 /** How long to wait for the social channel to report itself subscribed before giving up on it. */
 private const val SocialChannelSubscribeTimeoutMs = 12_000L
+/** Inside the bridge's 2-minute renewal window, so a tick always lands before the token runs out. Cheap: an in-memory check until renewal is due. */
+private const val SocialRealtimeKeepAliveMs = 60_000L
+private val realtimeLog = co.touchlab.kermit.Logger.withTag("SocialRealtime")
 
 /** How long to wait for it to be given up, over a socket that may be exactly what failed. */
 private const val SocialChannelCloseTimeoutMs = 3_000L
@@ -82,6 +86,7 @@ object SocialRepository {
 
     private var realtimeChannel: RealtimeChannel? = null
     private var realtimeCollector: Job? = null
+    private var realtimeKeeper: Job? = null
     private val authorityLock = SynchronizedObject()
     private var authority = SocialOperation(null)
     private var sessionAccess: SocialSessionAccess = LiveSocialSessionAccess
@@ -167,6 +172,8 @@ object SocialRepository {
         realtimeChannel = null
         realtimeCollector?.cancel()
         realtimeCollector = null
+        realtimeKeeper?.cancel()
+        realtimeKeeper = null
         val previousDevices = publishedPresenceDeviceIds.toList()
         publishedPresenceDeviceIds.clear()
         val boundary = CompletableDeferred<Unit>()
@@ -639,6 +646,28 @@ object SocialRepository {
             }
     }
 
+    /**
+     * Keeps the open Social channel working while nothing else happens (2026-10-18).
+     *
+     * An idle app makes no Social calls, so nothing renewed the Z session ahead of expiry and the channel
+     * was refused an hour after it joined: friend requests sat on the server, unpopped, until the window
+     * came back to the front. Each tick renews the session when it is close to expiry (the bridge hands
+     * the new token to the socket), and if the channel is still not subscribed for any reason, fetches
+     * the state by hand - so a dead socket delays a pop-up by minutes, never by hours.
+     */
+    private suspend fun keepRealtime(profileId: String, channel: RealtimeChannel, owner: SocialOperation) {
+        while (true) {
+            delay(SocialRealtimeKeepAliveMs)
+            checkAuthority(owner)
+            if (!ensureSession(profileId)) continue
+            val status = channel.status.value
+            if (status != RealtimeChannel.Status.SUBSCRIBED) {
+                realtimeLog.i { "social channel $status: refreshing by hand" }
+                runCatching { refresh(false) }.onFailure { if (it is CancellationException) throw it }
+            }
+        }
+    }
+
     private suspend fun openRealtime(profileId: String) {
         if (!_uiState.value.capabilities.socialEnabled) return
         // The social topic is a private channel authorized by RLS on realtime.messages, so the
@@ -662,6 +691,7 @@ object SocialRepository {
             }.launchIn(CoroutineScope(scope.coroutineContext + owner))
                 realtimeCollector = collector
                 realtimeChannel = created
+                realtimeKeeper = CoroutineScope(scope.coroutineContext + owner).launch { keepRealtime(profileId, created, owner) }
                 created
             }
             // A topic the server refuses is retried in the background and never reports itself
