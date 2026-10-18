@@ -29,6 +29,10 @@ Last updated: 2026-10-18
   Windows driver steps remain skipped on Mac. The sign-in drawing
   now says Mac on Mac; reports say Computer. Local JavaScript syntax, workflow YAML and Mac JSON parse checks pass.
 - **Stable build-only run `39117185788`** was still compiling iOS at this handoff update; Android passed.
+- **Upstream exception explicitly approved:** keep this installer release on the planned 0.5.4-z3 base;
+  perform the upstream sync for Social V2 before that release. Upstream now has `0.6.1-beta`; fetched
+  `upstream/cmp-rewrite` drift: 940 ahead / 246 behind, 359 patch files / 98 conflict files.
+  The one-release exception is also recorded in `Docs/UPSTREAM.md`.
 - **Quiet test requested by maintainer:** installer build-only run `39119802046` from main builds Windows and
   universal Mac, with publication disabled. No rolling installer links changed. Test these packages before
   public installer publication. README now describes the direct-install/renew/update/Repair flow.
