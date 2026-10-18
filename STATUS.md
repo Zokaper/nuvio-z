@@ -1,5 +1,31 @@
 Last updated: 2026-10-18
 
+## Android push (Stage 4), phone notification switches, iOS tab badge (2026-10-18, Debug mobile 99)
+
+Maintainer: iOS Social has been tested on a device and works (the ledger's iOS `defer` cells lag).
+
+- **Backend** (`nuvio-z-backend` `39ccb93`, `202610180002_social_push.sql`, function `social-push`; pgTAP
+  485/485 locally). `social_push_tokens` + `social_register_push_token` / `unregister` (owner-checked, a
+  token moves to whoever registered it last). Triggers on friend requests, party invites, join requests
+  (insert, or renewed as pending) and inbox events (friend accepted, recommendation, friend watching) call
+  `social_push()` -> `pg_net` -> the Edge Function, with a shared secret; it never raises. Vault secrets
+  `social_push_url` / `social_push_secret` and function secret `SOCIAL_PUSH_SECRET` switch it on; without
+  them it is silent. Keys match the banner ledger (`notice:<kind>:<id>`, `inbox:<id>`).
+- **Android** (`SocialPush.android.kt`): registers the FCM token for the active Social profile while
+  Notifications is on; drops pushes for another profile, a switched-off kind, or while Nuvio is in front;
+  marks the banner seen; draws the notification with the title's art; tap -> friend requests or Inbox.
+  Firebase from `androidApp/google-services.json` (gitignored; the maintainer's copy is on this machine)
+  or `NUVIO_GOOGLE_SERVICES_JSON` (repo secret, set 2026-10-18), turned into the plugin's res values per
+  variant in `androidApp/build.gradle.kts` - no Google Services plugin, so a build without it still works.
+- **Phone switches** (`PhoneSocialAlerts`, per device): Settings -> Social -> Notifications, master + friend
+  requests / parties / friends watching; gates banners, the in-player card and push.
+- **iOS badge** (`NativeSocialBadge` -> `NativeTabIconStore.socialBadge`, `.badge` on both TabView
+  variants). Compiled only by the Debug release workflow.
+- Shared commit `26287270d` (push-token calls, `SocialPopupLedger.markSeen`) cherry-picked to desktop.
+
+Tests: mobile host 300/300 (Social, settings, party, Watch Together), Android `compileFullDebugKotlin` ok,
+res values checked per build type. **Not yet seen on a phone.**
+
 ## Join sheet art, phone in-player card, desktop pop-up queue (2026-10-18, Debug mobile 98 / desktop 107)
 
 Maintainer's second round of 2026-10-18. Renders first (`SocialJoinSheetHarness`, desktop desktopTest; contact
