@@ -15,7 +15,8 @@ picker B (face grid) on phones / A (list) on desktop, shelf A+, details line M1.
   `social_recommendation_sent_to`, recommendations exempt from the 60-day purge until dismissed and returned apart
   from the inbox's 100 (`social_get_state_v2` = deployed definition, inbox subquery only), and the started trigger
   (dismisses the card, tells the sender, never past share-Watching-Now or a hide, never pushed).
-  **Deploy pending the maintainer's OK**; until then Sent is always empty and nothing says started.
+  **Deployed 2026-10-18** on the maintainer's go-ahead (live `social_get_state_v2` matched the copied definition by md5
+  first; post-push smoke test on a real profile returned its inbox, friends and notices).
 
 Tests: desktop 154/154 (Social, tray, details), mobile host 132/132; shipped shelf + line rendered at 320/411/1280.
 The picker and the details wiring are not seen on a device yet.
