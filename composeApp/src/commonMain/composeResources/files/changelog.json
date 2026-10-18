@@ -13,6 +13,48 @@
   ],
   "events": [
     {
+      "seq": 4,
+      "summary": "Nuvio Z on iPhone now keeps itself signed and updates itself. No more SideStore, and a new installer for Windows sets it up or repairs it.",
+      "ships": {
+        "android": {
+          "version": "0.5.4-z3",
+          "serial": 129,
+          "date": "unreleased"
+        },
+        "ios": {
+          "version": "0.5.4-z3",
+          "serial": 129,
+          "date": "unreleased"
+        }
+      },
+      "entries": [
+        {
+          "category": "feature",
+          "platforms": [
+            "ios"
+          ],
+          "title": "Nuvio Z keeps itself signed",
+          "body": "Apps from a free Apple Account stop opening after 7 days unless they're renewed. Nuvio Z now renews itself: every day through one Shortcuts automation, and whenever you open it with LocalDevVPN connected. You sign in to your Apple Account once and never think about it again. Settings → Keep Nuvio Z working shows when it was last renewed and how long it opens for."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "ios"
+          ],
+          "title": "Updates from the banner",
+          "body": "When an update is out, the banner at the top now installs it: connect LocalDevVPN, tap Update, and Nuvio Z downloads it, signs it and installs it over itself. It closes when it's done; open it again and you're on the new version, with everything still there."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "ios"
+          ],
+          "title": "A new iPhone installer",
+          "body": "The Nuvio Z iOS Installer for Windows replaces the old setup wizard and SideStore. Choose Install for a new iPhone, or Repair if Nuvio Z stopped opening: it signs it again and keeps everything in it. Coming from SideStore? Delete SideStore and the old Nuvio Z, then run the installer."
+        }
+      ]
+    },
+    {
       "seq": 3,
       "summary": "Two fixes for Android and iPhone: automatic playback never picks a source that isn't ready, and What's new is back in Settings.",
       "ships": {
