@@ -161,6 +161,10 @@
     {
       "build": 98,
       "text": "The Watching Now sheet leads with the title's art: who, what and the episode on the picture, Join and Details side by side. Social notices in the player are now the same card as the banners at the top of the app: picture, face and title, with Accept and Decline on it. Swipe a card up to dismiss it."
+    },
+    {
+      "build": 99,
+      "text": "Android: Social system notifications - friend requests, party invites, join requests, friends accepting, recommendations and friends you follow starting to watch - when Nuvio is closed or in the background (they start working once the server side is switched on). Both phones: Settings > Social > Notifications to choose what shows. iPhone: the Social tab shows how many unread items you have."
     }
   ]
 }
