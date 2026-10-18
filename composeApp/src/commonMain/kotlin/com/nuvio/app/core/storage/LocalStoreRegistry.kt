@@ -98,6 +98,8 @@ internal object LocalStoreRegistry {
         account("nuvio_search_history"),
         account("nuvio_social"),
         account("nuvio_social_features"),
+        // Which profile this phone's push token is registered for: cleared, so a signed-out phone drops its pushes.
+        account("nuvio_social_push"),
         account("nuvio_download_policy"),
         // The device revision is this installation's; the per-profile arrival and Advanced Setup
         // flags beside it belong to whichever account is signed in.
@@ -124,6 +126,8 @@ internal object LocalStoreRegistry {
         cache("nuvio_binge_group_cache"),
 
         // Device-local: kept across accounts
+        // Settings -> Social -> Notifications: what may interrupt you on this phone.
+        device("nuvio_social_alerts"),
         device("nuvio_whats_new"),
         device("nuvio_updater"),
         device("server_configuration"),
