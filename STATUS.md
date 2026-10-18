@@ -1,6 +1,6 @@
 Last updated: 2026-10-18
 
-## Release continuation: Debug 95 published; Mac installer added (2026-10-18)
+## Release continuation: Debug 95 accepted; Windows and universal Mac packages verified (2026-10-18)
 
 | Scope | Active branch / state |
 | --- | --- |
@@ -23,9 +23,11 @@ Last updated: 2026-10-18
   Intel + Apple Silicon Tauri app, checks both slices and ad-hoc signature, smoke-checks startup, and zips
   it with launch instructions. macOS 11 minimum. No notarization. Manual installer releases and automated
   crate promotions now require Mac success as well as Windows; publication replaces the old rolling Mac zip.
-  Mac core tests and universal app compilation passed in `39119512358`; packaging verification failed
-  because the `lipo -verify_arch` file argument was placed after its architecture list. Corrected to
-  put the file first; rerun required. Mac phone installation is not verified yet.
+  **Mac CI PASSED in `39120282546`** at `b83b047bf`: 23 core/QR tests, optimized builds for both CPUs,
+  universal binary check, strict ad-hoc signature verification, native startup smoke check, zip upload.
+  The earlier runs failed only on the `lipo` argument order; that is fixed. The downloaded zip was independently
+  checked for Intel + ARM64 Mach-O slices, macOS 11 minimum, executable permissions and signature resources.
+  Mac-to-phone installation has not been physically tested.
   Windows driver steps remain skipped on Mac. The sign-in drawing
   now says Mac on Mac; reports say Computer. Local JavaScript syntax, workflow YAML and Mac JSON parse checks pass.
 - **Stable build-only run `39117185788`** was still compiling iOS at this handoff update; Android passed.
@@ -33,9 +35,12 @@ Last updated: 2026-10-18
   perform the upstream sync for Social V2 before that release. Upstream now has `0.6.1-beta`; fetched
   `upstream/cmp-rewrite` drift: 940 ahead / 246 behind, 359 patch files / 98 conflict files.
   The one-release exception is also recorded in `Docs/UPSTREAM.md`.
-- **Quiet test requested by maintainer:** installer build-only run `39119802046` from main builds Windows and
-  universal Mac, with publication disabled. No rolling installer links changed. Test these packages before
-  public installer publication. README now describes the direct-install/renew/update/Repair flow.
+- **Quiet test packages:** Windows job of `39119802046` PASSED (core tests, release exe, zip); that run's Mac job
+  used the old verification command and failed, so use the successful Mac artifact from `39120282546` instead.
+  Both downloaded under `Nuvio Z/release-artifacts/installer3-quiet-test/`. Windows zip SHA-256:
+  `ed8b8da7fc6c86c3555f01f7b320a333a4eecdd5ecf039fffa1b57e93dfa77d2`; Mac zip SHA-256:
+  `a5bb1b039d5d45c8e6531e2cd1ac8842554903fc3ff32a18a349fc1941c2afdf`.
+  No rolling installer links changed. README now describes direct install, renew, update and Repair.
 - **Before stable publication:** stable iOS build success; Mac CI success; then final bump on main to
   0.5.4-z3 / build 128 / serial 129 with the changelog ship date. Rehearse with `mode=dry-run` for exact-version
   test artifacts; public stable and rolling installer publication follow acceptance of the quiet test.

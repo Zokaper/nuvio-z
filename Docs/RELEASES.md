@@ -23,7 +23,7 @@ build number. Android must not be published as a stable GitHub release independe
 iOS build.
 
 **The new iOS install path is Installer 3 plus on-phone self-signing** (maintainer decision,
-2026-10-18; pending the Debug 94 → 95 update test). The installer signs and installs Nuvio Z
+2026-10-18; Debug 94 → 95 update accepted on the maintainer's phone). The installer signs and installs Nuvio Z
 with the user's Apple Account; Nuvio Z then renews and installs updates over LocalDevVPN.
 Existing SideStore installs retain their update path. The matching iOS build is the unsigned
 IPA that `publish` attaches to the same GitHub release, together with the SideStore
