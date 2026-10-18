@@ -1,5 +1,9 @@
 {
   "schema": 1,
   "stable": null,
-  "debug": null
+  "debug": {
+    "url": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z2.95/Nuvio-Z-iOS-0.5.4-z2-95-debug-unsigned.ipa",
+    "sha256": "6fc0582e2261b3135c8e5f2c7e6ac70ffad6c8d4068edc394d4ff0101dbf348e",
+    "version": "0.5.4-z2.95"
+  }
 }
