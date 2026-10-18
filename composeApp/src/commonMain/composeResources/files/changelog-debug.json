@@ -113,6 +113,10 @@
     {
       "build": 93,
       "text": "Update test: installs from the banner over 92, and shows as Important. Install and Repair sit side by side in the installer."
+    },
+    {
+      "build": 94,
+      "text": "Renewing and updating stay on the sign-in server that set this iPhone up, so Apple stops asking for a code. If Apple does ask during an update, the banner shows where to type it."
     }
   ]
 }
