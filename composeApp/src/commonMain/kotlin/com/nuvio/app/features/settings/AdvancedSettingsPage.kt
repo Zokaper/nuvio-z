@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.debug.isDebugBuild
-import com.nuvio.app.core.debug.SelfSigningSpike
 import com.nuvio.app.core.debug.SelfTestHooks
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.NuvioTokens
@@ -75,11 +74,6 @@ import com.nuvio.app.isWindows
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import nuvio.composeapp.generated.resources.*
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.Res
@@ -175,8 +169,7 @@ internal fun LazyListScope.advancedSettingsContent(
     // section has to survive Sentry being unsupported on a platform - otherwise the button
     // disappears with it.
     val selfTestAvailable = isDebugBuild && SelfTestHooks.launch != null
-    val selfSigning = SelfSigningSpike.platform.takeIf { isDebugBuild }
-    if (SentrySettingsRepository.isSupported || selfTestAvailable || selfSigning != null) {
+    if (SentrySettingsRepository.isSupported || selfTestAvailable) {
         item {
             val sentryEnabledFlow: StateFlow<Boolean> = remember {
                 if (SentrySettingsRepository.isSupported) {
@@ -222,35 +215,6 @@ internal fun LazyListScope.advancedSettingsContent(
                             isTablet = isTablet,
                             onClick = { SelfTestHooks.launch?.invoke() },
                         )
-                    }
-                    if (selfSigning != null) {
-                        if (SentrySettingsRepository.isSupported || selfTestAvailable) {
-                            SettingsGroupDivider(isTablet = isTablet)
-                        }
-                        val scope = rememberCoroutineScope()
-                        var report by remember { mutableStateOf<String?>(null) }
-                        SettingsNavigationRow(
-                            title = "Self-signing spike: reach this iPhone",
-                            description = report ?: "Connects to this iPhone through LocalDevVPN with the pairing " +
-                                "file the installer placed, by both routes, and lists its apps.",
-                            isTablet = isTablet,
-                            onClick = {
-                                report = "Connecting…"
-                                scope.launch { report = describeSelfSigningProbe(selfSigning.probe()) }
-                            },
-                        )
-                        var showSelfSigning by remember { mutableStateOf(false) }
-                        SettingsGroupDivider(isTablet = isTablet)
-                        SettingsNavigationRow(
-                            title = "Keep Nuvio Z working",
-                            description = "When this copy stops opening, renewing it without SideStore, the daily " +
-                                "refresh, the update test and the tester’s report.",
-                            isTablet = isTablet,
-                            onClick = { showSelfSigning = true },
-                        )
-                        if (showSelfSigning) {
-                            KeepNuvioWorkingScreen(selfSigning, onDismiss = { showSelfSigning = false })
-                        }
                     }
                 }
             }
@@ -1151,20 +1115,3 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
     }
 
 }
-
-/** One line per route: whether it reached the phone, how many apps it saw, or the exact error. */
-private fun describeSelfSigningProbe(json: String): String = runCatching {
-    val root = Json.parseToJsonElement(json).jsonObject
-    root["error"]?.let { return@runCatching "Failed: ${it.jsonPrimitive.content}" }
-    val probe = root["probe"]?.jsonObject ?: return@runCatching json
-    probe["routes"]!!.jsonArray.joinToString("\n") { element ->
-        val route = element as JsonObject
-        val name = route["route"]!!.jsonPrimitive.content
-        val millis = route["millis"]?.jsonPrimitive?.content
-        if (route["ok"]!!.jsonPrimitive.content == "true") {
-            "$name: works, ${route["apps"]!!.jsonPrimitive.content} apps ($millis ms)"
-        } else {
-            "$name: ${route["error"]?.jsonPrimitive?.content} ($millis ms)"
-        }
-    }
-}.getOrElse { json }

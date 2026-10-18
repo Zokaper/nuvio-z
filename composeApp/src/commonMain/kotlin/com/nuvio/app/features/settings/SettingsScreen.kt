@@ -2,6 +2,7 @@ package com.nuvio.app.features.settings
 
 import com.nuvio.app.AppScreenTab
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.debug.SelfSigningSpike
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -122,6 +123,7 @@ private fun SettingsPage.isEnabledByPolicy(): Boolean =
         SettingsPage.Notifications -> AppFeaturePolicy.notificationsEnabled
         SettingsPage.Plugins -> AppFeaturePolicy.pluginsEnabled
         SettingsPage.SupportersContributors -> AppFeaturePolicy.supportersContributorsPageEnabled
+        SettingsPage.KeepNuvioWorking -> SelfSigningSpike.platform != null
         else -> true
     }
 
@@ -755,6 +757,7 @@ private fun MobileSettingsScreen(
                     isTablet = false,
                     rememberLastProfileEnabled = rememberLastProfileEnabled,
                 )
+                SettingsPage.KeepNuvioWorking -> SelfSigningSpike.platform?.let { keepNuvioWorkingSettingsContent(isTablet = false, platform = it) }
                 SettingsPage.Notifications -> if (AppFeaturePolicy.notificationsEnabled) {
                     notificationsSettingsContent(
                         isTablet = false,
@@ -1227,6 +1230,7 @@ private fun TabletSettingsScreen(
                             isTablet = true,
                             rememberLastProfileEnabled = rememberLastProfileEnabled,
                         )
+                        SettingsPage.KeepNuvioWorking -> SelfSigningSpike.platform?.let { keepNuvioWorkingSettingsContent(isTablet = true, platform = it) }
                         SettingsPage.Notifications -> if (AppFeaturePolicy.notificationsEnabled) {
                             notificationsSettingsContent(
                                 isTablet = true,

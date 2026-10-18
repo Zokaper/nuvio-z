@@ -54,12 +54,64 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_cancel
+import nuvio.composeapp.generated.resources.selfsign_account_heading
+import nuvio.composeapp.generated.resources.selfsign_account_renews_with
+import nuvio.composeapp.generated.resources.selfsign_certs_body
+import nuvio.composeapp.generated.resources.selfsign_certs_expires
+import nuvio.composeapp.generated.resources.selfsign_certs_title
+import nuvio.composeapp.generated.resources.selfsign_certs_unknown_tool
+import nuvio.composeapp.generated.resources.selfsign_code_label
+import nuvio.composeapp.generated.resources.selfsign_code_prompt
+import nuvio.composeapp.generated.resources.selfsign_connect_vpn_first
+import nuvio.composeapp.generated.resources.selfsign_daily_cover_body
+import nuvio.composeapp.generated.resources.selfsign_daily_intro
+import nuvio.composeapp.generated.resources.selfsign_done_set_up
+import nuvio.composeapp.generated.resources.selfsign_email
+import nuvio.composeapp.generated.resources.selfsign_err_busy
+import nuvio.composeapp.generated.resources.selfsign_err_code_needed
+import nuvio.composeapp.generated.resources.selfsign_err_other
+import nuvio.composeapp.generated.resources.selfsign_err_refused
+import nuvio.composeapp.generated.resources.selfsign_err_try_again
+import nuvio.composeapp.generated.resources.selfsign_err_vpn
+import nuvio.composeapp.generated.resources.selfsign_err_wrong_password
+import nuvio.composeapp.generated.resources.selfsign_forget_account
+import nuvio.composeapp.generated.resources.selfsign_guide_1
+import nuvio.composeapp.generated.resources.selfsign_guide_2
+import nuvio.composeapp.generated.resources.selfsign_guide_3
+import nuvio.composeapp.generated.resources.selfsign_guide_4
+import nuvio.composeapp.generated.resources.selfsign_guide_5
+import nuvio.composeapp.generated.resources.selfsign_guide_6
+import nuvio.composeapp.generated.resources.selfsign_guide_footer
+import nuvio.composeapp.generated.resources.selfsign_intro
+import nuvio.composeapp.generated.resources.selfsign_later
+import nuvio.composeapp.generated.resources.selfsign_later_note
+import nuvio.composeapp.generated.resources.selfsign_open_shortcuts
+import nuvio.composeapp.generated.resources.selfsign_password
+import nuvio.composeapp.generated.resources.selfsign_password_note
+import nuvio.composeapp.generated.resources.selfsign_remember
+import nuvio.composeapp.generated.resources.selfsign_renew_now
+import nuvio.composeapp.generated.resources.selfsign_renewed
+import nuvio.composeapp.generated.resources.selfsign_renewed_until
+import nuvio.composeapp.generated.resources.selfsign_renewing
+import nuvio.composeapp.generated.resources.selfsign_resend_code
+import nuvio.composeapp.generated.resources.selfsign_revoke_continue
+import nuvio.composeapp.generated.resources.selfsign_save_account_first
+import nuvio.composeapp.generated.resources.selfsign_saved_on_iphone
+import nuvio.composeapp.generated.resources.selfsign_send_code
+import nuvio.composeapp.generated.resources.selfsign_show_steps_here
+import nuvio.composeapp.generated.resources.selfsign_step_account
+import nuvio.composeapp.generated.resources.selfsign_step_daily
+import nuvio.composeapp.generated.resources.selfsign_title
+import org.jetbrains.compose.resources.getString
+import org.jetbrains.compose.resources.stringResource
 
 /**
- * Phase 2: the first thing a self-signing build shows, over everything (the account sign-in included) until it is
- * done on this iPhone: save the Apple Account Nuvio Z renews itself with, then set up the daily refresh. "Later"
- * hides it until the next launch; done is remembered per device (see `SelfSigningPlatform.automationSetUp`).
- * Presented by SelfSigning.swift (`selfSigningSetup()`); debug-only literal strings like the rest of this feature.
+ * The first thing a self-signing build shows, over everything (the account sign-in included) until it is done on
+ * this iPhone: save the Apple Account Nuvio Z renews itself with, then set up the daily refresh. "Later" hides it
+ * until the next launch; done is remembered per device (see `SelfSigningPlatform.automationSetUp`). Presented by
+ * SelfSigning.swift (`selfSigningSetup()`). The rest of the feature is the "Keep Nuvio Z working" settings page.
  */
 @Composable
 internal fun SelfSigningSetupScreen(platform: SelfSigningPlatform, onClose: () -> Unit) {
@@ -69,44 +121,38 @@ internal fun SelfSigningSetupScreen(platform: SelfSigningPlatform, onClose: () -
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Keep Nuvio Z working", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "Apps from a free Apple Account stop opening after 7 days unless they’re renewed. Nuvio Z renews itself " +
-                    "every day once these two things are done. About three minutes, once.",
-            )
+            Text(stringResource(Res.string.selfsign_title), fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(Res.string.selfsign_intro))
 
-            StepHeading(1, "Your Apple Account", done = saved != null)
-            if (saved != null) {
-                Text("Saved on this iPhone: $saved", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            StepHeading(1, stringResource(Res.string.selfsign_step_account), done = saved != null)
+            val account = saved
+            if (account != null) {
+                Text(stringResource(Res.string.selfsign_saved_on_iphone, account), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                Text("Connect LocalDevVPN first (open it and tap Connect), then renew once here.", fontSize = 14.sp)
+                Text(stringResource(Res.string.selfsign_connect_vpn_first), fontSize = 14.sp)
                 AppleAccountRenewal(platform, onRenewed = { saved = platform.savedAccount() })
             }
 
-            StepHeading(2, "The daily refresh", done = false)
-            Text(
-                "One Shortcuts automation renews Nuvio Z every day. Make it in the Shortcuts app while you follow the " +
-                    "installer on your computer: its last screens show every tap. Then come back and tap Done.",
-            )
+            StepHeading(2, stringResource(Res.string.selfsign_step_daily), done = false)
+            Text(stringResource(Res.string.selfsign_daily_cover_body))
             val uriHandler = LocalUriHandler.current
-            OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) { Text("Open Shortcuts") }
+            OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(Res.string.selfsign_open_shortcuts))
+            }
             var showHere by remember { mutableStateOf(false) }
             if (showHere) DailyRefreshSteps()
-            else TextButton(onClick = { showHere = true }) { Text("No computer nearby? Show the steps here") }
+            else TextButton(onClick = { showHere = true }) { Text(stringResource(Res.string.selfsign_show_steps_here)) }
 
             Button(
                 enabled = saved != null,
                 onClick = { platform.markAutomationSetUp(true); onClose() },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Done, it’s set up") }
+            ) { Text(stringResource(Res.string.selfsign_done_set_up)) }
             if (saved == null) {
-                Text("Save your Apple Account first: the daily refresh renews with it.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(Res.string.selfsign_save_account_first), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("Later") }
-            Text(
-                "Later: this comes back the next time Nuvio Z opens. It’s also in Settings › Advanced › Diagnostics › Keep Nuvio Z working.",
-                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.selfsign_later)) }
+            Text(stringResource(Res.string.selfsign_later_note), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.size(24.dp))
         }
     }
@@ -144,32 +190,31 @@ internal fun AppleAccountRenewal(platform: SelfSigningPlatform, onRenewed: () ->
     var running by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     SigningSection {
-        Text("Apple Account", fontWeight = FontWeight.SemiBold)
+        Text(stringResource(Res.string.selfsign_account_heading), fontWeight = FontWeight.SemiBold)
         val account = saved.value
         if (account != null) {
-            Text("Saved on this iPhone: $account")
-            Text("Nuvio Z renews itself with it when you open the app, from Shortcuts and in the background.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(enabled = !running, onClick = { platform.forgetAccount(); saved.value = null; onRenewed() }) { Text("Forget this account") }
+            Text(stringResource(Res.string.selfsign_saved_on_iphone, account))
+            Text(stringResource(Res.string.selfsign_account_renews_with), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(enabled = !running, onClick = { platform.forgetAccount(); saved.value = null; onRenewed() }) {
+                Text(stringResource(Res.string.selfsign_forget_account))
+            }
         } else if (!running) {
             OutlinedTextField(
                 value = email, onValueChange = { email = it.trim() }, singleLine = true,
-                label = { Text("Apple Account email") }, modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(Res.string.selfsign_email)) }, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             )
             OutlinedTextField(
                 value = password, onValueChange = { password = it }, singleLine = true,
-                label = { Text("Password") }, modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(Res.string.selfsign_password)) }, modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = rememberAccount, onCheckedChange = { rememberAccount = it })
-                Text("Remember on this iPhone so Nuvio Z can renew itself")
+                Text(stringResource(Res.string.selfsign_remember))
             }
-            Text(
-                "Your password goes only to Apple. With Remember ticked it’s kept in this iPhone’s Keychain (this device only, never backed up).",
-                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(stringResource(Res.string.selfsign_password_note), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Button(
             enabled = !running && (account != null || (email.isNotBlank() && password.isNotBlank())),
@@ -181,13 +226,13 @@ internal fun AppleAccountRenewal(platform: SelfSigningPlatform, onRenewed: () ->
                     val typed = account == null
                     val result = platform.refresh(if (typed) email else account!!, if (typed) password else null, typed && rememberAccount)
                     password = ""
-                    message = describeRenew(result)
+                    message = describeRenew(result, platform)
                     saved.value = platform.savedAccount()
                     running = false
                     onRenewed()
                 }
             },
-        ) { Text(if (running) "Renewing… keep LocalDevVPN connected" else "Renew now") }
+        ) { Text(stringResource(if (running) Res.string.selfsign_renewing else Res.string.selfsign_renew_now)) }
         if (running) AppleQuestions(platform)
         message?.let { Text(it) }
     }
@@ -209,40 +254,41 @@ internal fun AppleQuestions(platform: SelfSigningPlatform) {
         }
     }
     if (waiting) {
-        Text("Apple sent a code to this account’s devices. Tap Allow there, then type it here.")
+        Text(stringResource(Res.string.selfsign_code_prompt))
         OutlinedTextField(
             value = code, onValueChange = { code = it.filter(Char::isDigit).take(6) }, singleLine = true,
-            label = { Text("6-digit code") }, modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(Res.string.selfsign_code_label)) }, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(enabled = code.length == 6, onClick = { platform.answerCode(code); code = "" }) { Text("Send code") }
-            TextButton(onClick = { platform.resendCode(); code = "" }) { Text("Send a new code") }
+            Button(enabled = code.length == 6, onClick = { platform.answerCode(code); code = "" }) { Text(stringResource(Res.string.selfsign_send_code)) }
+            TextButton(onClick = { platform.resendCode(); code = "" }) { Text(stringResource(Res.string.selfsign_resend_code)) }
         }
     }
-    certificates?.let { list -> CertificateChooser(list, onAnswer = { platform.answerCertificates(it); certificates = null }) }
+    certificates?.let { list -> CertificateChooser(list, platform, onAnswer = { platform.answerCertificates(it); certificates = null }) }
 }
 
 /** The account is out of certificates and none is ours: which to revoke (the same rule as the installer). */
 @Composable
-private fun CertificateChooser(list: List<JsonObject>, onAnswer: (List<String>?) -> Unit) {
+private fun CertificateChooser(list: List<JsonObject>, platform: SelfSigningPlatform, onAnswer: (List<String>?) -> Unit) {
     var picked by remember(list) { mutableStateOf(if (list.size == 1) setOfNotNull(list[0].signingField("serial")) else emptySet()) }
     SigningSection {
-        Text("This Apple Account is out of certificates", fontWeight = FontWeight.SemiBold)
-        Text("Each sideloading tool makes its own, and a free account holds only a few. Pick one to revoke. Apps signed with it stop opening until the tool that made it signs them again.", fontSize = 13.sp)
+        Text(stringResource(Res.string.selfsign_certs_title), fontWeight = FontWeight.SemiBold)
+        Text(stringResource(Res.string.selfsign_certs_body), fontSize = 13.sp)
         list.forEach { c ->
             val serial = c.signingField("serial") ?: return@forEach
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = serial in picked, onCheckedChange = { on -> picked = if (on) picked + serial else picked - serial })
                 Column {
-                    Text(c.signingField("madeBy") ?: c.signingField("name") ?: "Unknown tool", fontWeight = FontWeight.SemiBold)
-                    Text("${c.signingField("name") ?: ""}${c.signingField("expires")?.let { " · expires ${utcMinute(it)}" } ?: ""}", fontSize = 12.sp)
+                    Text(c.signingField("madeBy") ?: c.signingField("name") ?: stringResource(Res.string.selfsign_certs_unknown_tool), fontWeight = FontWeight.SemiBold)
+                    val expires = c.signingField("expires")?.let { platform.localDate(it) }
+                    Text(listOfNotNull(c.signingField("name"), expires?.let { stringResource(Res.string.selfsign_certs_expires, it) }).joinToString(" · "), fontSize = 12.sp)
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = { onAnswer(null) }) { Text("Cancel") }
-            Button(enabled = picked.isNotEmpty(), onClick = { onAnswer(picked.toList()) }) { Text("Revoke and continue") }
+            OutlinedButton(onClick = { onAnswer(null) }) { Text(stringResource(Res.string.action_cancel)) }
+            Button(enabled = picked.isNotEmpty(), onClick = { onAnswer(picked.toList()) }) { Text(stringResource(Res.string.selfsign_revoke_continue)) }
         }
     }
 }
@@ -251,29 +297,32 @@ private fun CertificateChooser(list: List<JsonObject>, onAnswer: (List<String>?)
  * The daily refresh, as pictures of the screens to tap: iOS lets only the person create an automation. It is one
  * automation holding the three actions itself, not a shortcut it runs: a shortcut shared as an iCloud link would name
  * the action by this copy's bundle id, which ends with each person's own team id, so it would break for everyone else.
+ * The drawn screens keep iOS's own English labels, like the installer's pictures: they show the phone, not our text.
  */
 @Composable
 internal fun DailyRefreshSteps() {
     val uriHandler = LocalUriHandler.current
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("One Shortcuts automation connects LocalDevVPN, runs “Refresh Nuvio Z” and disconnects, every day, so Nuvio Z never runs out.")
-        OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) { Text("Open Shortcuts") }
-        GuideStep(1, "In Shortcuts tap Automation at the bottom, then New Automation (or + at the top right)", MockScreen("Automation", listOf(MockRow("New Automation", highlight = true))))
-        GuideStep(2, "Tap Time of Day", MockScreen("Personal Automation", listOf(MockRow("Time of Day", highlight = true), MockRow("Alarm"), MockRow("Sleep"))))
+        Text(stringResource(Res.string.selfsign_daily_intro))
+        OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(Res.string.selfsign_open_shortcuts))
+        }
+        GuideStep(1, stringResource(Res.string.selfsign_guide_1), MockScreen("Automation", listOf(MockRow("New Automation", highlight = true))))
+        GuideStep(2, stringResource(Res.string.selfsign_guide_2), MockScreen("Personal Automation", listOf(MockRow("Time of Day", highlight = true), MockRow("Alarm"), MockRow("Sleep"))))
         GuideStep(
-            3, "Pick a time, keep Daily, choose Run Immediately (not Run After Confirmation), then Next",
+            3, stringResource(Res.string.selfsign_guide_3),
             MockScreen("When", listOf(MockRow("4:00 AM"), MockRow("Daily"), MockRow("Run Immediately", highlight = true))),
         )
-        GuideStep(4, "Tap Create New Shortcut", MockScreen("Get Started", listOf(MockRow("Create New Shortcut", highlight = true))))
+        GuideStep(4, stringResource(Res.string.selfsign_guide_4), MockScreen("Get Started", listOf(MockRow("Create New Shortcut", highlight = true))))
         GuideStep(
-            5, "Search Actions: add “Set VPN” and tap VPN › LocalDevVPN; add “Refresh Nuvio Z” and turn off Show When Run",
+            5, stringResource(Res.string.selfsign_guide_5),
             MockScreen("New automation", listOf(MockRow("Connect to LocalDevVPN", highlight = true), MockRow("Refresh Nuvio Z", highlight = true))),
         )
         GuideStep(
-            6, "Add Set VPN again: tap Connect › Disconnect, VPN › LocalDevVPN. Then the ✓ at the top right",
+            6, stringResource(Res.string.selfsign_guide_6),
             MockScreen("New automation", listOf(MockRow("Connect to LocalDevVPN"), MockRow("Refresh Nuvio Z"), MockRow("Disconnect from LocalDevVPN", highlight = true))),
         )
-        Text("It runs by itself from tomorrow. Nuvio Z notices it once it has renewed on two different days.", fontSize = 13.sp)
+        Text(stringResource(Res.string.selfsign_guide_footer), fontSize = 13.sp)
     }
 }
 
@@ -330,31 +379,27 @@ internal fun parseSigningJson(text: String?): JsonObject? = text?.let { runCatch
 
 internal fun JsonObject.signingField(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString || it.content != "null" }?.content
 
-/** "2026-10-24T12:00:00Z" → "2026-10-24 12:00 UTC". */
+/** "2026-10-24T12:00:00Z" → "2026-10-24 12:00 UTC". For the debug tools and reports, which want exact times. */
 internal fun utcMinute(iso: String): String = iso.replace('T', ' ').take(16) + " UTC"
 
-internal fun describeRenew(json: String): String = runCatching {
-    val root = Json.parseToJsonElement(json).jsonObject
+/** A renewal's or an update's result as one sentence for the person. */
+internal suspend fun describeRenew(json: String, platform: SelfSigningPlatform): String {
+    val root = parseSigningJson(json) ?: return getString(Res.string.selfsign_err_other, json.take(200))
     if (root.signingField("ok") != "true") {
-        val error = root["error"]?.jsonObject
-        val code = error?.signingField("code")?.let { " $it" } ?: ""
-        return@runCatching when (error?.signingField("kind")) {
-            "tryAgain" -> "Apple couldn’t finish the sign-in$code. Check the email is spelled right, wait a minute, then renew again."
-            "serverUnavailable" -> "Apple’s sign-in service is busy. Try again in a minute."
-            "codeNeeded" -> "Apple asked for a code. Renew once here by hand."
-            "refused" -> "Apple refused the sign-in (-80045). Wait an hour, then try again."
-            "wrongPassword" -> "Apple says the email or password is wrong."
-            else -> "Failed (${error?.signingField("kind")}$code): ${error?.signingField("summary")}"
+        val error = root["error"] as? JsonObject
+        val summary = error?.signingField("summary") ?: root.signingField("error") ?: json.take(200)
+        return when (error?.signingField("kind")) {
+            "tryAgain" -> getString(Res.string.selfsign_err_try_again)
+            "serverUnavailable" -> getString(Res.string.selfsign_err_busy)
+            "codeNeeded" -> getString(Res.string.selfsign_err_code_needed)
+            "refused" -> getString(Res.string.selfsign_err_refused)
+            "wrongPassword" -> getString(Res.string.selfsign_err_wrong_password)
+            "network" -> getString(Res.string.selfsign_err_vpn)
+            else -> getString(Res.string.selfsign_err_other, summary)
         }
     }
-    val report = root["report"]!!.jsonObject
-    val profiles = report["profiles"] as? JsonArray
-    if (profiles != null) {
-        "Renewed via ${report.signingField("route")}: " + profiles.joinToString("; ") { p ->
-            val o = p.jsonObject
-            "${o.signingField("bundleId")?.substringAfterLast(".nuvio.app.z")?.ifEmpty { "app" } ?: "?"} until ${o.signingField("expires")?.let(::utcMinute) ?: "?"}"
-        }
-    } else {
-        "Installed version ${report.signingField("version")} via ${report.signingField("route")}."
-    }
-}.getOrElse { json }
+    val report = root["report"] as? JsonObject
+    val profiles = report?.get("profiles") as? JsonArray
+    val until = profiles?.firstOrNull()?.jsonObject?.signingField("expires")?.let { platform.localDate(it) }
+    return if (until != null) getString(Res.string.selfsign_renewed_until, until) else getString(Res.string.selfsign_renewed)
+}

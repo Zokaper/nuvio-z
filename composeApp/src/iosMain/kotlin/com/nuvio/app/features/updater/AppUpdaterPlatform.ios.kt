@@ -13,6 +13,11 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.jsonObject
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.updates_install_failed
+import nuvio.composeapp.generated.resources.updates_ios_code
+import nuvio.composeapp.generated.resources.updates_ios_connect_vpn
+import nuvio.composeapp.generated.resources.updates_ios_no_account
+import nuvio.composeapp.generated.resources.updates_ios_stopped
 import nuvio.composeapp.generated.resources.updates_not_available
 import org.jetbrains.compose.resources.getString
 
@@ -82,12 +87,10 @@ actual object AppUpdaterPlatform {
         val platform = SelfSigningSpike.platform
             ?: return Result.failure(IllegalStateException(getString(Res.string.updates_not_available)))
         if (platform.savedAccount() == null) {
-            return Result.failure(IllegalStateException(
-                "Renew Nuvio Z once with Remember ticked (Settings › Advanced › Keep Nuvio Z working), then update.",
-            ))
+            return Result.failure(IllegalStateException(getString(Res.string.updates_ios_no_account)))
         }
         if (!platform.vpnReachable()) {
-            return Result.failure(IllegalStateException("Connect LocalDevVPN, then tap Retry."))
+            return Result.failure(IllegalStateException(getString(Res.string.updates_ios_connect_vpn)))
         }
         onProgress(AppUpdateInstallStage.Download, 0f)
         val raw = coroutineScope {
@@ -124,14 +127,14 @@ internal fun parseProgress(raw: String): Pair<AppUpdateInstallStage, Float?>? = 
 }.getOrNull()
 
 /** The signer's result as the banner needs it: success, or one plain sentence. */
-internal fun updateResult(raw: String): Result<Unit> {
+internal suspend fun updateResult(raw: String): Result<Unit> {
     val root = runCatching { updateJson.parseToJsonElement(raw).jsonObject }.getOrNull()
-        ?: return Result.failure(IllegalStateException("The update stopped without saying why."))
+        ?: return Result.failure(IllegalStateException(getString(Res.string.updates_ios_stopped)))
     if (root.text("ok") == "true") return Result.success(Unit)
     val error = root["error"] as? JsonObject
     val message = when (error?.text("kind")) {
-        "codeNeeded" -> "Apple asked for a code. Renew once in Settings › Advanced › Keep Nuvio Z working, then update."
-        else -> error?.text("summary") ?: root.text("error") ?: "The update failed."
+        "codeNeeded" -> getString(Res.string.updates_ios_code)
+        else -> error?.text("summary") ?: root.text("error") ?: getString(Res.string.updates_install_failed)
     }
     return Result.failure(IllegalStateException(message))
 }

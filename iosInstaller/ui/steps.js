@@ -258,7 +258,7 @@ function buildSteps(ctx) {
     links: [{ label: "Add it again", action: "placeNuvioPairing" }],
     alternates: [
       [`${nuvioName} won’t open (“Untrusted Developer”)`, ["Go back one step and trust your Apple Account in Settings."]],
-      ["Nuvio Z didn’t show “Keep Nuvio Z working”", ["It’s also in Nuvio Z under Settings › Advanced › Diagnostics."]],
+      ["Nuvio Z didn’t show “Keep Nuvio Z working”", ["It’s also in Nuvio Z under Settings › Keep Nuvio Z working."]],
       [`${nuvioName} says it can’t reach the iPhone`, ["Open LocalDevVPN and check it says Connected, then try again.", "Keep the iPhone plugged in here and click <b>Add it again</b>."]],
     ],
   },
@@ -278,7 +278,7 @@ function buildSteps(ctx) {
     alternates: [
       ["I don’t see Automation", ["It’s the middle tab at the bottom of the Shortcuts app.", "On an iPad it may be in the sidebar."]],
       ["Run Immediately isn’t on the screen", ["Scroll down below Repeat: it’s the second of Run After Confirmation and Run Immediately."]],
-      ["I want to do this later", ["Nuvio Z keeps asking when it opens until it’s done. The steps are also in Nuvio Z under Settings › Advanced › Diagnostics › Keep Nuvio Z working."]],
+      ["I want to do this later", ["Nuvio Z keeps asking when it opens until it’s done. The steps are also in Nuvio Z under Settings › Keep Nuvio Z working."]],
     ],
   },
   {
@@ -295,7 +295,7 @@ function buildSteps(ctx) {
       ["“Refresh Nuvio Z” isn’t in the action list", ["Open Nuvio Z once, then search the actions again.", "Search for “Nuvio”: the action is listed under the app."]],
       ["LocalDevVPN isn’t in the VPN list", ["Open LocalDevVPN and tap Connect once, so iOS knows about it. Then tap VPN in the action again."]],
       ["Do I need a Wait action?", ["No. Refresh Nuvio Z waits for LocalDevVPN to connect, and Disconnect runs only after the renewal has finished."]],
-      ["How do I know it works?", ["In Nuvio Z, Settings › Advanced › Diagnostics › Keep Nuvio Z working shows the last renewal. After the first daily run it says “by shortcut”."]],
+      ["How do I know it works?", ["In Nuvio Z, Settings › Keep Nuvio Z working shows the last renewal. After the first daily run it says “by the daily refresh”."]],
     ],
   }] : [{
     id: "sidestore",

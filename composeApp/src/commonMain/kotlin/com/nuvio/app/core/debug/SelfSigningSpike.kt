@@ -24,6 +24,12 @@ internal interface SelfSigningPlatform {
      */
     suspend fun signedUntilLabel(): String?
 
+    /** An ISO-8601 instant as this iPhone shows a date ("25 Oct 2026"), or null if it doesn't parse. */
+    fun localDate(iso: String): String?
+
+    /** The same with the time ("25 Oct 2026, 04:00"). */
+    fun localDateTime(iso: String): String?
+
     /** The newest profile the phone has installed for each of this app's bundle ids, over LocalDevVPN. */
     suspend fun installedProfiles(): String
 

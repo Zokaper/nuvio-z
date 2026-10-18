@@ -1,6 +1,15 @@
 package com.nuvio.app.core.debug
 
 import com.nuvio.app.core.ui.NuvioToastController
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.selfsign_days
+import nuvio.composeapp.generated.resources.selfsign_less_than_a_day
+import nuvio.composeapp.generated.resources.selfsign_toast_code
+import nuvio.composeapp.generated.resources.selfsign_toast_connect_vpn
+import nuvio.composeapp.generated.resources.selfsign_toast_failed
+import nuvio.composeapp.generated.resources.selfsign_toast_stops_in
+import nuvio.composeapp.generated.resources.selfsign_toast_update_installed
+import org.jetbrains.compose.resources.getString
 import com.nuvio.app.selfsigning.native.nzs_answer_certificates
 import com.nuvio.app.selfsigning.native.nzs_answer_two_factor
 import com.nuvio.app.selfsigning.native.nzs_import_signing_key
@@ -43,6 +52,7 @@ import platform.Foundation.NSDate
 import platform.Foundation.NSDateFormatter
 import platform.Foundation.NSDateFormatterMediumStyle
 import platform.Foundation.NSDateFormatterNoStyle
+import platform.Foundation.NSDateFormatterShortStyle
 import platform.Foundation.dateWithTimeIntervalSince1970
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
@@ -268,12 +278,17 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
 
     private suspend fun daysLeft(): Double? = signedUntil()?.let { (it - now()).inWholeMinutes / (24.0 * 60.0) }
 
-    override suspend fun signedUntilLabel(): String? = signedUntil()?.let { until ->
-        NSDateFormatter().apply {
-            dateStyle = NSDateFormatterMediumStyle
-            timeStyle = NSDateFormatterNoStyle
-        }.stringFromDate(NSDate.dateWithTimeIntervalSince1970(until.epochSeconds.toDouble()))
-    }
+    override suspend fun signedUntilLabel(): String? = signedUntil()?.let { format(it, withTime = false) }
+
+    override fun localDate(iso: String): String? = parse(iso)?.let { format(it, withTime = false) }
+
+    override fun localDateTime(iso: String): String? = parse(iso)?.let { format(it, withTime = true) }
+
+    /** In the person's own locale and time zone. */
+    private fun format(at: Instant, withTime: Boolean): String = NSDateFormatter().apply {
+        dateStyle = NSDateFormatterMediumStyle
+        timeStyle = if (withTime) NSDateFormatterShortStyle else NSDateFormatterNoStyle
+    }.stringFromDate(NSDate.dateWithTimeIntervalSince1970(at.epochSeconds.toDouble()))
 
     // ---- Opening the app ----
 
@@ -289,22 +304,22 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
             defaults.setDouble(nowSeconds, "nzs.openCheckAt")
             val left = daysLeft() ?: return@launch
             if (left > RENEW_WHEN_DAYS_LEFT) return@launch
-            val days = if (left < 1) "less than a day" else "${left.toInt()} days"
+            val days = if (left < 1) getString(Res.string.selfsign_less_than_a_day) else getString(Res.string.selfsign_days, left.toInt())
             if (SelfSigningKeychain.read() == null) {
-                NuvioToastController.show("Nuvio Z stops opening in $days. Renew it in Settings › Advanced › Keep Nuvio Z working.", durationMillis = 8_000)
+                NuvioToastController.show(getString(Res.string.selfsign_toast_stops_in, days), durationMillis = 8_000)
                 return@launch
             }
             if (!vpnReachable()) {
-                NuvioToastController.show("Connect LocalDevVPN so Nuvio Z can renew itself ($days left).", durationMillis = 8_000)
+                NuvioToastController.show(getString(Res.string.selfsign_toast_connect_vpn, days), durationMillis = 8_000)
                 defaults.setDouble(0.0, "nzs.openCheckAt")
                 return@launch
             }
             val root = obj(refreshSaved("open"))
             if (root?.str("ok") != "true") {
                 val error = root?.get("error") as? JsonObject
-                val why = if (error?.str("kind") == "codeNeeded") "Apple wants a code: renew once in Settings › Advanced › Keep Nuvio Z working"
-                else error?.str("summary") ?: "unknown error"
-                NuvioToastController.show("Nuvio Z couldn’t renew itself: $why", durationMillis = 8_000)
+                val why = if (error?.str("kind") == "codeNeeded") getString(Res.string.selfsign_toast_code)
+                else error?.str("summary") ?: "?"
+                NuvioToastController.show(getString(Res.string.selfsign_toast_failed, why), durationMillis = 8_000)
                 defaults.setDouble(0.0, "nzs.openCheckAt")
             }
         }
@@ -326,7 +341,7 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
         }.toString(), "nzs.lastUpdate")
         if (installed) {
             updateTestIpa()?.let { NSFileManager.defaultManager.removeItemAtPath(it, null) }
-            NuvioToastController.show("Update installed: this copy is now signed until ${day(after)}.", durationMillis = 6_000)
+            NuvioToastController.show(getString(Res.string.selfsign_toast_update_installed, after?.let(::localDate) ?: day(after)), durationMillis = 6_000)
         }
     }
 
