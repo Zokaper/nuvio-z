@@ -1,4 +1,34 @@
-Last updated: 2026-10-17
+Last updated: 2026-10-18
+
+## Self-signing: release path (2026-10-18, branch `claude/self-signing`)
+
+Maintainer's release decisions are in `Nuvio Z/PLAN-nuvio-z-self-signing.md` ("Release decisions"). Built today:
+
+- **Update banner on iOS** (`be9025bde`): the shared updater runs in self-signing builds. Update = download, sign
+  and install on the phone (`AppUpdaterPlatform.ios.kt` → `nzs_install_update`), banner stages Downloading /
+  Getting the update ready / Installing. It refuses up front when LocalDevVPN is off ("Connect LocalDevVPN, then tap
+  Retry", the maintainer's choice over toggling it) or no Apple Account is saved. `installDownloadedUpdate` is now
+  `suspend` with a stage callback (Android ignores it). **Merge debt:** NuvioZDesktop's desktop actual needs the
+  new signature; this repo's `desktopMain` actual was already stale and isn't built.
+- **Release markers:** debug-release.yml writes `<!-- nuvio-ios:self-signing -->` (signer linked) and
+  `<!-- nuvio-ios:signing-changed -->` (signer source or the isideload/idevice lock entries changed since the
+  channel's last self-signing release) via `scripts/ios-release-markers.sh`. A self-signing copy only takes marked
+  releases; signing-changed shows "Important: install before <date>". Stable releases don't write markers yet
+  (self-signing is still refused for Release by build-ios-ipa.sh).
+- **Fixed:** the on-open renewal never ran on a normal launch: the launch cover's `selfSigningSetupNeeded()` filled
+  `SelfSigningSpike.platform` before `installSelfSigningSpike()` checked it. Own flag now.
+- **Installer Repair** (`123817725`): a trusted iPhone that already has this Nuvio Z gets "Sign in to repair",
+  install-over (data kept, connection file + key placed again), then "Nuvio Z is fixed". Renders in
+  `Nuvio Z/render-review/ios-installer-repair-d1/`.
+- **Auto-release + watch** (`09a9d02cd`): `ios-installer-auto.yml` (daily crate check with a 3-day cooldown, Sonnet
+  review per `iosInstaller/scripts/agent/review-crates.md`, deterministic gate, Windows + iPhone builds,
+  fast-forward main, `ios-installer-release.yml` publishes to `ios-setup-v*` + rolling `ios-setup-vlatest`) and
+  the every-3-days upstream watch (`watch-upstream.md`). Auth: `CLAUDE_CODE_OAUTH_TOKEN` (set). Codex fallback
+  declined for now (its Action needs an API key). Schedules run only from main; a push to this branch runs a dry
+  run. **Before merging:** drop the `push:` trigger, and decide the rolling macOS zip (Installer 3 is Windows-only).
+- **Release IPAs share Documents with the installer** (`6a557879a`), see below.
+- Test zip `release-artifacts/Nuvio-Z-self-signing-test-2026-10-18b.zip` (new installer + app from `6cfa32404`);
+  it predates today's app and installer changes.
 
 ## Self-signing: everything for the one-sitting test built (2026-10-17, branch `claude/self-signing`)
 
