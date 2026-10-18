@@ -141,6 +141,9 @@ open class MainActivity : AppCompatActivity() {
         EpisodeReleaseNotificationsStorage.initialize(applicationContext)
         // Never initialized before Phase 9: the Social on/off answer was not persisted on Android.
         com.nuvio.app.features.social.SocialFeaturePreferencesStorage.initialize(applicationContext)
+        com.nuvio.app.features.social.PhoneSocialAlertsStorage.initialize(applicationContext)
+        com.nuvio.app.features.social.PhoneSocialAlerts.install()
+        com.nuvio.app.features.social.SocialPush.start(applicationContext)
         WatchProgressStorage.initialize(applicationContext)
         StreamBadgeSettingsStorage.initialize(applicationContext)
         BingeGroupCacheStorage.initialize(applicationContext)
@@ -204,6 +207,7 @@ open class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIncomingAppIntent(intent: Intent?) {
+        com.nuvio.app.features.social.SocialPush.handleIntent(intent)
         val appUrl = intent?.dataString?.trim().orEmpty()
         if (appUrl.isBlank()) return
         handleAppUrl(appUrl)

@@ -382,8 +382,11 @@ final class NativeTabIconStore: ObservableObject {
     private static let profileColorKey = "NuvioNativeProfileAvatarColor"
     private static let profileURLKey = "NuvioNativeProfileAvatarURL"
     private static let profileBackgroundKey = "NuvioNativeProfileAvatarBackgroundColor"
+    private static let socialBadgeKey = "NuvioNativeSocialBadge"
 
     @Published private(set) var revision = 0
+    /// Unread Social items, published by Kotlin's `NativeSocialBadge`. Zero draws no badge.
+    @Published private(set) var socialBadge = 0
     @Published private(set) var accentColor = UIColor(
         red: 0.96,
         green: 0.96,
@@ -436,8 +439,13 @@ final class NativeTabIconStore: ObservableObject {
         )
     }
 
+    func badge(for tab: NuvioAppTab) -> Int {
+        tab == .social ? socialBadge : 0
+    }
+
     private func reload() {
         let defaults = UserDefaults.standard
+        socialBadge = max(0, defaults.integer(forKey: Self.socialBadgeKey))
         accentColor = UIColor(hexString: defaults.string(forKey: Self.accentKey))
             ?? UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1)
 
@@ -1289,6 +1297,7 @@ struct NativeNavContentView: View {
                         )
                     }
                 }
+                .badge(iconStore.badge(for: tab))
                 .tag(tab)
             }
         }
@@ -1361,6 +1370,7 @@ struct NativeNavContentView: View {
                             )
                         }
                     }
+                    .badge(iconStore.badge(for: tab))
                 }
             }
         }

@@ -113,6 +113,8 @@ import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
 import com.nuvio.app.features.social.SocialRepository
 import com.nuvio.app.features.social.toSocialPopup
+import com.nuvio.app.features.social.PhoneSocialAlerts
+import com.nuvio.app.features.social.SocialPopupKind
 import com.nuvio.app.features.social.SocialPresenceSession
 import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
 import com.nuvio.app.features.social.rememberSocialEnabled
@@ -215,6 +217,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val activeSocialNotification = socialUiState.notifications
         .takeIf { socialEnabled }
         ?.let(::inPlayerSocialCardNotification)
+        // Settings -> Social -> Notifications: a kind switched off on this phone shows nowhere on it.
+        ?.takeIf { PhoneSocialAlerts.current.allows(it.toSocialPopup().kind) }
     // "Seraph is watching Andor", for friends the viewer asked to be told about: said once each, for a
     // few seconds, and only when no card above needs an answer. Events from before this player opened
     // (less a minute of clock skew) belong to the Inbox. Mobile has no pop-ups outside the player yet.
@@ -239,7 +243,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         kotlinx.coroutines.delay(FriendWatchingVisibleMs)
         friendWatchingNotice = null
     }
-    val friendWatchingCard = friendWatchingNotice?.takeIf { activeSocialNotification == null && socialEnabled }
+    val friendWatchingCard = friendWatchingNotice?.takeIf {
+        activeSocialNotification == null && socialEnabled && PhoneSocialAlerts.current.allows(SocialPopupKind.FriendWatching)
+    }
     // The card itself is the phone's banner (2026-10-18), built by the same rules as every pop-up.
     val socialCard = activeSocialNotification?.toSocialPopup()
         ?: friendWatchingCard?.toSocialPopup(socialUiState.watchingNow)

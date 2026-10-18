@@ -169,6 +169,15 @@
             android:foregroundServiceType="mediaPlayback"
             android:stopWithTask="false" />
 
+        <!-- Social system notifications (FCM data messages); SocialPush.android.kt. -->
+        <service
+            android:name="com.nuvio.app.features.social.SocialPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <service
             android:name="com.nuvio.app.features.downloads.DownloadsUserInitiatedJobService"
             android:exported="false"

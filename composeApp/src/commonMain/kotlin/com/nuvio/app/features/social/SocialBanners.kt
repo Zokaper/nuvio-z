@@ -59,13 +59,20 @@ internal object SocialBanners {
             return
         }
         if (playerOpen) _visible.value = emptyList()
-        val fresh = ledger.take(state, currentEpochMs())
+        // Marked seen either way: a kind switched off in Notifications never pops later.
+        val fresh = ledger.take(state, currentEpochMs()).filter { PhoneSocialAlerts.current.allows(it.kind) }
         if (fresh.isEmpty() || playerOpen) return
         _visible.value = (_visible.value.filterNot { old -> fresh.any { it.key == old.key } } + fresh).takeLast(MaxVisible)
     }
 
     fun dismiss(key: String) {
         _visible.value = _visible.value.filterNot { it.key == key }
+    }
+
+    /** Shown as a system notification already (Android push): no banner for it later. Main thread. */
+    fun markSeen(profileId: String, key: String) {
+        ledger.markSeen(profileId, key)
+        dismiss(key)
     }
 
     fun onClick(popup: SocialPopup) {

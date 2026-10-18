@@ -556,6 +556,9 @@ kotlin {
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.androidx.core.splashscreen)
                 implementation(libs.androidx.work.runtime)
+                // Social push (Stage 4). Configured from google-services.json by androidApp's build, not the plugin.
+                implementation(project.dependencies.platform("com.google.firebase:firebase-bom:33.7.0"))
+                implementation("com.google.firebase:firebase-messaging")
                 implementation(libs.coil.gif)
                 implementation("androidx.recyclerview:recyclerview:1.4.0")
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")

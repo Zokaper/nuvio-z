@@ -51,3 +51,7 @@ iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
 .mpvkit-build.sparseimage
+
+# Firebase config (Social push): never committed, the repository is public. CI reads NUVIO_GOOGLE_SERVICES_JSON.
+androidApp/google-services.json
+google-services.json
