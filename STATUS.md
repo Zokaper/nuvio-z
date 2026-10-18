@@ -1,5 +1,30 @@
 Last updated: 2026-10-18
 
+## First 3-device round on 96/105; fixes in Debug mobile 97 / desktop 106 (2026-10-18)
+
+Maintainer tested iOS + Android + desktop together. Five reports, five fixes:
+
+- **Started-watching stopped arriving** (server). The trigger allowed one `friend_watching` per friend pair
+  per 30 minutes, whatever was started: production showed `11cee346` start Obsession minutes after an Oak
+  Street event and nothing written. **Deployed** `202610180001_friend_watching_rules.sql` (approved): the half
+  hour now holds back only the same `content_id`. Backend `33506df` on `claude/social-v2-backend`, pgTAP 472/472.
+- **Host told "X is watching" when X joined their party** (same migration): members of one live party
+  (`left_at is null`, party not ended) never get each other's event; friends outside the party still do.
+- **Guest backed out to the lobby: no way back, status "Ready"**. `PartyReadyTone.Lobby` / "In lobby" when
+  the party is playing and the member's `client_location` is lobby (below resolving, so a member on the way in
+  still reads Resolving source); `PartyLobbyModel.canRejoin` gives guests **Rejoin** on both action bars,
+  calling the lobby's own `onStart` (retained launch, authoritative position). Desktop `controls.js/.css`
+  know the `lobby` tone; mobile's panel shows unknown tones muted already. Render: `lobby-render/rejoin-*`.
+- **Friends shelf info button** now drawn like `ContinueWatchingDetailsButton` (`SocialInfoDot`).
+- **Watching Now reordered itself**: the server sorts by latest heartbeat. `stableWatchingNowOrder` keeps
+  cards already on screen in place; new sessions lead.
+
+Shared commit desktop `9877928e0` -> mobile `2725be123`; desktop-only `5af72db84`. Desktop 619/619 and
+mobile host 630/630 (Social + Watch Together filters).
+
+**Next (maintainer, 2026-10-18):** the Watching Now join sheet should put more emphasis on the title's art
+(render candidates first); desktop pop-ups should hold while hovered and slide in/out.
+
 ## Social V2 rebuilt on the z3 trunks (2026-10-18, Debug mobile 96 / desktop 105)
 
 Debug 92-95 came from the installer/self-signing line and carry no Social work, so the update channel was
