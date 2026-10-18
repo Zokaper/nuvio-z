@@ -100,7 +100,7 @@ jobs:
           {
             echo "Nuvio Z mobile ${{ steps.release.outputs.version }} (build ${{ steps.release.outputs.build }})."
             echo
-            echo "Available for Android (signed APKs) and iOS (unsigned IPA for SideStore sideloading)."
+            echo "Android: signed APKs. iPhone: use Nuvio Z iOS Installer for Windows or Mac. The unsigned IPA also remains compatible with SideStore."
             echo
             echo "### What's new"
             echo
