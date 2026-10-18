@@ -1,5 +1,24 @@
 Last updated: 2026-10-18
 
+## Mobile 0.5.4-z3 published; installer publication running (2026-10-18)
+
+Mobile `0.5.4-z3+129` (no leading `v`), build 128, is live from main `97734d496`, publish run
+`39121198530` (all jobs passed). Original Release signer build-only run `39117185788` also passed.
+Four signed APKs + unsigned self-signing IPA + checksums + SideStore source are published. GitHub's latest
+stable tag and main's installer config both name z3. IPA SHA-256:
+`7847d496a2e4b1e6ad051e1efbf926130adc46f65c65bfcc99eab51ad4fd2c44`.
+
+Installer publish run `39126092595` is building from main `f57cf98c8`; both host packages were already
+validated by the earlier runs below. Wait for its result, verify versioned + rolling Windows/Mac assets,
+then update this handoff. No announcement sent; the friend's fresh phone/PC test follows quiet publication.
+
+Post-release automation correction prepared on `claude/self-signing`: stable tags actually have no `v`,
+but the signing-change comparison used prefix `v`. The helper now accepts a stable channel (numeric and
+legacy v-prefixed tags), excluding Debug and installer tags; 3 focused channel regression checks pass.
+The first self-signing stable release already has its correct marker; this fixes comparisons for future
+releases and changes no app binary. Promote this correction after installer publication, to avoid changing
+workflow files under the installer run's target commit while it is creating its release.
+
 ## Release continuation: Debug 95 accepted; Windows and universal Mac packages verified (2026-10-18)
 
 | Scope | Active branch / state |

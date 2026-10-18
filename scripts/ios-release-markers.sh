@@ -5,7 +5,7 @@
 #   <!-- nuvio-ios:signing-changed -->  the signing code changed since the newest earlier release on the
 #                                       channel that had the self-signing marker
 #
-# Usage: scripts/ios-release-markers.sh <self_signing true|false> <tag prefix, e.g. debug-v or v>
+# Usage: scripts/ios-release-markers.sh <self_signing true|false> <stable or tag prefix, e.g. debug-v>
 # Needs GH_TOKEN (or a gh login) and the full git history (actions/checkout fetch-depth: 0).
 #
 # "Signing code" is our signer (iosInstaller/core, iosInstaller/ffi) and the upstream crates it signs and
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 self_signing="${1:-false}"
-prefix="${2:?tag prefix}"
+prefix="${2:?stable channel or tag prefix}"
 marker_self='<!-- nuvio-ios:self-signing -->'
 marker_changed='<!-- nuvio-ios:signing-changed -->'
 signing_crates='isideload|idevice|idevice-srp|apple-codesign-quick'
@@ -25,7 +25,13 @@ echo "${marker_self}"
 repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 previous=""
 while read -r tag; do
-    [[ "${tag}" == "${prefix}"* ]] || continue
+    if [[ "${prefix}" == "stable" ]]; then
+        # Our stable tags are numeric (0.5.4-z3+129); also accept legacy v-prefixed tags.
+        # Debug and installer prereleases must never become the stable comparison baseline.
+        [[ "${tag}" =~ ^v?[0-9] ]] || continue
+    else
+        [[ "${tag}" == "${prefix}"* ]] || continue
+    fi
     if gh release view "${tag}" --repo "${repo}" --json body -q .body | grep -qF "${marker_self}"; then
         previous="${tag}"
         break

@@ -45,6 +45,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Check iOS release marker channels
+        run: bash scripts/test-ios-release-markers.sh
       - name: Read release metadata
         id: release
         run: |
@@ -349,7 +351,7 @@ jobs:
           [[ -s release-assets/release-notes.md && -s release-assets/SHA256SUMS-Android.txt ]] || { echo "Release notes or checksums are missing." >&2; exit 1; }
           (cd release-assets && sha256sum *.ipa > SHA256SUMS-iOS.txt)
           # Read by the iOS updater (AppUpdater.kt): only a release marked self-signing reaches a copy that signs itself.
-          scripts/ios-release-markers.sh "${SELF_SIGNING:-false}" v > ios-markers.txt
+          scripts/ios-release-markers.sh "${SELF_SIGNING:-false}" stable > ios-markers.txt
           if [[ -s ios-markers.txt ]]; then
             { echo; cat ios-markers.txt; } >> release-assets/release-notes.md
           fi
