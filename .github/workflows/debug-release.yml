@@ -220,6 +220,8 @@ jobs:
       NUVIO_REQUIRE_TMDB_API_KEY: "true"
       IOS_CONFIGURATION: Debug
       IOS_IPA_NAME: ${{ inputs.diagnostic_ios_only && format('Nuvio-Z-iOS-WT-diagnostic-{0}-unsigned.ipa', github.sha) || format('Nuvio-Z-iOS-{0}-{1}-debug-unsigned.ipa', needs.prepare.outputs.marketing_version, needs.prepare.outputs.debug_build) }}
+    outputs:
+      self_signing: ${{ steps.signer.outputs.linked }}
 
     steps:
       - name: Check out source
@@ -243,6 +245,7 @@ jobs:
       # Phase 2 spike (claude/self-signing): link the installer's Rust core into the app. Branches without
       # iosInstaller/ffi skip this, and without NUVIO_IOS_SELF_SIGNING Gradle leaves the library out.
       - name: Build the self-signing library
+        id: signer
         if: ${{ hashFiles('iosInstaller/ffi/Cargo.toml') != '' }}
         working-directory: iosInstaller
         env:
@@ -253,6 +256,7 @@ jobs:
           cargo build -p nuvioz-signer --release --target aarch64-apple-ios
           ls -la target/aarch64-apple-ios/release/libnuvioz_signer.a
           echo "NUVIO_IOS_SELF_SIGNING=true" >> "$GITHUB_ENV"
+          echo "linked=true" >> "$GITHUB_OUTPUT"
 
       - name: Configure and build iOS Debug unsigned IPA
         run: |
@@ -305,6 +309,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          # The signing-changed marker diffs against the previous self-signing release's tag.
+          fetch-depth: 0
 
       - name: Download Android artifact
         uses: actions/download-artifact@v7
@@ -324,7 +331,25 @@ jobs:
           sha256sum * > SHA256SUMS-Debug.txt
           cat SHA256SUMS-Debug.txt
 
+      # Read by the iOS updater (AppUpdater.kt): only a release with the self-signing marker is offered to a
+      # self-signing copy, and signing-changed makes the banner say "Important: install before <date>".
+      - name: Work out the iOS release markers
+        id: markers
+        env:
+          SELF_SIGNING: ${{ needs.ios_debug.outputs.self_signing }}
+        run: |
+          set -euo pipefail
+          scripts/ios-release-markers.sh "${SELF_SIGNING:-false}" debug-v > "${RUNNER_TEMP}/ios-markers.txt"
+          cat "${RUNNER_TEMP}/ios-markers.txt"
+          {
+            echo "text<<NUVIO_MARKERS_EOF"
+            cat "${RUNNER_TEMP}/ios-markers.txt"
+            echo "NUVIO_MARKERS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub prerelease
+        env:
+          IOS_MARKERS: ${{ steps.markers.outputs.text }}
         run: |
           set -euo pipefail
           ipa_name="Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa"
@@ -345,7 +370,9 @@ jobs:
           Installs as \`com.nuvio.app.z.debug\` side-by-side with stable Nuvio Z.
           Signed with the committed debug keystore for Android; unsigned IPA for SideStore sideloading on iOS.
 
-          Not a release. The stable updater ignores prereleases."
+          Not a release. The stable updater ignores prereleases.
+
+          ${IOS_MARKERS}"
 
           echo "Published ${{ needs.prepare.outputs.tag }}"
 

@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.AppVersionConfig
+import com.nuvio.app.core.debug.SelfSigningSpike
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.httpRequestRaw
@@ -35,6 +36,8 @@ data class AppUpdate(
     val assetName: String,
     val assetUrl: String,
     val assetSizeBytes: Long?,
+    /** The release changes the iOS signing code: install it before this copy's signature runs out. */
+    val important: Boolean = false,
 )
 
 data class AppUpdaterUiState(
@@ -48,6 +51,10 @@ data class AppUpdaterUiState(
     val showInstallPermissionDialog: Boolean = false,
     val errorMessage: String? = null,
     val isDebugTest: Boolean = false,
+    val isInstalling: Boolean = false,
+    val installStage: AppUpdateInstallStage? = null,
+    /** For an [AppUpdate.important] update: the date this copy stops opening, already formatted. */
+    val importantUntil: String? = null,
 )
 
 @Serializable
@@ -81,6 +88,19 @@ private class NoChannelReleaseException : IllegalStateException(
 
 /** Tag prefix that marks a release as belonging to the debug update channel. */
 internal const val debugChannelTagPrefix = "debug-"
+
+/**
+ * Release-notes markers, written by the release workflows as HTML comments (GitHub doesn't show them).
+ * [releaseMarkerSelfSigning]: the IPA links the self-signing library. [releaseMarkerSigningChanged]: the
+ * library changed since the channel's previous release, so the update is important.
+ */
+internal const val releaseMarkerSelfSigning = "<!-- nuvio-ios:self-signing -->"
+internal const val releaseMarkerSigningChanged = "<!-- nuvio-ios:signing-changed -->"
+
+private val htmlComment = Regex("""<!--[\s\S]*?-->""")
+
+/** A release body without its HTML comments, which [parseReleaseNotes] would show as text. */
+internal fun stripReleaseMarkers(body: String): String = htmlComment.replace(body, "").trim()
 
 internal object VersionUtils {
     fun normalize(raw: String?): String {
@@ -170,6 +190,7 @@ internal data class ChannelReleaseFacts(
     val draft: Boolean,
     val prerelease: Boolean,
     val matchesBranch: Boolean = true,
+    val body: String? = null,
 )
 
 /**
@@ -182,6 +203,8 @@ internal data class ChannelReleaseFacts(
  */
 internal fun isChannelEligible(release: ChannelReleaseFacts, source: AppUpdateReleaseSource): Boolean {
     if (release.draft) return false
+    val marker = source.requiredNotesMarker
+    if (marker != null && release.body?.contains(marker) != true) return false
     val debugRelease = release.tag?.trim()?.startsWith(debugChannelTagPrefix, ignoreCase = true) == true
     if (source.debugChannel) return release.prerelease && debugRelease
     return release.matchesBranch && !debugRelease && (source.includePrereleases || !release.prerelease)
@@ -220,7 +243,7 @@ suspend fun fetchRecentReleaseNotes(limit: Int = 5): Result<List<AppReleaseNotes
             AppReleaseNotes(
                 tag = tag,
                 title = release.name?.takeIf { it.isNotBlank() } ?: tag,
-                notes = release.body.orEmpty(),
+                notes = stripReleaseMarkers(release.body.orEmpty()),
             )
         }
 }
@@ -256,6 +279,7 @@ private object AppUpdaterRepository {
                     draft = release.draft,
                     prerelease = release.prerelease,
                     matchesBranch = release.matchesRequestedChannel(),
+                    body = release.body,
                 ),
                 source,
             )
@@ -281,11 +305,12 @@ private object AppUpdaterRepository {
             AppUpdate(
                 tag = tag,
                 title = release.name?.takeIf { it.isNotBlank() } ?: tag,
-                notes = release.body.orEmpty(),
+                notes = stripReleaseMarkers(release.body.orEmpty()),
                 releaseUrl = release.htmlUrl,
                 assetName = asset.name,
                 assetUrl = asset.downloadUrl,
                 assetSizeBytes = asset.size,
+                important = release.body?.contains(releaseMarkerSigningChanged) == true,
             )
         }
     }
@@ -386,6 +411,11 @@ class AppUpdaterController internal constructor(
                 )
                 val ignored = ignoredTag != null && ignoredTag == update.tag
                 val shouldShowDialog = force || (remoteNewer && !ignored)
+                val importantUntil = if (remoteNewer && update.important) {
+                    SelfSigningSpike.platform?.signedUntilLabel()
+                } else {
+                    null
+                }
 
                 _uiState.update { state ->
                     state.copy(
@@ -398,6 +428,7 @@ class AppUpdaterController internal constructor(
                         showDialog = shouldShowDialog,
                         showInstallPermissionDialog = false,
                         errorMessage = null,
+                        importantUntil = importantUntil,
                     )
                 }
 
@@ -498,18 +529,29 @@ class AppUpdaterController internal constructor(
 
     fun installDownloadedUpdate() {
         val updatePath = _uiState.value.downloadedUpdatePath ?: return
+        if (_uiState.value.isInstalling) return
         if (!AppUpdaterPlatform.canInstallDownloadedUpdate()) {
             _uiState.update { state -> state.copy(showInstallPermissionDialog = true, showDialog = true) }
             return
         }
 
-        AppUpdaterPlatform.installDownloadedUpdate(updatePath).onSuccess {
-            _uiState.update { state -> state.copy(showInstallPermissionDialog = false) }
-        }.onFailure { error ->
-            scope.launch {
+        scope.launch {
+            _uiState.update { state ->
+                state.copy(isInstalling = true, installStage = null, downloadProgress = null, errorMessage = null)
+            }
+            AppUpdaterPlatform.installDownloadedUpdate(updatePath) { stage, fraction ->
+                _uiState.update { state -> state.copy(installStage = stage, downloadProgress = fraction) }
+            }.onSuccess {
+                _uiState.update { state ->
+                    state.copy(isInstalling = false, installStage = null, showInstallPermissionDialog = false)
+                }
+            }.onFailure { error ->
                 val fallbackMessage = error.message ?: getString(Res.string.updates_install_failed)
                 _uiState.update { state ->
                     state.copy(
+                        isInstalling = false,
+                        installStage = null,
+                        downloadProgress = null,
                         errorMessage = fallbackMessage,
                         showDialog = true,
                     )

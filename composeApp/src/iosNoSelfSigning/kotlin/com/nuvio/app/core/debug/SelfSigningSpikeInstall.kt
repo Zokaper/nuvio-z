@@ -4,3 +4,5 @@ package com.nuvio.app.core.debug
 internal actual fun installSelfSigningSpike() = Unit
 
 internal actual fun selfSigningPlatform(): SelfSigningPlatform? = null
+
+internal actual val selfSigningLinked: Boolean = false

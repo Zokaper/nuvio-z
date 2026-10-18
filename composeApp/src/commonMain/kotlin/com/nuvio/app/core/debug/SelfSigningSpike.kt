@@ -18,6 +18,12 @@ internal interface SelfSigningPlatform {
     /** This app's bundle ids and when the profile embedded in it expires. Reads the bundle only. */
     suspend fun status(): String
 
+    /**
+     * When this copy stops opening (the later of its own signature and the newest renewal), as a short date
+     * for the person, or null when unknown. Reads the bundle and what was remembered; no network.
+     */
+    suspend fun signedUntilLabel(): String?
+
     /** The newest profile the phone has installed for each of this app's bundle ids, over LocalDevVPN. */
     suspend fun installedProfiles(): String
 

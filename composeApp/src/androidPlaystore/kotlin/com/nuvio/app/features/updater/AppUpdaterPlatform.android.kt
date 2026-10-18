@@ -1,7 +1,6 @@
 package com.nuvio.app.features.updater
 
 import com.nuvio.app.core.build.AppVersionConfig
-import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.updates_not_available
 import org.jetbrains.compose.resources.getString
@@ -41,6 +40,8 @@ actual object AppUpdaterPlatform {
 
     actual fun openInstallPermissionSettings() = Unit
 
-    actual fun installDownloadedUpdate(path: String): Result<Unit> =
-        Result.failure(IllegalStateException(runBlocking { getString(Res.string.updates_not_available) }))
+    actual suspend fun installDownloadedUpdate(
+        path: String,
+        onProgress: (stage: AppUpdateInstallStage, fraction: Float?) -> Unit,
+    ): Result<Unit> = Result.failure(IllegalStateException(getString(Res.string.updates_not_available)))
 }

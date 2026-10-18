@@ -1984,6 +1984,11 @@
     <string name="updates_download_empty_body">Empty download body</string>
     <string name="updates_download_file_missing">Downloaded update file is missing.</string>
     <string name="updates_downloading_progress">Downloading %1$d%</string>
+    <string name="updates_preparing_install_progress">Getting the update ready %1$d%</string>
+    <string name="updates_installing_progress">Installing %1$d%. Nuvio Z will close; open it again after.</string>
+    <string name="updates_installing">Installing…</string>
+    <string name="updates_important_until">Important: install before %1$s</string>
+    <string name="updates_important">Important: install soon to keep Nuvio Z opening</string>
     <string name="updates_debug_test_complete">Banner test complete</string>
     <string name="updates_debug_test_description">Preview the banner and simulated download progress.</string>
     <string name="updates_debug_test_title">Test update banner</string>

@@ -70,6 +70,11 @@ import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.action_update
 import nuvio.composeapp.generated.resources.updates_debug_test_complete
 import nuvio.composeapp.generated.resources.updates_downloading_progress
+import nuvio.composeapp.generated.resources.updates_important
+import nuvio.composeapp.generated.resources.updates_important_until
+import nuvio.composeapp.generated.resources.updates_installing
+import nuvio.composeapp.generated.resources.updates_installing_progress
+import nuvio.composeapp.generated.resources.updates_preparing_install_progress
 import nuvio.composeapp.generated.resources.updates_message_allow_installs
 import nuvio.composeapp.generated.resources.updates_message_ready
 import nuvio.composeapp.generated.resources.updates_no_release_notes
@@ -168,8 +173,9 @@ private fun AppUpdateBanner(
     onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    val busy = state.isDownloading || state.isInstalling
     val targetProgress = when {
-        state.isDownloading -> state.downloadProgress ?: 0f
+        busy -> state.downloadProgress ?: 0f
         state.isDebugTest && !state.isUpdateAvailable -> 1f
         else -> 0f
     }.coerceIn(0f, 1f)
@@ -184,8 +190,15 @@ private fun AppUpdateBanner(
     val progressAlpha = if (isWhiteTheme) 0.18f else 1f
     val dividerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
     val debugTestComplete = state.isDebugTest && !state.isDownloading && !state.isUpdateAvailable
+    val percent = ((state.downloadProgress ?: 0f) * 100).toInt().coerceIn(0, 100)
     val subtitle = when {
         state.errorMessage != null -> state.errorMessage
+        state.isInstalling -> when (state.installStage) {
+            AppUpdateInstallStage.Download -> stringResource(Res.string.updates_downloading_progress, percent)
+            AppUpdateInstallStage.Prepare -> stringResource(Res.string.updates_preparing_install_progress, percent)
+            AppUpdateInstallStage.Install -> stringResource(Res.string.updates_installing_progress, percent)
+            null -> stringResource(Res.string.updates_installing)
+        }
         state.isDownloading && state.downloadProgress != null -> stringResource(
             Res.string.updates_downloading_progress,
             (state.downloadProgress * 100).toInt().coerceIn(0, 100),
@@ -193,6 +206,9 @@ private fun AppUpdateBanner(
         state.isDownloading -> stringResource(Res.string.updates_preparing_download)
         debugTestComplete -> stringResource(Res.string.updates_debug_test_complete)
         state.downloadedUpdatePath != null -> stringResource(Res.string.updates_message_ready)
+        update.important && state.importantUntil != null ->
+            stringResource(Res.string.updates_important_until, state.importantUntil)
+        update.important -> stringResource(Res.string.updates_important)
         else -> stringResource(Res.string.updates_title_available)
     }
     val updateLabel = listOfNotNull(
@@ -252,8 +268,8 @@ private fun AppUpdateBanner(
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
                         state.errorMessage != null -> MaterialTheme.colorScheme.error
-                        state.isDownloading && isWhiteTheme -> MaterialTheme.colorScheme.onSurface
-                        state.isDownloading -> MaterialTheme.colorScheme.onPrimary
+                        busy && isWhiteTheme -> MaterialTheme.colorScheme.onSurface
+                        busy -> MaterialTheme.colorScheme.onPrimary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     maxLines = 2,
@@ -272,7 +288,7 @@ private fun AppUpdateBanner(
                 )
             }
 
-            if (!state.isDownloading && !debugTestComplete) {
+            if (!busy && !debugTestComplete) {
                 Button(
                     onClick = if (state.downloadedUpdatePath != null) onInstall else onDownload,
                     enabled = state.downloadedUpdatePath != null || state.isUpdateAvailable,
@@ -291,7 +307,7 @@ private fun AppUpdateBanner(
                 }
             }
 
-            if (!state.isDownloading) {
+            if (!busy) {
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier.size(40.dp),

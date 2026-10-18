@@ -39,6 +39,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import platform.Foundation.NSBundle
+import platform.Foundation.NSDate
+import platform.Foundation.NSDateFormatter
+import platform.Foundation.NSDateFormatterMediumStyle
+import platform.Foundation.NSDateFormatterNoStyle
+import platform.Foundation.dateWithTimeIntervalSince1970
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileSize
@@ -54,17 +59,25 @@ import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
-/** The app is in the foreground: the platform plus the on-open renewal (at start and each time it comes back). */
+private var openHooksInstalled = false
+
+/**
+ * The app is in the foreground: the platform plus the on-open renewal (at start and each time it comes back).
+ * Its own flag, not [SelfSigningSpike.platform]: the launch cover's [selfSigningSetupNeeded] fills that first,
+ * and checking it here skipped the on-open renewal for every normal launch.
+ */
 internal actual fun installSelfSigningSpike() {
     val platform = IosSelfSigning.shared
-    if (SelfSigningSpike.platform == null) {
-        SelfSigningSpike.platform = platform
-        NSNotificationCenter.defaultCenter.addObserverForName(UIApplicationWillEnterForegroundNotification, null, NSOperationQueue.mainQueue) { _ ->
-            platform.onOpen()
-        }
+    SelfSigningSpike.platform = platform
+    if (openHooksInstalled) return
+    openHooksInstalled = true
+    NSNotificationCenter.defaultCenter.addObserverForName(UIApplicationWillEnterForegroundNotification, null, NSOperationQueue.mainQueue) { _ ->
         platform.onOpen()
     }
+    platform.onOpen()
 }
+
+internal actual val selfSigningLinked: Boolean = true
 
 /** Swift entry points (App Intent, background task) need the platform without the UI. */
 internal actual fun selfSigningPlatform(): SelfSigningPlatform? = IosSelfSigning.shared.also {
@@ -246,12 +259,20 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
 
     private fun parse(iso: String?): Instant? = iso?.let { runCatching { Instant.parse(it) }.getOrNull() }
 
-    /** Days until this copy stops opening: the later of the embedded profile and the newest one known installed. */
-    private suspend fun daysLeft(): Double? {
+    /** When this copy stops opening: the later of the embedded profile and the newest one known installed. */
+    private suspend fun signedUntil(): Instant? {
         val embedded = parse(obj(status())?.str("expires"))
         val installed = parse(defaults.stringForKey("nzs.installedExpiry"))
-        val best = listOfNotNull(embedded, installed).maxOrNull() ?: return null
-        return (best - now()).inWholeMinutes / (24.0 * 60.0)
+        return listOfNotNull(embedded, installed).maxOrNull()
+    }
+
+    private suspend fun daysLeft(): Double? = signedUntil()?.let { (it - now()).inWholeMinutes / (24.0 * 60.0) }
+
+    override suspend fun signedUntilLabel(): String? = signedUntil()?.let { until ->
+        NSDateFormatter().apply {
+            dateStyle = NSDateFormatterMediumStyle
+            timeStyle = NSDateFormatterNoStyle
+        }.stringFromDate(NSDate.dateWithTimeIntervalSince1970(until.epochSeconds.toDouble()))
     }
 
     // ---- Opening the app ----
