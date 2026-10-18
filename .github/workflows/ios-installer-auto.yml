@@ -11,8 +11,8 @@ name: iOS Installer auto-release
 #                        opens an issue for the maintainer when it has.
 #
 # Sonnet signs in with the maintainer's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN). It never pushes, merges or
-# publishes: it writes files and a verdict, and the steps after it decide. A push to the working branch runs both
-# jobs as a dry run (a simulated isideload 0.4.5 -> 0.4.6 update; no commits, releases or issues).
+# publishes: it writes files and a verdict, and the steps after it decide. A dispatch with `simulate` (for example
+# isideload=0.4.5) is a dry run: no commits, releases or issues.
 on:
   schedule:
     - cron: '17 5 * * *'
@@ -27,12 +27,6 @@ on:
         description: 'Dry run: pretend a pin is older, for example isideload=0.4.5. Never commits or publishes.'
         type: string
         default: ''
-  push:
-    branches: [claude/self-signing]
-    paths:
-      - '.github/workflows/ios-installer-auto.yml'
-      - 'iosInstaller/scripts/agent/**'
-      - 'iosInstaller/scripts/signing_crates.py'
 
 permissions:
   contents: write
@@ -48,13 +42,13 @@ env:
   # this doesn't need. Pinned; bump deliberately.
   CLAUDE_CODE_VERSION: 2.1.302
   # Only a scheduled or hand-started run on main may change anything.
-  DRY_RUN: ${{ github.ref != 'refs/heads/main' || github.event_name == 'push' || inputs.simulate != '' }}
-  SIMULATE: ${{ inputs.simulate || (github.event_name == 'push' && 'isideload=0.4.5') || '' }}
+  DRY_RUN: ${{ github.ref != 'refs/heads/main' || inputs.simulate != '' }}
+  SIMULATE: ${{ inputs.simulate || '' }}
 
 jobs:
   check:
     name: Anything new upstream?
-    if: ${{ github.event_name == 'push' || github.event.schedule == '17 5 * * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'crates') }}
+    if: ${{ github.event.schedule == '17 5 * * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'crates') }}
     runs-on: ubuntu-latest
     outputs:
       bumps: ${{ steps.check.outputs.bumps }}
@@ -332,7 +326,7 @@ jobs:
 
   watch:
     name: Watch upstream for Apple breaking sign-in
-    if: ${{ github.event_name == 'push' || github.event.schedule == '43 6 */3 * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'watch') }}
+    if: ${{ github.event.schedule == '43 6 */3 * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'watch') }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}

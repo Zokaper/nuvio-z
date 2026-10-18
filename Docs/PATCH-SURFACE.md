@@ -194,6 +194,23 @@ Everything else in the pass is in Z files (`features/setup/`, `features/settings
 
 ## The shape of it
 
+**2026-10-18 iOS self-signing (Z-FEATURES C21, mobile `0.5.4-z3`):** upstream-owned files touched:
+- `iosApp/iosApp/iOSApp.swift`: one `.selfSigningSetup()` modifier.
+- `scripts/build-ios-ipa.sh`: `NUVIO_IOS_SELF_SIGNING` and the file-sharing keys.
+- `composeApp/build.gradle.kts`: links `libnuvioz_signer.a` when asked.
+- `AppUpdater.kt`, `AppUpdaterBanner.kt`, `AppUpdaterPlatform.kt` and both Android `AppUpdaterPlatform.android.kt`:
+  `installDownloadedUpdate` is `suspend` with a stage callback; release-notes markers; the Important line; the
+  Apple-questions dialog.
+- `AppUpdaterPlatform.ios.kt` and iosFull `AppFeaturePolicy.ios.kt`: the updater is on when self-signing is active.
+- `SettingsModels.kt` (the appended `KeepNuvioWorking` page), `SettingsScreen.kt` (its two branches),
+  `AdvancedSettingsPage.kt` (the old debug rows removed).
+- `.github/workflows/debug-release.yml` and `android-release.yml`: the signer build, markers, and the installer's
+  hosted config.
+
+Everything else is Z-owned: `SelfSigning.swift`, `iosSelfSigning`/`iosNoSelfSigning`, `KeepNuvioWorkingScreen.kt`,
+`SelfSigningSetup.kt` and `iosInstaller/`. **NuvioZDesktop merge debt:** its desktop
+`AppUpdaterPlatform.desktop.kt` must take the new `installDownloadedUpdate` signature when this reaches it.
+
 **2026-10-03 RC P1:** Desktop's upstream-owned
 `fullCommonMain/.../plugins/runtime/js/JsRuntime.kt` replaces its inline `quickJs` lifetime
 with `createPluginQuickJs` / `closePluginQuickJs` calls. The Desktop implementation
