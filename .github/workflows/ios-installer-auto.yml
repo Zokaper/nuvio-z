@@ -324,6 +324,18 @@ jobs:
           mkdir -p .auto-watch
           echo "since=$(date -u -d '14 days ago' +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           gh issue list --label upstream-watch --state open --json number,title,body,createdAt > .auto-watch/open-alerts.json || echo '[]' > .auto-watch/open-alerts.json
+          python3 - <<'EOF' > .auto-watch/crates.json
+          import json, re, urllib.request
+          toml = open("iosInstaller/Cargo.toml", encoding="utf-8").read()
+          out = {}
+          for crate in ["isideload", "idevice"]:
+              request = urllib.request.Request(f"https://crates.io/api/v1/crates/{crate}", headers={"User-Agent": "nuvio-z-ios-installer-auto-release"})
+              versions = json.load(urllib.request.urlopen(request, timeout=60))["versions"][:10]
+              pinned = re.search(rf'^{crate}\s*=\s*\{{\s*version\s*=\s*"=([^"]+)"', toml, re.M)
+              out[crate] = {"pinned": pinned and pinned.group(1),
+                            "published": [{"version": v["num"], "date": v["created_at"][:10], "yanked": v["yanked"]} for v in versions]}
+          print(json.dumps(out, indent=2))
+          EOF
 
       - name: Sonnet reads the trackers
         continue-on-error: true

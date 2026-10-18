@@ -17,6 +17,19 @@ You can read GitHub with the `gh` command (it is signed in, read-only for other 
 
 Open the issues that look relevant (`gh issue view`) and read the comments.
 
+`$OUT/crates.json` lists the published `isideload` and `idevice` versions with their dates (you can't reach
+crates.io yourself), and the versions Nuvio Z pins today.
+
+## Already known (don't alert on this alone)
+
+- Since about 2026-10-12, Apple refuses sign-ins from sideloading tools with -80045 ("This action cannot be
+  completed at this time") **for some accounts**. The installer already has a screen for it. On 2026-10-17 the
+  maintainer's own account signed in and renewed fine, so it isn't everyone.
+
+Alert about a known problem only when it has clearly changed: it now hits nearly every account (for example,
+reports that accounts which worked before now fail too), or a fix has been published (say which version, and
+whether it's in `crates.json` yet).
+
 ## What counts as an alert
 
 Alert only if **all** hold:
