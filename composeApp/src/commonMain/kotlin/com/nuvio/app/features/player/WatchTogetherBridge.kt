@@ -31,6 +31,8 @@ data class WatchTogetherBridgeInvite(
     val avatarUrl: String,
     /** [PartyInviteButton.wire]: invite | sending | sent | cancelling | declined. */
     val state: String = PartyInviteButton.Invite.wire,
+    /** What they are watching right now ("The Bear · S3 E4"), for the invite picker; null when nothing. */
+    val watching: String? = null,
 )
 
 /**

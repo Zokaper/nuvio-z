@@ -109,6 +109,9 @@ import com.nuvio.app.features.details.components.desktopYearLabel
 import com.nuvio.app.features.details.formatRuntimeForDisplay
 import com.nuvio.app.features.profiles.parseHexColor
 import com.nuvio.app.features.social.SocialProfileSummary
+import com.nuvio.app.features.player.PartyInviteButton
+import com.nuvio.app.features.player.PartyInviteButtonState
+import com.nuvio.app.features.player.partyInviteButton
 import com.nuvio.app.features.social.SocialRepository
 import com.nuvio.app.features.streams.PartyStreamLaunchPurpose
 import com.nuvio.app.features.watched.WatchedRepository
@@ -117,6 +120,10 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.social_party_invite_cancel_failed
+import nuvio.composeapp.generated.resources.social_party_invite_cooldown
+import nuvio.composeapp.generated.resources.social_party_invite_failed
+import org.jetbrains.compose.resources.getString
 import nuvio.composeapp.generated.resources.watch_party_addon_differences
 import nuvio.composeapp.generated.resources.watch_party_choose_source
 import nuvio.composeapp.generated.resources.watch_party_resolve_source
@@ -141,7 +148,7 @@ private val PartyWorkingColor = Color(0xFFE0A458)
  * a red "ready" sits beside a pink `colorScheme.error` "no source found" and the pair says nothing.
  * The accent still carries emphasis - the stage rail, the invite tile - where no state is meant.
  */
-private val PartyReadyColor = Color(0xFF6FD08C)
+internal val PartyReadyColor = Color(0xFF6FD08C)
 
 /**
  * Where the title stops sharing the window with the party.
@@ -181,6 +188,20 @@ fun WatchPartyLobbyScreen(
     val joinHandoff by PartyJoinHandoff.current.collectAsStateWithLifecycle()
     val addonsState by AddonRepository.uiState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
+    // Invites from the lobby read as the player's do (`partyInviteButton`): Sending until the server lists
+    // it, Cancelling until it is gone, Declined for the cooldown.
+    var invitePressed by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var inviteCancelling by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(socialState.sentPartyInvites, state.party?.id) {
+        val listed = socialState.sentPartyInvites ?: return@LaunchedEffect
+        val partyId = state.party?.id
+        invitePressed = invitePressed.filterTo(mutableSetOf()) { id ->
+            listed.none { it.receiverProfileId == id && (it.partyId == partyId || it.status == "declined") }
+        }
+        inviteCancelling = inviteCancelling.filterTo(mutableSetOf()) { id -> listed.any { it.id == id } }
+    }
+    val inviteNowMs = rememberPartyInviteNowMs(socialState.sentPartyInvites, socialState.sentPartyInvitesAtMs)
 
     val addonSignature = remember(addonsState.addons) { watchPartyAddonSignature(addonsState.addons) }
 
@@ -307,6 +328,25 @@ fun WatchPartyLobbyScreen(
         val invitableFriends = socialState.friends.filterNot { friend ->
             party.members.any { it.profileId == friend.profileId }
         }
+        val inviteState: (String) -> PartyInviteButtonState = { profileId ->
+            partyInviteButton(
+                profileId, party.id, socialState.sentPartyInvites, socialState.sentPartyInvitesAtMs,
+                invitePressed, inviteCancelling, inviteNowMs,
+            )
+        }
+        val inviteName: (String) -> String = { profileId ->
+            invitableFriends.firstOrNull { it.profileId == profileId }?.let { it.displayName.ifBlank { it.handle } }.orEmpty()
+        }
+        val inviteRows = invitableFriends.map { friend ->
+            PartyInviteRow(
+                key = friend.profileId,
+                name = friend.displayName.ifBlank { friend.handle },
+                avatarUrl = friend.avatarUrl,
+                colorHex = friend.avatarColorHex,
+                watching = partyInviteWatching(friend.profileId, socialState.watchingNow),
+                button = inviteState(friend.profileId).button,
+            )
+        }
 
         PartyLobbyContent(
             model = PartyLobbyModel(
@@ -332,13 +372,44 @@ fun WatchPartyLobbyScreen(
                 waitForEveryone = state.waitForEveryone,
                 pauseForAwayUsers = state.pauseForAwayUsers,
                 invitableFriends = invitableFriends,
+                inviteRows = inviteRows,
+                inviteSlots = WatchPartyMaxParticipants - party.members.size,
             ),
             actions = PartyLobbyActions(
                 onRequestDeparture = requestDeparture,
                 onChoose = onChoose,
                 onStart = onStart,
                 onLeave = requestDeparture,
-                onInvite = { profileId -> scope.launch { WatchPartyRepository.invite(profileId) } },
+                onInvite = { profileId ->
+                    if (inviteState(profileId).button == PartyInviteButton.Invite) {
+                        invitePressed = invitePressed + profileId
+                        scope.launch {
+                            WatchPartyRepository.invite(profileId).onFailure { failure ->
+                                invitePressed = invitePressed - profileId
+                                NuvioToastController.show(
+                                    if (failure.message.orEmpty().contains("invite_cooldown")) {
+                                        getString(Res.string.social_party_invite_cooldown, inviteName(profileId))
+                                    } else {
+                                        failure.message ?: getString(Res.string.social_party_invite_failed, inviteName(profileId))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
+                onCancelInvite = { profileId ->
+                    val invite = inviteState(profileId)
+                    val inviteId = invite.inviteId?.takeIf { invite.button == PartyInviteButton.Sent }
+                    if (inviteId != null) {
+                        inviteCancelling = inviteCancelling + inviteId
+                        scope.launch {
+                            SocialRepository.cancelPartyInvite(inviteId).onFailure {
+                                inviteCancelling = inviteCancelling - inviteId
+                                NuvioToastController.show(getString(Res.string.social_party_invite_cancel_failed, inviteName(profileId)))
+                            }
+                        }
+                    }
+                },
                 onControlMode = { mode -> scope.launch { WatchPartyRepository.setControlMode(mode) } },
                 onWaitForEveryone = { WatchPartyRepository.setWaitForEveryone(it) },
                 onPauseForAwayUsers = { WatchPartyRepository.setPauseForAwayUsers(it) },
@@ -461,6 +532,9 @@ internal data class PartyLobbyModel(
     val waitForEveryone: Boolean,
     val pauseForAwayUsers: Boolean,
     val invitableFriends: List<SocialProfileSummary>,
+    /** The invite picker's rows: [invitableFriends] with what each is watching and their invite's state. */
+    val inviteRows: List<PartyInviteRow> = emptyList(),
+    val inviteSlots: Int = 0,
 )
 
 /** The lobby's callbacks, exactly as the screen defines them. Layout only rearranges who calls them. */
@@ -471,6 +545,7 @@ internal class PartyLobbyActions(
     val onStart: () -> Unit,
     val onLeave: () -> Unit,
     val onInvite: (String) -> Unit,
+    val onCancelInvite: (String) -> Unit = {},
     val onControlMode: (WatchPartyControlMode) -> Unit,
     val onWaitForEveryone: (Boolean) -> Unit,
     val onPauseForAwayUsers: (Boolean) -> Unit,
@@ -560,6 +635,9 @@ private fun PartyLobbyTwoPane(
                     presentation = model.presentation,
                     invitableFriends = model.invitableFriends,
                     onInvite = actions.onInvite,
+                    inviteRows = model.inviteRows,
+                    inviteSlots = model.inviteSlots,
+                    onCancelInvite = actions.onCancelInvite,
                 )
                 if (model.isHost) {
                     PartyHostSettings(
@@ -646,6 +724,9 @@ private fun PartyLobbySingleColumn(
                 presentation = model.presentation,
                 invitableFriends = model.invitableFriends,
                 onInvite = actions.onInvite,
+                inviteRows = model.inviteRows,
+                inviteSlots = model.inviteSlots,
+                onCancelInvite = actions.onCancelInvite,
             )
         }
 
@@ -721,6 +802,9 @@ private fun PartyLobbyPhonePortrait(model: PartyLobbyModel, actions: PartyLobbyA
                     presentation = model.presentation,
                     invitableFriends = model.invitableFriends,
                     onInvite = actions.onInvite,
+                    inviteRows = model.inviteRows,
+                    inviteSlots = model.inviteSlots,
+                    onCancelInvite = actions.onCancelInvite,
                 )
             }
             if (model.isHost) {
@@ -794,6 +878,9 @@ private fun PartyLobbyShortLandscape(
                     presentation = model.presentation,
                     invitableFriends = model.invitableFriends,
                     onInvite = actions.onInvite,
+                    inviteRows = model.inviteRows,
+                    inviteSlots = model.inviteSlots,
+                    onCancelInvite = actions.onCancelInvite,
                 )
                 if (model.isHost) {
                     PartyHostSettingsCompact(
@@ -1059,8 +1146,11 @@ private fun PartyParticipantRows(
     presentation: PartyPresentationState,
     invitableFriends: List<SocialProfileSummary>,
     onInvite: (String) -> Unit,
+    inviteRows: List<PartyInviteRow>,
+    inviteSlots: Int,
+    onCancelInvite: (String) -> Unit,
 ) {
-    var inviting by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
     val canInvite = invitableFriends.isNotEmpty() && party.members.size < WatchPartyMaxParticipants
     PartyPanel(padding = 14.dp, spacing = 4.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1090,7 +1180,7 @@ private fun PartyParticipantRows(
             Row(
                 Modifier.fillMaxWidth()
                     .clip(RoundedCornerShape(NuvioTokens.Radius.lg))
-                    .clickable { inviting = !inviting }
+                    .clickable { picking = true }
                     .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1110,22 +1200,29 @@ private fun PartyParticipantRows(
                     }
                 }
                 Text(
-                    if (inviting) "Close" else "Invite a friend",
+                    "Invite a friend",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Icon(
-                    if (inviting) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    Icons.Rounded.ExpandMore,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        if (inviting && canInvite) {
-            PartyInviteFriendChips(invitableFriends, onInvite)
+        if (picking && canInvite) {
+            PartyInvitePicker(
+                rows = inviteRows,
+                slots = inviteSlots,
+                wide = false,
+                onDismiss = { picking = false },
+                onInvite = { keys -> keys.forEach(onInvite) },
+                onCancel = onCancelInvite,
+            )
         }
     }
 }
@@ -1403,36 +1500,6 @@ private fun PartyPinnedActionBar(model: PartyLobbyModel, actions: PartyLobbyActi
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 captionText(Modifier.weight(1f))
                 leave()
-            }
-        }
-    }
-}
-
-@Composable
-private fun PartyInviteFriendChips(invitableFriends: List<SocialProfileSummary>, onInvite: (String) -> Unit) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        invitableFriends.forEach { friend ->
-            Surface(
-                modifier = Modifier.clickable { onInvite(friend.profileId) },
-                shape = RoundedCornerShape(NuvioTokens.Radius.chip),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-            ) {
-                Row(
-                    Modifier.padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    PartyAvatar(
-                        name = friend.displayName,
-                        avatarUrl = friend.avatarUrl,
-                        colorHex = friend.avatarColorHex,
-                        size = 26.dp,
-                    )
-                    Text(friend.displayName, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                }
             }
         }
     }
@@ -2023,11 +2090,14 @@ private fun PartyParticipants(
     presentation: PartyPresentationState,
     invitableFriends: List<SocialProfileSummary>,
     onInvite: (String) -> Unit,
+    inviteRows: List<PartyInviteRow>,
+    inviteSlots: Int,
+    onCancelInvite: (String) -> Unit,
 ) {
     // WatchPartyRepository.invite existed with no caller, so the receiving side rendered invites
     // that nothing could ever send. Only friends can be invited, which party_invite_friend enforces
     // regardless of what is listed here.
-    var inviting by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
     PartyPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Participants", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -2052,12 +2122,18 @@ private fun PartyParticipants(
                 )
             }
             if (invitableFriends.isNotEmpty() && party.members.size < WatchPartyMaxParticipants) {
-                PartyInviteTile(expanded = inviting, onClick = { inviting = !inviting })
+                PartyInviteTile(onClick = { picking = true })
             }
         }
-        if (inviting && invitableFriends.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            PartyInviteFriendChips(invitableFriends, onInvite)
+        if (picking && invitableFriends.isNotEmpty()) {
+            PartyInvitePicker(
+                rows = inviteRows,
+                slots = inviteSlots,
+                wide = true,
+                onDismiss = { picking = false },
+                onInvite = { keys -> keys.forEach(onInvite) },
+                onCancel = onCancelInvite,
+            )
         }
     }
 }
@@ -2157,7 +2233,7 @@ private fun PartyParticipantTile(
 }
 
 @Composable
-private fun PartyInviteTile(expanded: Boolean, onClick: () -> Unit) {
+private fun PartyInviteTile(onClick: () -> Unit) {
     Surface(
         modifier = Modifier.width(PartyTileWidth).clickable(onClick = onClick),
         shape = RoundedCornerShape(NuvioTokens.Radius.xl),
@@ -2181,7 +2257,7 @@ private fun PartyInviteTile(expanded: Boolean, onClick: () -> Unit) {
                 )
             }
             Text(
-                if (expanded) "Close" else "Invite",
+                "Invite",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
