@@ -35,6 +35,9 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.maskId
 import com.nuvio.app.core.auth.safeAuthStateDescription
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.compose_auth_sign_in
+import nuvio.composeapp.generated.resources.z_auth_signed_out_notice
+import org.jetbrains.compose.resources.getString
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.sync.SyncManager
@@ -51,6 +54,8 @@ import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NativeTabBridge
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioToastAction
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
@@ -100,6 +105,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepositor
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.navigation.AppRoute
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 internal suspend fun warmProfileBoundRepositories() {
@@ -586,6 +592,23 @@ internal fun AppGate(
             profileSelectionTransitionActive = false
             gateScreen = AppGateScreen.Auth.name
         }
+    }
+
+    // Nuvio Z: a login lost by itself - no stored session at launch, a refresh the server refused -
+    // leaves the app on cached profiles looking signed in; only Social said otherwise, once opened.
+    // Here, not in `MainAppContent`, because this gate owns the runtime on every platform (on iOS
+    // the content instances do not). An explicit sign-out never gets here: it wipes the cached
+    // profiles and the gate leaves `Main` for `Auth` inside the delay.
+    val signedOutOnMain = authState is AuthState.Unauthenticated && gateScreen == AppGateScreen.Main.name
+    LaunchedEffect(ownsAppRuntime, signedOutOnMain) {
+        if (!ownsAppRuntime || !signedOutOnMain) return@LaunchedEffect
+        delay(1_500)
+        NuvioToastController.show(
+            message = getString(Res.string.z_auth_signed_out_notice),
+            durationMillis = 10_000L,
+            actionLabel = getString(Res.string.compose_auth_sign_in),
+            action = NuvioToastAction.SignIn,
+        )
     }
 
     LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {

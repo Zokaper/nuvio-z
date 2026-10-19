@@ -758,23 +758,6 @@ internal fun MainAppContent(
         }
     }
 
-    // Nuvio Z: a login lost by itself - no stored session at launch, a refresh the server refused -
-    // leaves the app running on cached profiles and looking signed in. Only Social said otherwise,
-    // and only once opened. An explicit sign-out never reaches the toast: it wipes the cached
-    // profiles and leaves for the sign-in screen, which disposes this content inside the delay.
-    val signedOut = AuthRepository.state.collectAsStateWithLifecycle().value is AuthState.Unauthenticated
-    LaunchedEffect(ownsAppRuntime, signedOut) {
-        if (!ownsAppRuntime || !signedOut) return@LaunchedEffect
-        delay(1_500)
-        if (ProfileRepository.state.value.profiles.isEmpty()) return@LaunchedEffect
-        NuvioToastController.show(
-            message = getString(Res.string.z_auth_signed_out_notice),
-            durationMillis = 10_000L,
-            actionLabel = getString(Res.string.compose_auth_sign_in),
-            action = NuvioToastAction.SignIn,
-        )
-    }
-
     // Social notifications (desktop pop-ups) open the Social tab; `SocialFeed` then opens the exact
     // place and consumes the request. See `SocialNavigation`. A page over the tabs (details, a
     // catalog) is popped first or it would cover the tab; a player that has not reached its first
