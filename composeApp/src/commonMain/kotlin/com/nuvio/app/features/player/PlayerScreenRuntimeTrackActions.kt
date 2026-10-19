@@ -323,7 +323,7 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
             trackLog.i {
                 "embedded_subtitles outcome=${verification.outcome.name.lowercase()} target=$target " +
                     "embedded=${verification.embeddedLanguages.joinToString(",").ifEmpty { "none" }} " +
-                    "hinted=${args.sourceFacts?.releaseSubtitleLanguages.orEmpty().joinToString(",").ifEmpty { "none" }}"
+                    "hinted=${activeSourceFacts?.releaseSubtitleLanguages.orEmpty().joinToString(",").ifEmpty { "none" }}"
             }
         }
         if (verification.outcome == EmbeddedSubtitleOutcome.CONFIRMED) {

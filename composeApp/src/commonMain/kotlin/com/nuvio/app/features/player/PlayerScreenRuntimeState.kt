@@ -373,6 +373,14 @@ internal class PlayerScreenRuntime(
     /** The source whose embedded-subtitle verification has already been logged, so it logs once. */
     var embeddedSubtitleVerificationLoggedFor by mutableStateOf<String?>(null)
 
+    /**
+     * What the loading band and the stall watchdog describe: the source playing *now*. `args` holds the
+     * launch's, which used to be read directly, so a next episode or a switched source showed (and
+     * watched for) the first source's quality, size and attempt.
+     */
+    var activeSourceFacts by mutableStateOf(args.sourceFacts)
+    var activePlaybackAttempt by mutableStateOf(args.playbackAttempt)
+
     /** The last `subtitle_pick` line written, so the picker's view is logged only when it changes. */
     var subtitlePickLoggedLine: String? = null
     var hasScannedTextTracksOnce by mutableStateOf(false)

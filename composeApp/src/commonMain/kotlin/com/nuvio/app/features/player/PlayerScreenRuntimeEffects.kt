@@ -457,7 +457,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             val outcome = probePlaybackSource(
                 url = activeSourceUrl,
                 headers = activeSourceHeaders,
-                expectedBytes = args.sourceFacts?.sizeBytes,
+                expectedBytes = activeSourceFacts?.sizeBytes,
             )
             startupLog.i {
                 val detail = when (outcome) {
@@ -503,7 +503,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         val startedAt = TimeSource.Monotonic.markNow()
         var watch = PlaybackStartupWatchdog.initial()
         startupLog.i {
-            "watchdog armed: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+            "watchdog armed: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                 "baselineMs=${args.initialPositionMs}ms"
         }
         var lastLoggedProgressMs = 0L
@@ -561,7 +561,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             ) {
                 startupLog.w {
                     "abandoning $activeStreamTitle: reason=ImplausibleDuration " +
-                        "attempt=${args.playbackAttempt} " +
+                        "attempt=${activePlaybackAttempt} " +
                         "duration=${snapshot.durationMs}ms " +
                         "expectedMinutes=${args.expectedRuntimeMinutes} " +
                         "engine=${snapshot.engineName}"
@@ -579,7 +579,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             // whether the party was holding it for twenty of them or not.
             if (partyStartupHold != lastLoggedHold) {
                 startupLog.i {
-                    "watchdog hold: attempt=${args.playbackAttempt} held=${partyStartupHold.isHeld} " +
+                    "watchdog hold: attempt=${activePlaybackAttempt} held=${partyStartupHold.isHeld} " +
                         "reason=${partyStartupHold.reason} gateReason=${partyStartupHold.gateReason} " +
                         "elapsed=${sample.elapsedMs}ms effective=${watch.effectiveElapsedMs}ms " +
                         // Whether this hold stops the clock at all, which is the whole difference
@@ -592,7 +592,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             if (!wasEvidenceOfLifeLogged && watch.hasEvidenceOfLife) {
                 wasEvidenceOfLifeLogged = true
                 startupLog.i {
-                    "watchdog evidence of life: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                    "watchdog evidence of life: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                         "elapsed=${sample.elapsedMs}ms duration=${sample.durationMs}ms " +
                         "buffered=${sample.bufferedPositionMs}ms probePassed=$probePassed"
                 }
@@ -600,7 +600,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             if (watch.bestProgressMs > lastLoggedProgressMs && watch.bestProgressMs > 0L) {
                 lastLoggedProgressMs = watch.bestProgressMs
                 startupLog.d {
-                    "watchdog progress: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                    "watchdog progress: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                         "elapsed=${sample.elapsedMs}ms progress=${watch.bestProgressMs}ms " +
                         "buffered=${sample.bufferedPositionMs}ms position=${sample.positionMs}ms"
                 }
@@ -609,7 +609,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 PlaybackStartupWatchdog.Verdict.Waiting -> Unit
                 PlaybackStartupWatchdog.Verdict.Started -> {
                     startupLog.i {
-                        "watchdog started: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                        "watchdog started: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                             "elapsed=${sample.elapsedMs}ms progress=${watch.bestProgressMs}ms " +
                             "duration=${sample.durationMs}ms engine=${snapshot.engineName}"
                     }
@@ -627,7 +627,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                         // that produced the second of those had no line saying a party was
                         // involved at all, so the abandonment read as a source fault for a day.
                         "abandoning $activeStreamTitle: reason=$reason " +
-                            "attempt=${args.playbackAttempt} " +
+                            "attempt=${activePlaybackAttempt} " +
                             "elapsed=${sample.elapsedMs}ms effective=${watch.effectiveElapsedMs}ms " +
                             "heldTotal=${watch.holdMs}ms " +
                             "progress=${watch.bestProgressMs}ms " +
@@ -1242,7 +1242,7 @@ internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
     // A scrub target held for a buffering engine will never be acknowledged by a failed one.
     scrubbingPositionMs = null
     startupLog.w {
-        "fatal player error: attempt=${args.playbackAttempt} candidate=$activeStreamTitle error=$message"
+        "fatal player error: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle error=$message"
     }
     if (isDebugBuild && PlaybackDebugSettings.hudEnabled) {
         errorMessage = message
