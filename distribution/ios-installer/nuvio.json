@@ -6,8 +6,8 @@
     "version": "0.5.4-z3"
   },
   "debug": {
-    "url": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.105/Nuvio-Z-iOS-0.5.4-z3-105-debug-unsigned.ipa",
-    "sha256": "560c3856845a8a857badbc259613a1543428b62a0a89c471a14b8ef0a5bfa18a",
-    "version": "0.5.4-z3.105"
+    "url": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.106/Nuvio-Z-iOS-0.5.4-z3-106-debug-unsigned.ipa",
+    "sha256": "b9444de8938bd09dbc7d4fe425622925a4c0f7b1c3c473db087d5bde1e250fce",
+    "version": "0.5.4-z3.106"
   }
 }
