@@ -3788,5 +3788,17 @@
         <item quantity="one">Recommend to %1$d friend</item>
         <item quantity="other">Recommend to %1$d friends</item>
     </plurals>
+    <string name="social_party_invite_title">Invite to Watch Together</string>
+    <string name="social_party_invite_friends">Friends</string>
+    <string name="social_party_invite_declined">Declined</string>
+    <string name="social_party_invite_pick">Pick friends to invite</string>
+    <string name="social_party_invite_cancel">Cancel the invite to %1$s</string>
+    <string name="social_party_invite_failed">Couldn't invite %1$s</string>
+    <string name="social_party_invite_cooldown">%1$s declined a moment ago. Try again in a few minutes.</string>
+    <string name="social_party_invite_cancel_failed">Couldn't cancel the invite to %1$s</string>
+    <plurals name="social_party_invite_send">
+        <item quantity="one">Invite %d friend</item>
+        <item quantity="other">Invite %d friends</item>
+    </plurals>
     <!-- /Nuvio Z: Social V2 strings. -->
 </resources>
