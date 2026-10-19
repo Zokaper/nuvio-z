@@ -1,5 +1,21 @@
 Last updated: 2026-10-19
 
+## Push dropped until Social loaded; duplicate invite notices; invite list candidates (2026-10-19, unreleased)
+
+Maintainer, after the first Android push on a phone: it came only after opening the app and the Social tab; and an
+invite showed as the pop-up **and** the old bottom prompt.
+
+- **Push** (mobile only, `ebe9dda17`): every Social activation starts with no capabilities, and `SocialPush` read
+  that as signed out, removing the remembered profile, so `onMessage` dropped each push as "not for this profile"
+  until Social finished loading (a late session: until the Social tab ran `recoverIfStale`). Production showed it:
+  pushes sent 11:04 / 12:25 / 12:26:05 (`sent:1`), the phone re-registered at 12:26:23. Now a pure
+  `socialPushStep` forgets only on a real sign-out, Social off, or another profile (`SocialPushStepTest` 6/6).
+- **Old prompt removed** (both repos, mobile `b8376d6a1`, desktop `e38b2876e`): the V1 `NuvioFloatingPrompt` for
+  Social notices in `MainAppContent`; the pop-ups / phone banners own them.
+- **Invite list** (lobby chips cloud, in-player rows with no order or search): candidates A inline list + Show all,
+  B search + scroll box, C picker dialog, from `PartyInviteListHarness` (desktop `b70162e61`); contact sheets in
+  `Nuvio Z/render-review/2026-10-19-invite/`. **Pick pending.** The desktop in-player panel is HTML (`player-ui/controls.js`).
+
 ## Social strings to resources (2026-10-19, Debug mobile 105 / desktop 113)
 
 The Stage 1 string-resources sweep, held until the Recommended placement was picked.
