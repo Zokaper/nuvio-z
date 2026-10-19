@@ -1,6 +1,6 @@
 Last updated: 2026-10-19
 
-## Push dropped until Social loaded; duplicate invite notices; invite list candidates (2026-10-19, unreleased)
+## Push dropped until Social loaded; duplicate invite notices; invite picker (2026-10-19, Debug mobile 106 / desktop 114)
 
 Maintainer, after the first Android push on a phone: it came only after opening the app and the Social tab; and an
 invite showed as the pop-up **and** the old bottom prompt.
@@ -12,9 +12,15 @@ invite showed as the pop-up **and** the old bottom prompt.
   `socialPushStep` forgets only on a real sign-out, Social off, or another profile (`SocialPushStepTest` 6/6).
 - **Old prompt removed** (both repos, mobile `b8376d6a1`, desktop `e38b2876e`): the V1 `NuvioFloatingPrompt` for
   Social notices in `MainAppContent`; the pop-ups / phone banners own them.
-- **Invite list** (lobby chips cloud, in-player rows with no order or search): candidates A inline list + Show all,
-  B search + scroll box, C picker dialog, from `PartyInviteListHarness` (desktop `b70162e61`); contact sheets in
-  `Nuvio Z/render-review/2026-10-19-invite/`. **Pick pending.** The desktop in-player panel is HTML (`player-ui/controls.js`).
+- **Invite picker** (maintainer picked C, "don't change the current invite button"): `PartyInvitePicker` (shared,
+  desktop `ba6ed5828` -> mobile `76cc990c0`) - search past 8 friends, watching now first (`partyInviteWatching`), check
+  circles up to the free slots, "Invite N friends"; Sent keeps its cross, Declined its cooldown. Opened by the unchanged
+  lobby Invite tile / "Invite a friend" row (dialog on wide, sheet on phones; the lobby now tracks Sending / Sent /
+  Declined like the player), the phone player's "+ Invite friends" (mobile `d0f4a16ab`, a dialog) and the desktop
+  player's "+ Invite friends" (HTML picker over the video in `controls.js`, desktop `7842905a9`; keys stay inside it).
+  The dialog's list takes what the window leaves, so a landscape phone keeps the button (`shipped-picker-*` renders in
+  `PartyInviteListHarness`). Tests: desktop 922/922 (Social, Watch Together, player), mobile host 950 (6 skipped),
+  Android compiles. **Not seen on a device.**
 
 ## Social strings to resources (2026-10-19, Debug mobile 105 / desktop 113)
 
