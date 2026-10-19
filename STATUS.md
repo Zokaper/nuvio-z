@@ -1,6 +1,6 @@
 Last updated: 2026-10-19
 
-## "Invite %d" and pop-ups opening Social under a page (2026-10-19, unreleased; after Debug mobile 106 / desktop 114)
+## Round after 106/114: invite count, Social pop-ups, subtitles, next-episode loading, silent sign-out (2026-10-19, unreleased)
 
 Maintainer, on 106/114: the invite picker's button read `Invite %d`; clicking a Social pop-up with a details page
 open switched the tab underneath and the page stayed on top until closed.
@@ -12,6 +12,29 @@ open switched the tab underneath and the page stayed on top until closed.
   (skipped under native navigation and while a `PlayerRoute` is on top). Desktop had no `popToTabsRoot`: it came
   with mobile's `6c424bf23` (Downloads toast fix) that never reached desktop, now cherry-picked there as well.
 - Desktop navigation tests 12/12 fresh; mobile `compileFullDebugKotlin` green. Not yet in a Debug build.
+
+Three feedback-board bugs, same round, every commit made on desktop and cherry-picked to mobile:
+
+- **Wrong subtitles on entering the player** (none / another language / "Forced"). Not root-caused. Maintainer's
+  settings: audio en, subtitles en, **Use Forced Subtitles on** (forced-only mode: a forced English track or
+  nothing, by design), Prefer built-in on, Instant. Proven *not* the cause: per-show track memory (none stored on
+  this machine). Hypothesis: mpv's own pick (its defaults: forced track matching audio, else the file's
+  default-flagged track, else none - exactly the three symptoms) survives because the picker did not override it;
+  `SubtitleAutoPickScenarioTest` (mobile host) shows the picker *does* override it with well-tagged tracks, so the
+  real trigger is in real files' tags or timing. **Next step: read `subtitle_pick` (PlaybackStartup) lines** from
+  a Debug build after a wrong pick - each records the track list (lang, forced, default, `:on`) and the decision.
+  Fixed on the way: the per-show restore matched mpv's positional track id before language (next episode's
+  release could restore another language) and ignored a remembered *non*-forced choice (restored the forced one).
+- **Next episode loading screen**: band / copy-error / stall watchdog read `args.sourceFacts` and
+  `args.playbackAttempt`, the launch's, forever; now `activeSourceFacts` / `activePlaybackAttempt`, set by every
+  source switch. Backdrop was the episode's w500 still; now the show's backdrop, as on a first launch.
+- **Silent sign-out**: a lost login (no stored session at launch, refused refresh) ran on cached profiles looking
+  signed in. AppGate now raises a 10 s toast with Sign in, and Account shows Sign In instead of Sign Out while
+  signed out. Sign in uses a new `SignInNavigation` request answered by AppGate (clears profiles in memory only);
+  Sign Out was the old way there and wipes account data. The Oct 18 realtime `InvalidJWTToken` give-ups were a
+  pre-109 build; none since.
+- Verified: desktop player+playback 660/660, mobile player+playback host 717/717 (fresh), both compile. **Not
+  verified on a device:** the toast, the Account button, and a next-episode loading screen.
 
 ## Push dropped until Social loaded; duplicate invite notices; invite picker (2026-10-19, Debug mobile 106 / desktop 114)
 
