@@ -759,11 +759,15 @@ internal fun MainAppContent(
     }
 
     // Social notifications (desktop pop-ups) open the Social tab; `SocialFeed` then opens the exact
-    // place and consumes the request. See `SocialNavigation`.
+    // place and consumes the request. See `SocialNavigation`. A page over the tabs (details, a
+    // catalog) is popped first or it would cover the tab; a player that has not reached its first
+    // frame is left alone, as the pop-ups already do once its video is on screen.
     LaunchedEffect(socialEnabled) {
         if (!socialEnabled) return@LaunchedEffect
         com.nuvio.app.features.social.SocialNavigation.pending.collect { target ->
-            if (target != null) activateTab(AppScreenTab.Social)
+            if (target == null) return@collect
+            if (!useNativeNavigation && navController.currentRoute !is PlayerRoute) navController.popToTabsRoot()
+            activateTab(AppScreenTab.Social)
         }
     }
 

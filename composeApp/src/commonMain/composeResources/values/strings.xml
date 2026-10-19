@@ -3797,8 +3797,8 @@
     <string name="social_party_invite_cooldown">%1$s declined a moment ago. Try again in a few minutes.</string>
     <string name="social_party_invite_cancel_failed">Couldn't cancel the invite to %1$s</string>
     <plurals name="social_party_invite_send">
-        <item quantity="one">Invite %d friend</item>
-        <item quantity="other">Invite %d friends</item>
+        <item quantity="one">Invite %1$d friend</item>
+        <item quantity="other">Invite %1$d friends</item>
     </plurals>
     <!-- /Nuvio Z: Social V2 strings. -->
 </resources>

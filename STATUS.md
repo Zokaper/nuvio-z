@@ -1,5 +1,18 @@
 Last updated: 2026-10-19
 
+## "Invite %d" and pop-ups opening Social under a page (2026-10-19, unreleased; after Debug mobile 106 / desktop 114)
+
+Maintainer, on 106/114: the invite picker's button read `Invite %d`; clicking a Social pop-up with a details page
+open switched the tab underneath and the page stayed on top until closed.
+
+- **`social_party_invite_send`**: Compose resources only substitute positional args, so `%d` is printed literally.
+  Now `%1$d` in both repos. The upstream `entity_browse_title_count*` strings (every locale) have the same bare `%d` -
+  vanilla, left alone; candidate for `VANILLA-BUGS.md`.
+- **Social pop-up navigation**: `SocialNavigation.pending` now calls `popToTabsRoot()` before `activateTab(Social)`
+  (skipped under native navigation and while a `PlayerRoute` is on top). Desktop had no `popToTabsRoot`: it came
+  with mobile's `6c424bf23` (Downloads toast fix) that never reached desktop, now cherry-picked there as well.
+- Desktop navigation tests 12/12 fresh; mobile `compileFullDebugKotlin` green. Not yet in a Debug build.
+
 ## Push dropped until Social loaded; duplicate invite notices; invite picker (2026-10-19, Debug mobile 106 / desktop 114)
 
 Maintainer, after the first Android push on a phone: it came only after opening the app and the Social tab; and an
