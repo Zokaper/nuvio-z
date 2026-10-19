@@ -3801,4 +3801,6 @@
         <item quantity="other">Invite %1$d friends</item>
     </plurals>
     <!-- /Nuvio Z: Social V2 strings. -->
+    <!-- Nuvio Z: a login lost by itself while the app runs on cached profiles. -->
+    <string name="z_auth_signed_out_notice">You're signed out of your Nuvio account. Social, Watch Together and sync are off until you sign in again.</string>
 </resources>

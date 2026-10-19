@@ -533,7 +533,7 @@ fun NuvioStatusModal(
  * inside feature screens that hold no navigator, and this keeps navigation out of
  * the component layer entirely.
  */
-enum class NuvioToastAction { OpenDownloads, ChangePlaybackSource }
+enum class NuvioToastAction { OpenDownloads, ChangePlaybackSource, SignIn }
 
 @Composable
 fun NuvioToastHost(

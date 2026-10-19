@@ -574,6 +574,20 @@ internal fun AppGate(
         AppGateResume.onGateScreen(gateScreen)
     }
 
+    // Nuvio Z: "Sign in" from a session running signed out on cached profiles. The `ShowAuth`
+    // branch below, reached without the sign-out that wipes account data. Clearing the profiles in
+    // memory (not on disk) is what keeps the transition below from walking straight back in.
+    LaunchedEffect(ownsAppRuntime) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        com.nuvio.app.features.auth.SignInNavigation.requests.collect {
+            if (AuthRepository.state.value !is AuthState.Unauthenticated) return@collect
+            ProfileRepository.clearInMemory()
+            profileSelectionLoading = false
+            profileSelectionTransitionActive = false
+            gateScreen = AppGateScreen.Auth.name
+        }
+    }
+
     LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {
         val currentAuth = authState
         val cachedProfiles = profileState.profiles
