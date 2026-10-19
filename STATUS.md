@@ -1,5 +1,13 @@
 Last updated: 2026-10-19
 
+## Inbox: Unread / Read (2026-10-19, Debug mobile 104 / desktop 112)
+
+Maintainer on desktop 111: an invite that had just arrived ("Just now") sat under **Earlier**. "New" was a snapshot of what was
+unread when the page opened, so anything arriving while it was open (or before its state caught up after a pop-up click) fell
+into the other group. Now `splitInboxUnreadRead` snapshots what was already **read** at open; the groups are **Unread** and
+**Read** (maintainer: "it should be about read/unread"), and the read marks are keyed on the unread ids, so a message arriving
+while the page is open is marked read as well. `SocialInboxGroupingTest`. Shared, desktop `963cb345e` -> mobile.
+
 ## Recommended to you: Inbox, plus an opt-in Home shelf (2026-10-19, Debug mobile 103 / desktop 111)
 
 Maintainer picked placement **D (the Inbox)** "then an option to display it on home as well as a shelf".
