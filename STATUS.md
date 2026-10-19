@@ -1,5 +1,14 @@
 Last updated: 2026-10-19
 
+## Language settings rebuild + What's New rework (2026-10-20, in progress, desktop only so far)
+
+**Handoff: `Nuvio Z/HANDOFF-language-and-whats-new.md`** (plan: `Nuvio Z/PLAN-language-and-whats-new.md`).
+Folded into the Social V2 release. All code is on desktop `claude/social-v2-design`; **mobile
+`claude/social-v2` has none of it yet** (port by cherry-pick, see the handoff, step 3). Replaces the four
+language pickers + "Use Forced Subtitles" with a per-title model (my language / other languages, subtitles
+Off / Forced / Full / SDH), wizard revision 11, a "New settings available" pop-up after What's New
+(Upgrade runs no longer gate), What's New picture cards + platform tags (no "other devices" section).
+
 ## Round after 106/114: invite count, Social pop-ups, subtitles, next-episode loading, silent sign-out (2026-10-19, unreleased)
 
 Maintainer, on 106/114: the invite picker's button read `Invite %d`; clicking a Social pop-up with a details page
