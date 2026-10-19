@@ -2483,73 +2483,9 @@ internal fun MainAppContent(
                     .zIndex(15f),
             )
 
-            // `socialUiState` is already empty when the layer is off - `activate(null)` resets
-            // it - but the gate is stated here as well, so the prompt cannot come back through a
-            // stale emission during the teardown frame.
-            val socialNotification = socialUiState.notifications.firstOrNull {
-                socialEnabled && it.readAt == null && it.availableActions.isNotEmpty()
-            }
-            val socialNotificationPrimaryAction = socialNotification?.availableActions?.let { actions ->
-                when {
-                    SocialNotificationAction.Join in actions -> SocialNotificationAction.Join
-                    SocialNotificationAction.Accept in actions -> SocialNotificationAction.Accept
-                    else -> actions.firstOrNull()
-                }
-            }
-            NuvioFloatingPrompt(
-                visible = socialNotification != null &&
-                    socialNotificationPrimaryAction != null &&
-                    currentRoute !is PlayerRoute,
-                header = when (socialNotification?.kind) {
-                    SocialNotificationKind.PartyInvitation -> "Watch Together"
-                    SocialNotificationKind.WatchingNowJoinRequest -> "Watch Together"
-                    SocialNotificationKind.FriendRequest -> "Friend Request"
-                    null -> null
-                },
-                imageUrl = socialNotification?.contentSummary?.poster ?: socialNotification?.actor?.avatarUrl,
-                title = when (socialNotification?.kind) {
-                    SocialNotificationKind.PartyInvitation,
-                    SocialNotificationKind.WatchingNowJoinRequest ->
-                        socialNotification.contentSummary?.title ?: socialNotification.actor.displayName
-                    SocialNotificationKind.FriendRequest -> socialNotification.actor.displayName
-                    null -> ""
-                },
-                subtitle = when (socialNotification?.kind) {
-                    SocialNotificationKind.FriendRequest -> "sent you a friend request"
-                    SocialNotificationKind.PartyInvitation -> "${socialNotification.actor.displayName} invited you to Watch Together"
-                    SocialNotificationKind.WatchingNowJoinRequest -> "${socialNotification.actor.displayName} asked to join your playback"
-                    null -> ""
-                },
-                progressFraction = 0f,
-                showProgress = false,
-                actionIcon = when (socialNotification?.kind) {
-                    SocialNotificationKind.PartyInvitation,
-                    SocialNotificationKind.WatchingNowJoinRequest,
-                    SocialNotificationKind.FriendRequest -> Icons.Filled.People
-                    null -> Icons.Filled.PlayArrow
-                },
-                actionLabel = when (socialNotificationPrimaryAction) {
-                    SocialNotificationAction.Accept -> "Accept"
-                    SocialNotificationAction.Decline -> "Decline"
-                    SocialNotificationAction.Join -> "Join"
-                    null -> ""
-                },
-                onAction = {
-                    val notification = socialNotification ?: return@NuvioFloatingPrompt
-                    val action = socialNotificationPrimaryAction ?: return@NuvioFloatingPrompt
-                    handleSocialNotificationAction(notification, action)
-                },
-                onDismiss = {
-                    socialNotification?.let { notification ->
-                        coroutineScope.launch {
-                            SocialRepository.markNotificationsRead(setOf(notification.id))
-                        }
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .zIndex(16f),
-            )
+            // Social notices (friend requests, party invites, join requests) are the pop-ups'
+            // (`SocialBannerHost` here, the desktop pop-up window): the bottom prompt that also
+            // showed them was removed 2026-10-19, because every invite arrived twice.
 
             // ⚠ **Above `NavDisplay`, and that placement is the whole point.** The loading
             // surface has to outlive `entry<StreamRoute>`, `entry<PlayerRoute>` and the pop
