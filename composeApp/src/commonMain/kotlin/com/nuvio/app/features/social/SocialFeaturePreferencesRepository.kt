@@ -32,6 +32,8 @@ private data class StoredSocialFeaturePreferences(
     @SerialName("social_features_pending") val pending: Boolean? = null,
     /** Null until the user moves the switch: the shelf is on by default. Synced by [SocialHomeSync]. */
     @SerialName("show_friends_on_home") val showFriendsOnHome: Boolean? = null,
+    /** Null until the user moves the switch: the shelf is off by default. Synced by [SocialHomeSync]. */
+    @SerialName("show_recommended_on_home") val showRecommendedOnHome: Boolean? = null,
 )
 
 data class SocialFeaturePreferencesUiState(
@@ -54,6 +56,13 @@ data class SocialFeaturePreferencesUiState(
 
     /** Whether Home shows the Friends shelf. Meaningless while [enabled] is false. */
     val showFriendsOnHome: Boolean = true,
+
+    /**
+     * Whether Home shows "Recommended to you" as a shelf of its own. Off by default: the recommendations'
+     * home is the Inbox, and Home was judged busy enough already (2026-10-19). Meaningless while [enabled]
+     * is false.
+     */
+    val showRecommendedOnHome: Boolean = false,
 )
 
 /**
@@ -88,6 +97,9 @@ object SocialFeaturePreferencesRepository {
     /** See [StoredSocialFeaturePreferences.showFriendsOnHome]; kept nullable so "never set" survives a round trip. */
     private var showFriendsOnHomeStored: Boolean? = null
 
+    /** See [StoredSocialFeaturePreferences.showRecommendedOnHome]; nullable for the same reason. */
+    private var showRecommendedOnHomeStored: Boolean? = null
+
     /** The profile the probe last ran for, so a switch re-probes and a recomposition does not. */
     private var probedProfileId: String? = null
 
@@ -105,6 +117,7 @@ object SocialFeaturePreferencesRepository {
         hasLoaded = false
         pending = null
         showFriendsOnHomeStored = null
+        showRecommendedOnHomeStored = null
         probedProfileId = null
         _uiState.value = SocialFeaturePreferencesUiState()
     }
@@ -155,6 +168,21 @@ object SocialFeaturePreferencesRepository {
     internal fun storedShowFriendsOnHome(): Boolean? {
         ensureLoaded()
         return showFriendsOnHomeStored
+    }
+
+    /** The Recommended to you shelf switch (Social settings -> Home); like [setShowFriendsOnHome]. */
+    fun setShowRecommendedOnHome(show: Boolean) {
+        ensureLoaded()
+        if (showRecommendedOnHomeStored == show) return
+        showRecommendedOnHomeStored = show
+        _uiState.value = _uiState.value.copy(showRecommendedOnHome = show)
+        persist()
+    }
+
+    /** What [SocialHomeSync] exports: null while the user has never moved the switch. */
+    internal fun storedShowRecommendedOnHome(): Boolean? {
+        ensureLoaded()
+        return showRecommendedOnHomeStored
     }
 
     /** The change this device owes the shared copy, if any. */
@@ -233,6 +261,7 @@ object SocialFeaturePreferencesRepository {
         val stored = payload?.socialFeaturesEnabled
         pending = payload?.pending
         showFriendsOnHomeStored = payload?.showFriendsOnHome
+        showRecommendedOnHomeStored = payload?.showRecommendedOnHome
         val cached = hasCachedSocialIdentity()
         _uiState.value = SocialFeaturePreferencesUiState(
             storedPreference = stored,
@@ -244,6 +273,7 @@ object SocialFeaturePreferencesRepository {
             hasKnownIdentity = cached,
             identityProbe = SocialIdentityProbe.NotRun,
             showFriendsOnHome = showFriendsOnHomeStored ?: true,
+            showRecommendedOnHome = showRecommendedOnHomeStored ?: false,
         )
     }
 
@@ -268,6 +298,7 @@ object SocialFeaturePreferencesRepository {
                     socialFeaturesEnabled = _uiState.value.storedPreference,
                     pending = pending,
                     showFriendsOnHome = showFriendsOnHomeStored,
+                    showRecommendedOnHome = showRecommendedOnHomeStored,
                 ),
             ),
         )

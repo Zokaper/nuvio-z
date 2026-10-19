@@ -276,6 +276,14 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                         isTablet = isTablet,
                         onCheckedChange = SocialFeaturePreferencesRepository::setShowFriendsOnHome,
                     )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = "Show recommendations on Home",
+                        description = "What friends recommend to you, in a shelf of its own. The Inbox always has them",
+                        checked = preferences.showRecommendedOnHome,
+                        isTablet = isTablet,
+                        onCheckedChange = SocialFeaturePreferencesRepository::setShowRecommendedOnHome,
+                    )
                 }
             }
 

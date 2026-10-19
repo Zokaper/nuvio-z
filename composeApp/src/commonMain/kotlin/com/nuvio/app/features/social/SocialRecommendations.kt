@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -62,9 +61,10 @@ import kotlinx.coroutines.launch
  * - [SocialRecommendSheet]: details page -> three-dot menu -> Recommend. Friends as a face grid on a
  *   phone, a list on a wide window; Sent for anyone who already has this title from you; an optional
  *   message; one button.
- * - [SocialRecommendedShelf]: "Recommended to you" in the Social tab - one A+ tile per title (art, facts,
- *   up to two notes), every friend who recommended it on it. Leaves when you start watching it (server)
- *   or dismiss it (long-press).
+ * - [SocialRecommendedShelf]: "Recommended to you" at the top of the Inbox - one A+ tile per title (art,
+ *   facts, up to two notes), every friend who recommended it on it. Leaves when you start watching it
+ *   (server) or dismiss it (long-press). Home can carry the same tiles as a shelf of its own
+ *   (`homeRecommendedSection`, Social settings -> Home, off by default). Placement picked 2026-10-19.
  * - [SocialRecommendedByLine]: the details page's "Recommended to you by ..." with the notes (M1).
  */
 
@@ -110,23 +110,6 @@ private fun RecommendedTitle.whoLine(): String =
     "${socialPeopleLabel(people)} recommend${if (from.size == 1) "s" else ""}"
 
 // --- the shelf (A+) -------------------------------------------------------------------------------
-
-/**
- * Where "Recommended to you" lives. **Render candidates (2026-10-18)**: the maintainer found the feed shelf
- * shoehorned in once seen in the app. The harness draws each; the ones not picked are deleted.
- */
-internal enum class RecommendedPlacement {
-    /** A: the shelf between Watching now and Recently watched (shipped in Debug 100 / 108). */
-    Feed,
-    /** B: compact rows at the top of the Friends rail (desktop) and the Friends view (phone). */
-    Rail,
-    /** C: a "For you" pill beside Inbox, opening its own page. */
-    ForYou,
-    /** D: the shelf at the top of the Inbox. */
-    Inbox,
-}
-
-internal val LocalRecommendedPlacement = staticCompositionLocalOf { RecommendedPlacement.Feed }
 
 /** The "Recommended to you" shelf for [titles]. Draws nothing while there is nothing waiting. */
 @Composable
@@ -177,24 +160,32 @@ internal fun SocialRecommendedShelfContent(
         }
     }
     confirmDismiss?.let { rec ->
-        AlertDialog(
-            onDismissRequest = { confirmDismiss = null },
-            title = { Text("Remove ${rec.title}?") },
-            text = { Text("It leaves Recommended to you. ${socialPeopleLabel(rec.people)} won't be told.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDismiss = null
-                    onDismiss(rec)
-                }) { Text("Remove") }
+        RecommendedDismissDialog(
+            rec,
+            onKeep = { confirmDismiss = null },
+            onRemove = {
+                confirmDismiss = null
+                onDismiss(rec)
             },
-            dismissButton = { TextButton(onClick = { confirmDismiss = null }) { Text("Keep") } },
         )
     }
 }
 
+/** The long-press confirm, shared by the Inbox and Home shelves. */
+@Composable
+internal fun RecommendedDismissDialog(rec: RecommendedTitle, onKeep: () -> Unit, onRemove: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onKeep,
+        title = { Text("Remove ${rec.title}?") },
+        text = { Text("It leaves Recommended to you. ${socialPeopleLabel(rec.people)} won't be told.") },
+        confirmButton = { TextButton(onClick = onRemove) { Text("Remove") } },
+        dismissButton = { TextButton(onClick = onKeep) { Text("Keep") } },
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SocialRecommendedTile(rec: RecommendedTitle, width: Dp, onOpen: () -> Unit, onDismiss: () -> Unit) {
+internal fun SocialRecommendedTile(rec: RecommendedTitle, width: Dp, onOpen: () -> Unit, onDismiss: () -> Unit) {
     val sized = if (width == Dp.Unspecified) Modifier.fillMaxWidth() else Modifier.width(width)
     val art = SocialArtRef(rec.title, rec.contentType, rec.contentId, rec.poster, listOf(rec.background)).artwork()
     val facts = rememberSocialTitleArt(rec.contentType, rec.contentId)?.facts(rec.contentType)
@@ -224,82 +215,6 @@ private fun SocialRecommendedTile(rec: RecommendedTitle, width: Dp, onOpen: () -
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-    }
-}
-
-// --- placement candidates B and C ------------------------------------------------------------------
-
-/** B: compact rows - a small still, the title, who, the newest note. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun SocialRecommendedRail(
-    titles: List<RecommendedTitle>,
-    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SocialSectionLabel("Recommended to you", titles.size)
-        titles.forEach { rec ->
-            val art = SocialArtRef(rec.title, rec.contentType, rec.contentId, rec.poster, listOf(rec.background)).artwork()
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                    .combinedClickable(onClick = { onOpenContent(rec.contentType, rec.contentId, rec.title) }, role = Role.Button),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))) {
-                    SocialArtwork(art, rec.title, Modifier.matchParentSize())
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(rec.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        SocialFaces(rec.people, 16.dp)
-                        Text(
-                            rec.whoLine(),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    rec.from.firstOrNull { it.note != null }?.let { from ->
-                        Text(
-                            "“${from.note}”",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontStyle = FontStyle.Italic,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** C: the "For you" page - the A+ tiles, one under another. */
-@Composable
-internal fun SocialRecommendedPage(
-    titles: List<RecommendedTitle>,
-    horizontal: Dp,
-    bottom: Dp,
-    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
-) {
-    Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = horizontal, end = horizontal, top = 8.dp, bottom = bottom),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
-    ) {
-        if (titles.isEmpty()) {
-            Text(
-                "Nothing waiting. When a friend recommends something, it lands here.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        titles.forEach { rec ->
-            SocialRecommendedTile(rec, width = Dp.Unspecified, onOpen = { onOpenContent(rec.contentType, rec.contentId, rec.title) }, onDismiss = {})
         }
     }
 }

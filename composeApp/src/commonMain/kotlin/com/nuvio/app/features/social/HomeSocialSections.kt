@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.watchparty.WatchPartyState
 import com.nuvio.app.features.watchparty.currentEpochMs
+import kotlinx.coroutines.launch
 
 /**
  * What friends are up to, on Home, **underneath** the user's own Continue Watching.
@@ -128,6 +130,49 @@ fun LazyListScope.homeSocialSections(
                     },
                 )
             }
+        }
+    }
+}
+
+/**
+ * "Recommended to you" on Home, under the Friends shelf (2026-10-19). Opt-in from Social settings -> Home:
+ * the recommendations' own place is the top of the Inbox. The Inbox's A+ tiles at Home tile width; a tap
+ * opens the title, a long-press removes it after the same confirm. Nothing is drawn when nothing is waiting.
+ */
+internal fun LazyListScope.homeRecommendedSection(
+    titles: List<RecommendedTitle>,
+    sectionPadding: Dp,
+    availableWidth: Dp,
+    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
+) {
+    if (titles.isEmpty()) return
+    item(key = "z-social-recommended") {
+        val tileWidth = socialHomeTileWidth(availableWidth)
+        val scope = rememberCoroutineScope()
+        var confirmDismiss by remember { mutableStateOf<RecommendedTitle?>(null) }
+        SocialHomeShelf(
+            title = "Recommended to you",
+            sectionPadding = sectionPadding,
+            items = titles,
+            key = { it.contentId },
+            itemSpacing = 12.dp,
+        ) { rec ->
+            SocialRecommendedTile(
+                rec,
+                width = tileWidth,
+                onOpen = { onOpenContent(rec.contentType, rec.contentId, rec.title) },
+                onDismiss = { confirmDismiss = rec },
+            )
+        }
+        confirmDismiss?.let { rec ->
+            RecommendedDismissDialog(
+                rec,
+                onKeep = { confirmDismiss = null },
+                onRemove = {
+                    confirmDismiss = null
+                    scope.launch { SocialRepository.dismissInbox(rec.eventIds) }
+                },
+            )
         }
     }
 }
