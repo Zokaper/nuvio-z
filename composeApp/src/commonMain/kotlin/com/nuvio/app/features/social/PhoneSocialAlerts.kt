@@ -14,6 +14,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import nuvio.composeapp.generated.resources.social_alert_friend_requests
+import nuvio.composeapp.generated.resources.social_alert_parties
+import nuvio.composeapp.generated.resources.social_alert_recs
+import nuvio.composeapp.generated.resources.social_alert_recs_desc
+import nuvio.composeapp.generated.resources.social_alert_watching
+import nuvio.composeapp.generated.resources.social_alert_watching_desc
+import nuvio.composeapp.generated.resources.social_notifications
+import nuvio.composeapp.generated.resources.social_notifications_switch
+import nuvio.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Which Social alerts this phone shows (2026-10-18): the phone's counterpart of the desktop's Pop-ups
@@ -75,10 +85,10 @@ internal object PhoneSocialAlerts {
 @Composable
 private fun PhoneSocialAlertsSection(isTablet: Boolean) {
     val alerts by PhoneSocialAlerts.state.collectAsState()
-    SettingsSection(title = "Notifications", isTablet = isTablet) {
+    SettingsSection(title = stringResource(Res.string.social_notifications), isTablet = isTablet) {
         SettingsGroup(isTablet = isTablet) {
             SettingsSwitchRow(
-                title = "Social notifications",
+                title = stringResource(Res.string.social_notifications_switch),
                 description = phoneSocialAlertsDescription,
                 checked = alerts.enabled,
                 isTablet = isTablet,
@@ -86,7 +96,7 @@ private fun PhoneSocialAlertsSection(isTablet: Boolean) {
             )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsSwitchRow(
-                title = "Friend requests",
+                title = stringResource(Res.string.social_alert_friend_requests),
                 checked = alerts.friendRequests,
                 enabled = alerts.enabled,
                 isTablet = isTablet,
@@ -94,7 +104,7 @@ private fun PhoneSocialAlertsSection(isTablet: Boolean) {
             )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsSwitchRow(
-                title = "Party invites and join requests",
+                title = stringResource(Res.string.social_alert_parties),
                 checked = alerts.parties,
                 enabled = alerts.enabled,
                 isTablet = isTablet,
@@ -102,8 +112,8 @@ private fun PhoneSocialAlertsSection(isTablet: Boolean) {
             )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsSwitchRow(
-                title = "Friends starting to watch",
-                description = "Only friends you turned on, from their profile",
+                title = stringResource(Res.string.social_alert_watching),
+                description = stringResource(Res.string.social_alert_watching_desc),
                 checked = alerts.friendWatching,
                 enabled = alerts.enabled,
                 isTablet = isTablet,
@@ -111,8 +121,8 @@ private fun PhoneSocialAlertsSection(isTablet: Boolean) {
             )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsSwitchRow(
-                title = "Recommendations",
-                description = "Titles friends recommend, and when they start one you recommended",
+                title = stringResource(Res.string.social_alert_recs),
+                description = stringResource(Res.string.social_alert_recs_desc),
                 checked = alerts.recommendations,
                 enabled = alerts.enabled,
                 isTablet = isTablet,
