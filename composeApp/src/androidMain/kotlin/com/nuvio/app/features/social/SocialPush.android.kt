@@ -84,11 +84,12 @@ internal object SocialPush {
         }
         scope.launch {
             combine(SocialRepository.uiState, PhoneSocialAlerts.state) { state, alerts ->
-                val active = state.activeProfileId?.takeIf {
-                    state.capabilities.socialEnabled && SocialFeaturePreferencesRepository.isEnabledNow && state.me != null
-                }
-                active to alerts.enabled
-            }.distinctUntilChanged().collect { (profile, alertsOn) -> sync(profile, alertsOn) }
+                SocialPushInput(
+                    activeProfileId = state.activeProfileId,
+                    ready = state.capabilities.socialEnabled && SocialFeaturePreferencesRepository.isEnabledNow && state.me != null,
+                    alertsOn = alerts.enabled,
+                )
+            }.distinctUntilChanged().collect(::sync)
         }
     }
 
@@ -99,23 +100,26 @@ internal object SocialPush {
         scope.launch { register(context, profile, token) }
     }
 
-    private suspend fun sync(profile: String?, alertsOn: Boolean) {
+    /** Whether a profile has been active in this process: a null before that is start-up, not a sign-out. */
+    private var seenActive = false
+
+    private suspend fun sync(input: SocialPushInput) {
         val context = appContext ?: return
         val stored = prefs(context)
-        when {
-            profile == null -> {
-                // Signed out, or Social off before anything loaded: pushes for the old profile are dropped.
-                stored.edit().remove(ProfileKey).apply()
-            }
-            !alertsOn || !SocialFeaturePreferencesRepository.isEnabledNow -> {
-                val token = stored.getString(TokenKey, null)
-                if (token != null && stored.getString(ProfileKey, null) == profile) {
+        if (input.activeProfileId != null) seenActive = true
+        val registered = stored.getString(ProfileKey, null)
+        when (socialPushStep(input, registered, seenActive)) {
+            SocialPushStep.Wait -> Unit
+            SocialPushStep.Forget -> stored.edit().remove(ProfileKey).apply()
+            SocialPushStep.Unregister -> {
+                stored.getString(TokenKey, null)?.let { token ->
                     SocialRepository.unregisterPushToken(token)
                         .onFailure { log.w { "unregister failed: ${it.message}" } }
                 }
                 stored.edit().remove(ProfileKey).apply()
             }
-            else -> {
+            SocialPushStep.Register -> {
+                val profile = input.activeProfileId ?: return
                 val token = currentToken() ?: return
                 register(context, profile, token)
                 requestPermissionOnce(context)
@@ -254,5 +258,35 @@ class SocialPushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         SocialPush.onMessage(applicationContext, message.data)
+    }
+}
+
+internal data class SocialPushInput(val activeProfileId: String?, val ready: Boolean, val alertsOn: Boolean)
+
+internal enum class SocialPushStep { Wait, Forget, Unregister, Register }
+
+/**
+ * What the registration should do now. [registered] is the profile this phone's token was last registered for,
+ * which is also what decides whose pushes are shown, so it changes only on a real change.
+ *
+ * Every activation starts "not ready" (no capabilities yet, cached or no `me`), and before the first activation
+ * there is no profile at all. Neither is a sign-out: forgetting the profile then dropped every push as "not for
+ * this profile" until Social finished loading, which, when the session came back late, meant until the Social
+ * tab was opened (2026-10-19).
+ */
+internal fun socialPushStep(input: SocialPushInput, registered: String?, seenActive: Boolean): SocialPushStep {
+    val profile = input.activeProfileId
+    return when {
+        // Signed out, Social switched off, or a profile without Social - once one has been active here.
+        profile == null -> if (seenActive && registered != null) SocialPushStep.Forget else SocialPushStep.Wait
+        !input.alertsOn -> when (registered) {
+            null -> SocialPushStep.Wait
+            profile -> SocialPushStep.Unregister
+            else -> SocialPushStep.Forget
+        }
+        input.ready -> SocialPushStep.Register
+        // Another profile is active and not loaded yet: the old one's pushes are no longer this phone's.
+        registered != null && registered != profile -> SocialPushStep.Forget
+        else -> SocialPushStep.Wait
     }
 }
