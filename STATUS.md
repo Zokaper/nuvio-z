@@ -1,5 +1,25 @@
 Last updated: 2026-10-19
 
+## Social strings to resources (2026-10-19, Debug mobile 105 / desktop 113)
+
+The Stage 1 string-resources sweep, held until the Recommended placement was picked.
+
+- **Block**: `values/strings.xml` gains one appended block, `<!-- Nuvio Z: Social V2 strings (2026-10-19). -->`
+  (141 strings, 5 plurals), **identical in both repos** - written by one script, so phone-only keys sit unused on
+  desktop and the tray keys sit unused on mobile. Edit the block in both repos together.
+- **Shared Kotlin** (desktop `fdff0b7bb` -> mobile): everything the Social screens draw directly - tab, Friends view,
+  Inbox, join sheet, friend profile, invite dialog, recommendations (shelf, details line, picker, toasts), Home
+  shelves, Watch Together dock, Social settings. Coroutine feedback uses `getString`. `socialRich` now takes a
+  template (`%1$s recommends %2$s`) and emphasises its arguments, so translations can reorder them;
+  `dockPresentation` became `@Composable`.
+- **Per repo**: `DesktopSocialSettingsSections` (Pop-ups, In the background), `PhoneSocialAlertsSection` (Notifications).
+- **Left as code, deliberately**: pure label builders that unit tests assert word for word, some compared by value
+  (`socialStatusLabel() == "WATCH PARTY"`): `socialPeopleLabel`, relative times and activity buckets, status / sentence /
+  meta, pop-up lines, join step notices, affordance labels, friend-request error mapping, `socialTogetherDuration`, the
+  facts line, `phoneSocialAlertsDescription` actuals. Moving them means passing resolved strings in; a later pass.
+- Renders unchanged (Inbox emphasis, plurals "1 party" / "3 parties"). Tests: desktop 319/319 (Social, Settings, Home,
+  Tray), mobile host 277/277, Android compiles; iOS on CI.
+
 ## Inbox: Unread / Read (2026-10-19, Debug mobile 104 / desktop 112)
 
 Maintainer on desktop 111: an invite that had just arrived ("Just now") sat under **Earlier**. "New" was a snapshot of what was

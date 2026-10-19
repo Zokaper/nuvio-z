@@ -185,6 +185,10 @@
     {
       "build": 104,
       "text": "The Inbox is split into Unread and Read, and something that arrives while it's open now lands under Unread (an invite that had just come in used to show up under Earlier)."
+    },
+    {
+      "build": 105,
+      "text": "Behind the scenes: the Social screens' text now comes from the app's string files, ready for translation. Nothing should look different; tell us if any Social label reads oddly."
     }
   ]
 }
