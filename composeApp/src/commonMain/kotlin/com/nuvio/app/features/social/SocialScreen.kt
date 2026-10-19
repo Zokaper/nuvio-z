@@ -1105,9 +1105,14 @@ private fun SocialFriendsContent(
 // --- inbox -----------------------------------------------------------------------------------
 
 /**
- * Everything that happened to you on Social, newest first, each message its own card. Opening the
- * page marks what is on it read; "New" is what was unread when it opened, so the grouping does not
- * shift under the reader once the read marks land.
+ * Everything that happened to you on Social, newest first, each message its own card, in two groups:
+ * Unread and Read. Opening the page marks what is on it read, and so does anything that arrives while
+ * it is open; "Unread" is everything that was not already read when the page opened, so the grouping
+ * does not shift under the reader once the read marks land.
+ *
+ * ⚠ **Not "what was unread at open".** That was the rule until 2026-10-19, and it filed an invite that
+ * arrived while the Inbox was open (or a moment before its state caught up) under "Earlier" with a
+ * "Just now" time on it. The snapshot is now of what was *read*, so a newcomer is unread by default.
  */
 @Composable
 private fun SocialInboxPage(
@@ -1130,14 +1135,15 @@ private fun SocialInboxPage(
         state.inbox.filter { it.kind in SocialInboxEvent.Known && it.kind != SocialInboxEvent.Recommendation }
             .map { SocialInboxEntry.Event(it) }
     val timeline = entries.sortedByDescending { parseSocialTimestampMs(it.createdAt) ?: Long.MIN_VALUE }
-    val unreadAtOpen = remember { timeline.filter { it.unread }.map { it.key }.toSet() }
-    LaunchedEffect(Unit) {
-        val notices = state.notifications.filter { it.readAt == null }.map { it.id }.toSet()
-        val events = state.inbox.filter { it.readAt == null }.map { it.id }.toSet()
-        if (notices.isNotEmpty()) onMarkRead(notices)
-        if (events.isNotEmpty()) onMarkInboxRead(events)
+    val readAtOpen = remember { timeline.filterNot { it.unread }.map { it.key }.toSet() }
+    // Keyed on what is unread, so a message that arrives while the page is open is marked read too.
+    val unreadNotices = state.notifications.filter { it.readAt == null }.map { it.id }.toSet()
+    val unreadEvents = state.inbox.filter { it.readAt == null }.map { it.id }.toSet()
+    LaunchedEffect(unreadNotices, unreadEvents) {
+        if (unreadNotices.isNotEmpty()) onMarkRead(unreadNotices)
+        if (unreadEvents.isNotEmpty()) onMarkInboxRead(unreadEvents)
     }
-    val (fresh, earlier) = timeline.partition { it.key in unreadAtOpen }
+    val (fresh, earlier) = splitInboxUnreadRead(timeline, readAtOpen) { it.key }
     // "Recommended to you" leads the Inbox (picked 2026-10-19 over the feed shelf, the Friends rail and a
     // "For you" pill): it is what friends sent you, kept until you watch or remove it.
     val recommended = remember(state.inbox) { recommendedToYou(state.inbox) }
@@ -1153,7 +1159,7 @@ private fun SocialInboxPage(
             }
             val legacy = state.capabilities.partyContractVersion < 2
             if (legacy && (state.requests.isNotEmpty() || state.partyInvites.isNotEmpty())) {
-                item(key = "legacy-label") { SocialSectionLabel("New", state.requests.size + state.partyInvites.size) }
+                item(key = "legacy-label") { SocialSectionLabel("Unread", state.requests.size + state.partyInvites.size) }
                 state.requests.forEach { request ->
                     item(key = "legacy-request:${request.id}") {
                         SocialInboxCard(
@@ -1192,13 +1198,13 @@ private fun SocialInboxPage(
                 }
             }
             if (fresh.isNotEmpty()) {
-                item(key = "new-label") { SocialSectionLabel("New", fresh.size) }
+                item(key = "new-label") { SocialSectionLabel("Unread", fresh.size) }
                 fresh.forEach { entry ->
                     item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = true, onAction, onOpenContent) }
                 }
             }
             if (earlier.isNotEmpty()) {
-                item(key = "earlier-label") { SocialSectionLabel("Earlier", modifier = Modifier.padding(top = 8.dp)) }
+                item(key = "earlier-label") { SocialSectionLabel("Read", modifier = Modifier.padding(top = 8.dp)) }
                 earlier.forEach { entry ->
                     item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = false, onAction, onOpenContent) }
                 }
@@ -1206,6 +1212,13 @@ private fun SocialInboxPage(
         }
     }
 }
+
+/**
+ * The Inbox's two groups, newest first in each: Unread is everything whose key was not in [readAtOpen] (the
+ * entries already read when the page opened), so a message arriving while the page is open is Unread.
+ */
+internal fun <T> splitInboxUnreadRead(timeline: List<T>, readAtOpen: Set<String>, key: (T) -> String): Pair<List<T>, List<T>> =
+    timeline.partition { key(it) !in readAtOpen }
 
 /** One line of the inbox: a derived notification or a stored event. */
 private sealed interface SocialInboxEntry {
