@@ -1,5 +1,27 @@
 Last updated: 2026-10-19
 
+## Recommended to you: Inbox, plus an opt-in Home shelf (2026-10-19, Debug mobile 103 / desktop 111)
+
+Maintainer picked placement **D (the Inbox)** "then an option to display it on home as well as a shelf".
+
+- **Inbox** (shared `SocialScreen.kt`): the A+ shelf leads the Inbox on every layout. A `recommendation` event is no
+  longer also an Inbox card under it (the D render showed both); `recommendation_started` still is. The empty line
+  shows only when the shelf is empty too.
+- **Home**: Social settings -> Home -> **Show recommendations on Home**, **off by default** (the maintainer had called
+  Home busy). `SocialFeaturePreferencesRepository.showRecommendedOnHome` (nullable stored, like the Friends switch),
+  synced per profile by `SocialHomeSync` under `show_recommended_on_home`; each key is exported only once moved and a
+  missing key leaves the device's value alone (older builds export the Friends key alone). `homeRecommendedSection`
+  draws the A+ tiles at Home tile width under the Friends shelf, read from the live state so it does not depend on the
+  Friends switch; long-press removes after the same confirm (`RecommendedDismissDialog`). `HomeScreen` is per repo
+  (diverged), edited identically in both.
+- **Deleted**: `RecommendedPlacement` / `LocalRecommendedPlacement`, the feed shelf, `SocialRecommendedRail`,
+  `SocialRecommendedPage`, `SocialOverlay.ForYou` and the header's For you pill (`SocialCountPill` stays; Inbox uses it).
+- Tests: `SocialHomeSyncTest` (defaults, export, restart, partial and full sync); `SocialRenderHarness.renderRecommendedToYou`
+  (`build/social-render/recommended-{inbox,home}-{desktop,phone}.png`) replaces the placement renders; the Home
+  contrast test now includes recommendation tiles.
+- **Next: the string-resources sweep** (Social files are still hardcoded English; ~130 strings across `SocialScreen`,
+  `SocialRecommendations`, `SocialSettingsPage` and smaller files; each repo's `strings.xml` by hand).
+
 ## Circle glyphs, Recommended-by colour, Start with Windows, placement candidates (2026-10-19, Debug mobile 102 / desktop 110)
 
 Maintainer, on 100/108: avatar initials and the Inbox count sat low in their circles; the details page's
