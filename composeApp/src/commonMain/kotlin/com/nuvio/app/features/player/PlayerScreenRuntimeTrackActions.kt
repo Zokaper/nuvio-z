@@ -211,6 +211,42 @@ internal fun PlayerScreenRuntime.refreshTracks() {
     if (subtitlePreferenceReady && (preferredAudioSelectionApplied || audioTracks.isEmpty())) {
         tryAutoSelectPreferredSubtitleFromAvailableTracks(preferredAudioTargets)
     }
+    logSubtitlePickIfChanged()
+}
+
+/**
+ * What the subtitle picker saw and chose, each time either changes. Wrong automatic picks could not be
+ * reconstructed before this: the log held neither the file's track list nor the outcome. `:on` is
+ * what the engine reports as selected, `chosen` is what the picker believes it selected.
+ */
+private fun PlayerScreenRuntime.logSubtitlePickIfChanged() {
+    if (subtitleTracks.isEmpty() && addonSubtitles.isEmpty()) return
+    val tracks = subtitleTracks.joinToString(" ") { track ->
+        buildString {
+            append(track.index).append(':').append(track.language ?: "?")
+            if (track.isForced) append(":forced")
+            if (track.isDefault) append(":default")
+            if (track.isExternal) append(":external")
+            if (track.isSelected) append(":on")
+            append(":\"").append(track.label.take(40)).append('"')
+        }
+    }
+    val audio = audioTracks.firstOrNull { it.index == selectedAudioIndex }
+    val chosen = when {
+        selectedAddonSubtitleId != null ->
+            "addon:${selectedAddonSubtitle?.language}:${selectedAddonSubtitle?.addonName}"
+        selectedSubtitleIndex >= 0 -> "track:$selectedSubtitleIndex"
+        else -> "none"
+    }
+    val line = "subtitle_pick chosen=$chosen applied=$preferredSubtitleSelectionApplied " +
+        "explicit=$isUserExplicitSubtitleSelection audioApplied=$preferredAudioSelectionApplied " +
+        "scanned=$hasScannedTextTracksOnce loading=${playbackSnapshot.isLoading} " +
+        "pref=${playerSettingsUiState.preferredSubtitleLanguage}/${playerSettingsUiState.secondaryPreferredSubtitleLanguage} " +
+        "forcedMode=${subtitleStyle.useForcedSubtitles} audio=${audio?.language}:${audio?.label?.substringBefore(" (")} " +
+        "addons=${addonSubtitles.size}${if (isLoadingAddonSubtitles) "(loading)" else ""} tracks=[$tracks]"
+    if (line == subtitlePickLoggedLine) return
+    subtitlePickLoggedLine = line
+    trackLog.i { line }
 }
 
 private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTracks(

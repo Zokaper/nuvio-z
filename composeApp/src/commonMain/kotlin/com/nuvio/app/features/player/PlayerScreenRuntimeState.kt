@@ -372,6 +372,9 @@ internal class PlayerScreenRuntime(
 
     /** The source whose embedded-subtitle verification has already been logged, so it logs once. */
     var embeddedSubtitleVerificationLoggedFor by mutableStateOf<String?>(null)
+
+    /** The last `subtitle_pick` line written, so the picker's view is logged only when it changes. */
+    var subtitlePickLoggedLine: String? = null
     var hasScannedTextTracksOnce by mutableStateOf(false)
     var autoFetchedAddonSubtitlesForKey by mutableStateOf<String?>(null)
     var trackPreferenceRestoreApplied by mutableStateOf(false)

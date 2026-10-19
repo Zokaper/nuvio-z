@@ -524,8 +524,18 @@ internal fun findPersistedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,
     preference: PersistedPlayerTrackPreference,
 ): Int {
+    // Z: a track id is a position in one file (mpv's `sid` - "3"), and this preference is kept per
+    // show, so the same id in the next episode's release can be another language. Trust the id only
+    // when the stored language and forced flag still agree.
+    val storedLanguage = preference.subtitleLanguage?.takeIf { it.isNotBlank() }
     preference.subtitleTrackId?.takeIf { it.isNotBlank() }?.let { trackId ->
-        tracks.firstOrNull { it.id == trackId }?.let { return it.index }
+        tracks.firstOrNull { track ->
+            track.id == trackId &&
+                (preference.subtitleIsForced == null || track.isForced == preference.subtitleIsForced) &&
+                (storedLanguage == null ||
+                    SubtitleLanguageMatching.matchesLanguageCode(track.language, storedLanguage) ||
+                    subtitleTrackMatchesLanguage(track, storedLanguage))
+        }?.let { return it.index }
     }
 
     val languageCandidates = preference.subtitleLanguage?.takeIf { it.isNotBlank() }?.let { language ->
@@ -534,10 +544,12 @@ internal fun findPersistedSubtitleTrackIndex(
                 subtitleTrackMatchesLanguage(tracks[index], language)
         }
     }.orEmpty()
-    val forcedFiltered = if (preference.subtitleIsForced == true) {
-        languageCandidates.filter { index -> tracks[index].isForced }
-    } else {
-        languageCandidates
+    // Z: the forced flag is honoured both ways - a remembered full track must not come back as the
+    // forced-only one that happens to share its language (and sort first).
+    val forcedFiltered = when (preference.subtitleIsForced) {
+        true -> languageCandidates.filter { index -> tracks[index].isForced }
+        false -> languageCandidates.filter { index -> !tracks[index].isForced }.ifEmpty { languageCandidates }
+        null -> languageCandidates
     }
     if (forcedFiltered.size == 1) return tracks[forcedFiltered.first()].index
     if (forcedFiltered.size > 1) {
@@ -558,10 +570,10 @@ internal fun findPersistedSubtitleTrackIndex(
 
     preference.subtitleName?.takeIf { it.isNotBlank() }?.let { name ->
         val nameMatches = tracks.filter { it.label.equals(name, ignoreCase = true) }
-        val forcedNameMatches = if (preference.subtitleIsForced == true) {
-            nameMatches.filter { it.isForced }
-        } else {
-            nameMatches
+        val forcedNameMatches = when (preference.subtitleIsForced) {
+            true -> nameMatches.filter { it.isForced }
+            false -> nameMatches.filter { !it.isForced }.ifEmpty { nameMatches }
+            null -> nameMatches
         }
         forcedNameMatches.firstOrNull()?.let { return it.index }
     }
