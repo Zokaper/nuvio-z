@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioAsyncImage
+import nuvio.composeapp.generated.resources.social_inbox
 
 /*
  * Social V2's card family (PLAN-social-v2.md, Stage 0 decisions of 2026-10-05).
@@ -291,7 +292,7 @@ internal fun SocialPillButton(
 /** "Inbox (2)" - the persistent way into notifications, top-right of every Social layout. */
 @Composable
 internal fun SocialInboxButton(unread: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    SocialCountPill("Inbox", unread, onClick, modifier)
+    SocialCountPill(stringResource(Res.string.social_inbox), unread, onClick, modifier)
 }
 
 /** A header pill with a count beside its label, shown while the count is above zero. */

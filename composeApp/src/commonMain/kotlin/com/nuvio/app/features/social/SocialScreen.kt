@@ -111,6 +111,91 @@ import nuvio.composeapp.generated.resources.social_no_activity
 import nuvio.composeapp.generated.resources.social_offline_cache
 import nuvio.composeapp.generated.resources.social_title
 import org.jetbrains.compose.resources.stringResource
+import nuvio.composeapp.generated.resources.social_accept
+import nuvio.composeapp.generated.resources.social_add
+import nuvio.composeapp.generated.resources.social_add_by_handle
+import nuvio.composeapp.generated.resources.social_already_friends
+import nuvio.composeapp.generated.resources.social_ask_to_join
+import nuvio.composeapp.generated.resources.social_back
+import nuvio.composeapp.generated.resources.social_cancel
+import nuvio.composeapp.generated.resources.social_cancel_request
+import nuvio.composeapp.generated.resources.social_cancelling
+import nuvio.composeapp.generated.resources.social_close
+import nuvio.composeapp.generated.resources.social_decline
+import nuvio.composeapp.generated.resources.social_details
+import nuvio.composeapp.generated.resources.social_expired
+import nuvio.composeapp.generated.resources.social_friend_paused
+import nuvio.composeapp.generated.resources.social_friend_watching
+import nuvio.composeapp.generated.resources.social_friends
+import nuvio.composeapp.generated.resources.social_handle_friends
+import nuvio.composeapp.generated.resources.social_handle_save_failed
+import nuvio.composeapp.generated.resources.social_hide_from
+import nuvio.composeapp.generated.resources.social_in_party
+import nuvio.composeapp.generated.resources.social_inbox
+import nuvio.composeapp.generated.resources.social_inbox_empty
+import nuvio.composeapp.generated.resources.social_invite_code
+import nuvio.composeapp.generated.resources.social_invite_join_title
+import nuvio.composeapp.generated.resources.social_join
+import nuvio.composeapp.generated.resources.social_join_ask
+import nuvio.composeapp.generated.resources.social_join_closed
+import nuvio.composeapp.generated.resources.social_join_direct
+import nuvio.composeapp.generated.resources.social_join_now
+import nuvio.composeapp.generated.resources.social_join_together
+import nuvio.composeapp.generated.resources.social_join_waiting
+import nuvio.composeapp.generated.resources.social_joining
+import nuvio.composeapp.generated.resources.social_no_friends
+import nuvio.composeapp.generated.resources.social_nothing_shared
+import nuvio.composeapp.generated.resources.social_notify_when
+import nuvio.composeapp.generated.resources.social_open
+import nuvio.composeapp.generated.resources.social_party_count
+import nuvio.composeapp.generated.resources.social_privacy
+import nuvio.composeapp.generated.resources.social_read
+import nuvio.composeapp.generated.resources.social_recently_watched_label
+import nuvio.composeapp.generated.resources.social_remove
+import nuvio.composeapp.generated.resources.social_remove_friend
+import nuvio.composeapp.generated.resources.social_remove_friend_body
+import nuvio.composeapp.generated.resources.social_remove_title
+import nuvio.composeapp.generated.resources.social_request_incoming
+import nuvio.composeapp.generated.resources.social_request_sent
+import nuvio.composeapp.generated.resources.social_requests
+import nuvio.composeapp.generated.resources.social_return
+import nuvio.composeapp.generated.resources.social_rich_asked_join
+import nuvio.composeapp.generated.resources.social_rich_asked_join_title
+import nuvio.composeapp.generated.resources.social_rich_declined_friend
+import nuvio.composeapp.generated.resources.social_rich_declined_invite
+import nuvio.composeapp.generated.resources.social_rich_declined_invite_title
+import nuvio.composeapp.generated.resources.social_rich_declined_join
+import nuvio.composeapp.generated.resources.social_rich_declined_join_title
+import nuvio.composeapp.generated.resources.social_rich_friend_accepted
+import nuvio.composeapp.generated.resources.social_rich_friend_watching
+import nuvio.composeapp.generated.resources.social_rich_friend_watching_title
+import nuvio.composeapp.generated.resources.social_rich_invited
+import nuvio.composeapp.generated.resources.social_rich_invited_title
+import nuvio.composeapp.generated.resources.social_rich_joined_party
+import nuvio.composeapp.generated.resources.social_rich_joined_playback
+import nuvio.composeapp.generated.resources.social_rich_joined_playback_title
+import nuvio.composeapp.generated.resources.social_rich_now_friends
+import nuvio.composeapp.generated.resources.social_rich_rec_started
+import nuvio.composeapp.generated.resources.social_rich_rec_started_title
+import nuvio.composeapp.generated.resources.social_rich_recommendation
+import nuvio.composeapp.generated.resources.social_rich_recommends
+import nuvio.composeapp.generated.resources.social_rich_wants_friends
+import nuvio.composeapp.generated.resources.social_rich_watched_with
+import nuvio.composeapp.generated.resources.social_search_failed
+import nuvio.composeapp.generated.resources.social_search_handles
+import nuvio.composeapp.generated.resources.social_search_no_match
+import nuvio.composeapp.generated.resources.social_search_too_short
+import nuvio.composeapp.generated.resources.social_sent
+import nuvio.composeapp.generated.resources.social_settings_title
+import nuvio.composeapp.generated.resources.social_together_line
+import nuvio.composeapp.generated.resources.social_unread
+import nuvio.composeapp.generated.resources.social_waiting_reply
+import nuvio.composeapp.generated.resources.social_wants_friends_subtitle
+import nuvio.composeapp.generated.resources.social_watched_together
+import nuvio.composeapp.generated.resources.social_watching_now_label
+import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.getString
+import org.jetbrains.compose.resources.StringResource
 
 /** Live presence, which is the reason to open this tab; fixed rather than themed, as in the lobby. */
 internal val SocialLiveColor = Color(0xFF6FD08C)
@@ -171,7 +256,7 @@ fun SocialScreen(
             val query = search.trim()
             if (query.length < 3) {
                 searchResults = emptyList()
-                feedback = SocialFeedback("Type at least 3 characters to search", SocialFeedbackTone.Neutral)
+                feedback = SocialFeedback(getString(Res.string.social_search_too_short), SocialFeedbackTone.Neutral)
             } else {
                 isSearching = true
                 feedback = null
@@ -179,14 +264,14 @@ fun SocialScreen(
                     .onSuccess { results ->
                         searchResults = results
                         feedback = if (results.isEmpty()) {
-                            SocialFeedback("No one is using @$query", SocialFeedbackTone.Neutral)
+                            SocialFeedback(getString(Res.string.social_search_no_match, query), SocialFeedbackTone.Neutral)
                         } else {
                             null
                         }
                     }
                     .onFailure { error ->
                         searchResults = emptyList()
-                        feedback = SocialFeedback(error.message ?: "Search failed", SocialFeedbackTone.Negative)
+                        feedback = SocialFeedback(error.message ?: getString(Res.string.social_search_failed), SocialFeedbackTone.Negative)
                     }
                 isSearching = false
             }
@@ -204,7 +289,7 @@ fun SocialScreen(
                 }
             if (alreadyFriends || incoming) {
                 feedback = SocialFeedback(
-                    if (alreadyFriends) "You're already friends." else "They've already sent you a request. Check your inbox.",
+                    if (alreadyFriends) getString(Res.string.social_already_friends) else getString(Res.string.social_request_incoming),
                     SocialFeedbackTone.Neutral,
                 )
                 return@launch
@@ -213,7 +298,7 @@ fun SocialScreen(
             SocialRepository.sendFriendRequest(profile.profileId)
                 .onSuccess {
                     searchResults = searchResults.filterNot { it.profileId == profile.profileId }
-                    feedback = SocialFeedback("Friend request sent to @${profile.handle}", SocialFeedbackTone.Positive)
+                    feedback = SocialFeedback(getString(Res.string.social_request_sent, profile.handle), SocialFeedbackTone.Positive)
                 }
                 .onFailure { error ->
                     feedback = SocialFeedback(socialFriendRequestMessage(error.message), SocialFeedbackTone.Negative)
@@ -286,7 +371,7 @@ fun SocialScreen(
                 scope.launch {
                     // A handle that never saved must not look like one that did.
                     SocialRepository.setupHandle(handle)
-                        .onFailure { error -> handleMessage = error.message ?: "Could not save that handle" }
+                        .onFailure { error -> handleMessage = error.message ?: getString(Res.string.social_handle_save_failed) }
                         .onSuccess { handleMessage = null }
                 }
             },
@@ -694,7 +779,7 @@ private fun SocialHeader(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "@${me.handle} · $friendCount ${if (friendCount == 1) "friend" else "friends"}",
+                        pluralStringResource(Res.plurals.social_handle_friends, friendCount, me.handle, friendCount),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -710,7 +795,7 @@ private fun SocialHeader(
                 fontWeight = FontWeight.Bold,
             )
         }
-        if (showInvite) SocialPillButton("Invite code", onInvite)
+        if (showInvite) SocialPillButton(stringResource(Res.string.social_invite_code), onInvite)
         if (showInbox) SocialInboxButton(unread, onInbox)
         // Social settings live here, not only in the Settings tab (2026-10-16). Shown whenever the
         // tab itself is: the handle step and the off notice both still have privacy to set.
@@ -720,11 +805,12 @@ private fun SocialHeader(
 
 @Composable
 private fun SocialSettingsButton(onClick: () -> Unit) {
+    val label = stringResource(Res.string.social_settings_title)
     Box(
         Modifier.size(34.dp).clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Social settings" },
+            .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurface)
@@ -739,7 +825,7 @@ private fun SocialSettingsButton(onClick: () -> Unit) {
  */
 @Composable
 private fun SocialSettingsOverlay(wide: Boolean, topInset: Dp, onDismiss: () -> Unit) {
-    SocialPageShell(title = "Social settings", wide = wide, topInset = topInset, onDismiss = onDismiss) { horizontal, bottom ->
+    SocialPageShell(title = stringResource(Res.string.social_settings_title), wide = wide, topInset = topInset, onDismiss = onDismiss) { horizontal, bottom ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(start = horizontal, end = horizontal, top = 8.dp, bottom = bottom),
@@ -782,7 +868,7 @@ private fun SocialPageShell(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close") }
+                            IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, stringResource(Res.string.social_close)) }
                         }
                         content(20.dp, 20.dp)
                     }
@@ -796,7 +882,7 @@ private fun SocialPageShell(
                     Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(Res.string.social_back)) }
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
                 content(16.dp, nuvioSafeBottomPadding(extra = 16.dp))
@@ -843,8 +929,8 @@ private fun LazyListScope.socialActivityItems(
             ) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(SocialLiveColor))
                 Spacer(Modifier.width(10.dp))
-                Text("You're in a Watch Together party", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                SocialPillButton("Return", { actions.onReturnParty(partyId) }, primary = true)
+                Text(stringResource(Res.string.social_in_party), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                SocialPillButton(stringResource(Res.string.social_return), { actions.onReturnParty(partyId) }, primary = true)
             }
         }
     }
@@ -857,7 +943,7 @@ private fun LazyListScope.socialActivityItems(
 
     val watching = orderWatchingNowForDisplay(state.watchingNow)
     item(key = "watching-label") {
-        SocialSectionLabel("Watching now", watching.size.takeIf { it > 0 }, live = watching.isNotEmpty())
+        SocialSectionLabel(stringResource(Res.string.social_watching_now_label), watching.size.takeIf { it > 0 }, live = watching.isNotEmpty())
     }
     if (watching.isEmpty()) {
         item(key = "watching-empty") {
@@ -890,7 +976,7 @@ private fun LazyListScope.socialActivityItems(
     }
 
     if (model.activityGroups.isEmpty()) {
-        item(key = "recent-label") { SocialSectionLabel("Recently watched", modifier = Modifier.padding(top = 8.dp)) }
+        item(key = "recent-label") { SocialSectionLabel(stringResource(Res.string.social_recently_watched_label), modifier = Modifier.padding(top = 8.dp)) }
         item(key = "recent-empty") {
             if (state.isLoading) {
                 SocialSkeleton(84.dp)
@@ -976,7 +1062,7 @@ private fun SocialFriendsContent(
             modifier = Modifier.weight(1f),
             singleLine = true,
             shape = RoundedCornerShape(999.dp),
-            placeholder = { Text("Add by @handle", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            placeholder = { Text(stringResource(Res.string.social_add_by_handle), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { actions.onRunSearch() }),
             trailingIcon = {
@@ -984,12 +1070,12 @@ private fun SocialFriendsContent(
                     if (model.isSearching) {
                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
-                        Icon(Icons.Rounded.Search, "Search handles")
+                        Icon(Icons.Rounded.Search, stringResource(Res.string.social_search_handles))
                     }
                 }
             },
         )
-        if (showInvite) SocialPillButton("Invite code", onInvite)
+        if (showInvite) SocialPillButton(stringResource(Res.string.social_invite_code), onInvite)
     }
     model.feedback?.let { entry ->
         Text(
@@ -1007,7 +1093,7 @@ private fun SocialFriendsContent(
         SocialPersonLine(
             person = profile,
             subtitle = "@${profile.handle}",
-            trailing = { SocialPillButton("Add", { actions.onSendRequest(profile) }, primary = true) },
+            trailing = { SocialPillButton(stringResource(Res.string.social_add), { actions.onSendRequest(profile) }, primary = true) },
         )
     }
 
@@ -1018,18 +1104,18 @@ private fun SocialFriendsContent(
     val legacyRequests = if (state.capabilities.partyContractVersion >= 2) emptyList() else state.requests
     val requestCount = requestNotifications.size + legacyRequests.size
     if (requestCount > 0) {
-        SocialSectionLabel("Requests", requestCount, modifier = Modifier.padding(top = 10.dp))
+        SocialSectionLabel(stringResource(Res.string.social_requests), requestCount, modifier = Modifier.padding(top = 10.dp))
         requestNotifications.forEach { request ->
             SocialPersonLine(
                 person = request.actor,
-                subtitle = "@${request.actor.handle} · wants to be friends",
+                subtitle = stringResource(Res.string.social_wants_friends_subtitle, request.actor.handle),
                 below = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (SocialNotificationAction.Accept in request.availableActions) {
-                            SocialPillButton("Accept", { actions.onNotificationAction(request, SocialNotificationAction.Accept) }, primary = true)
+                            SocialPillButton(stringResource(Res.string.social_accept), { actions.onNotificationAction(request, SocialNotificationAction.Accept) }, primary = true)
                         }
                         if (SocialNotificationAction.Decline in request.availableActions) {
-                            SocialPillButton("Decline", { actions.onNotificationAction(request, SocialNotificationAction.Decline) })
+                            SocialPillButton(stringResource(Res.string.social_decline), { actions.onNotificationAction(request, SocialNotificationAction.Decline) })
                         }
                     }
                 },
@@ -1038,11 +1124,11 @@ private fun SocialFriendsContent(
         legacyRequests.forEach { request ->
             SocialPersonLine(
                 person = request.sender,
-                subtitle = "@${request.sender.handle} · wants to be friends",
+                subtitle = stringResource(Res.string.social_wants_friends_subtitle, request.sender.handle),
                 below = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SocialPillButton("Accept", { actions.onRespondRequest(request.id, true) }, primary = true)
-                        SocialPillButton("Decline", { actions.onRespondRequest(request.id, false) })
+                        SocialPillButton(stringResource(Res.string.social_accept), { actions.onRespondRequest(request.id, true) }, primary = true)
+                        SocialPillButton(stringResource(Res.string.social_decline), { actions.onRespondRequest(request.id, false) })
                     }
                 },
             )
@@ -1050,12 +1136,12 @@ private fun SocialFriendsContent(
     }
 
     if (state.sentRequests.isNotEmpty()) {
-        SocialSectionLabel("Sent", state.sentRequests.size, modifier = Modifier.padding(top = 10.dp))
+        SocialSectionLabel(stringResource(Res.string.social_sent), state.sentRequests.size, modifier = Modifier.padding(top = 10.dp))
         state.sentRequests.forEach { sent ->
             SocialPersonLine(
                 person = sent.receiver,
-                subtitle = "@${sent.receiver.handle} · waiting for a reply",
-                trailing = { SocialPillButton("Cancel", { actions.onCancelFriendRequest(sent.id) }) },
+                subtitle = stringResource(Res.string.social_waiting_reply, sent.receiver.handle),
+                trailing = { SocialPillButton(stringResource(Res.string.social_cancel), { actions.onCancelFriendRequest(sent.id) }) },
             )
         }
     }
@@ -1076,10 +1162,10 @@ private fun SocialFriendsContent(
                 .thenBy { it.displayName.lowercase() },
         )
     }
-    SocialSectionLabel("Friends", friends.size.takeIf { it > 0 }, modifier = Modifier.padding(top = 10.dp))
+    SocialSectionLabel(stringResource(Res.string.social_friends), friends.size.takeIf { it > 0 }, modifier = Modifier.padding(top = 10.dp))
     if (friends.isEmpty()) {
         Text(
-            "No friends yet. Search a handle above to send the first request.",
+            stringResource(Res.string.social_no_friends),
             style = MaterialTheme.typography.bodyMedium,
             color = muted,
             modifier = Modifier.padding(vertical = 6.dp),
@@ -1092,8 +1178,8 @@ private fun SocialFriendsContent(
                 person = friend,
                 subtitle = when {
                     watching == null -> "@${friend.handle}"
-                    playing -> "Watching ${watching.title}"
-                    else -> "Paused · ${watching.title}"
+                    playing -> stringResource(Res.string.social_friend_watching, watching.title)
+                    else -> stringResource(Res.string.social_friend_paused, watching.title)
                 },
                 live = playing,
                 onClick = { onOpenProfile(friend.profileId) },
@@ -1148,7 +1234,7 @@ private fun SocialInboxPage(
     // "For you" pill): it is what friends sent you, kept until you watch or remove it.
     val recommended = remember(state.inbox) { recommendedToYou(state.inbox) }
     // A right-hand panel over the dashboard on wide layouts (2026-10-16), a full page on phones.
-    SocialPageShell(title = "Inbox", wide = wide, topInset = topInset, onDismiss = onBack) { horizontal, bottom ->
+    SocialPageShell(title = stringResource(Res.string.social_inbox), wide = wide, topInset = topInset, onDismiss = onBack) { horizontal, bottom ->
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = horizontal, end = horizontal, bottom = bottom),
@@ -1159,17 +1245,17 @@ private fun SocialInboxPage(
             }
             val legacy = state.capabilities.partyContractVersion < 2
             if (legacy && (state.requests.isNotEmpty() || state.partyInvites.isNotEmpty())) {
-                item(key = "legacy-label") { SocialSectionLabel("Unread", state.requests.size + state.partyInvites.size) }
+                item(key = "legacy-label") { SocialSectionLabel(stringResource(Res.string.social_unread), state.requests.size + state.partyInvites.size) }
                 state.requests.forEach { request ->
                     item(key = "legacy-request:${request.id}") {
                         SocialInboxCard(
                             person = request.sender,
-                            text = socialRich(request.sender.displayName to true, " wants to be friends" to false),
+                            text = socialRich(Res.string.social_rich_wants_friends, request.sender.displayName),
                             time = relativeTimeLabel(parseSocialTimestampMs(request.createdAt), nowMs),
                             unread = true,
                             actions = listOf(
-                                Triple("Accept", true) { onRespondLegacy(request.id, true) },
-                                Triple("Decline", false) { onRespondLegacy(request.id, false) },
+                                Triple(stringResource(Res.string.social_accept), true) { onRespondLegacy(request.id, true) },
+                                Triple(stringResource(Res.string.social_decline), false) { onRespondLegacy(request.id, false) },
                             ),
                         )
                     }
@@ -1178,11 +1264,11 @@ private fun SocialInboxPage(
                     item(key = "legacy-invite:${invite.id}") {
                         SocialInboxCard(
                             person = invite.sender,
-                            text = socialRich(invite.sender.displayName to true, " invited you to watch " to false, invite.content.title to true),
+                            text = socialRich(Res.string.social_rich_invited_title, invite.sender.displayName, invite.content.title),
                             time = relativeTimeLabel(parseSocialTimestampMs(invite.createdAt), nowMs),
                             unread = true,
                             art = invite.content.artRef(),
-                            actions = listOf(Triple("Join", true) { onJoinLegacyInvite(invite.partyId) }),
+                            actions = listOf(Triple(stringResource(Res.string.social_join), true) { onJoinLegacyInvite(invite.partyId) }),
                         )
                     }
                 }
@@ -1190,7 +1276,7 @@ private fun SocialInboxPage(
             if (!legacy && timeline.isEmpty() && recommended.isEmpty()) {
                 item(key = "empty") {
                     Text(
-                        "Nothing here yet. Friend requests and Watch Together invites land here.",
+                        stringResource(Res.string.social_inbox_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -1198,13 +1284,13 @@ private fun SocialInboxPage(
                 }
             }
             if (fresh.isNotEmpty()) {
-                item(key = "new-label") { SocialSectionLabel("Unread", fresh.size) }
+                item(key = "new-label") { SocialSectionLabel(stringResource(Res.string.social_unread), fresh.size) }
                 fresh.forEach { entry ->
                     item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = true, onAction, onOpenContent) }
                 }
             }
             if (earlier.isNotEmpty()) {
-                item(key = "earlier-label") { SocialSectionLabel("Read", modifier = Modifier.padding(top = 8.dp)) }
+                item(key = "earlier-label") { SocialSectionLabel(stringResource(Res.string.social_read), modifier = Modifier.padding(top = 8.dp)) }
                 earlier.forEach { entry ->
                     item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = false, onAction, onOpenContent) }
                 }
@@ -1269,16 +1355,16 @@ private fun SocialInboxEventCard(
         null
     }
     val text = when (event.kind) {
-        SocialInboxEvent.FriendAccepted -> socialRich(name to true, " accepted your friend request" to false)
+        SocialInboxEvent.FriendAccepted -> socialRich(Res.string.social_rich_friend_accepted, name)
         SocialInboxEvent.FriendWatching ->
-            if (title != null) socialRich(name to true, " started watching " to false, title to true)
-            else socialRich(name to true, " started watching" to false)
+            if (title != null) socialRich(Res.string.social_rich_friend_watching_title, name, title)
+            else socialRich(Res.string.social_rich_friend_watching, name)
         SocialInboxEvent.RecommendationStarted ->
-            if (title != null) socialRich(name to true, " started watching " to false, title to true, ", your recommendation" to false)
-            else socialRich(name to true, " started watching your recommendation" to false)
+            if (title != null) socialRich(Res.string.social_rich_rec_started_title, name, title)
+            else socialRich(Res.string.social_rich_rec_started, name)
         else ->
-            if (title != null) socialRich(name to true, " recommends " to false, title to true)
-            else socialRich(name to true, " sent you a recommendation" to false)
+            if (title != null) socialRich(Res.string.social_rich_recommends, name, title)
+            else socialRich(Res.string.social_rich_recommendation, name)
     }
     SocialInboxCard(
         person = event.actor,
@@ -1289,7 +1375,7 @@ private fun SocialInboxEventCard(
         art = title?.let {
             SocialArtRef(it, payload.contentType, payload.contentId, payload.poster, listOf(payload.background), payload.videoId, payload.season, payload.episode)
         },
-        actions = if (event.kind == SocialInboxEvent.Recommendation && open != null) listOf(Triple("Open", true, open)) else emptyList(),
+        actions = if (event.kind == SocialInboxEvent.Recommendation && open != null) listOf(Triple(stringResource(Res.string.social_open), true, open)) else emptyList(),
         onClick = open,
     )
 }
@@ -1311,31 +1397,31 @@ private fun SocialNotificationCard(
     }
     val text = when (notification.kind) {
         SocialNotificationKind.FriendRequest -> when (notification.state.lowercase()) {
-            "accepted", "consumed" -> socialRich("You and " to false, name to true, " are now friends" to false)
-            "declined" -> socialRich("You declined " to false, name to true, "'s friend request" to false)
-            else -> socialRich(name to true, " wants to be friends" to false)
+            "accepted", "consumed" -> socialRich(Res.string.social_rich_now_friends, name)
+            "declined" -> socialRich(Res.string.social_rich_declined_friend, name)
+            else -> socialRich(Res.string.social_rich_wants_friends, name)
         }
         SocialNotificationKind.PartyInvitation -> when (outcome) {
             SocialPartyNoticeOutcome.Accepted ->
-                if (title != null) socialRich("You watched " to false, title to true, " with " to false, name to true)
-                else socialRich("You joined " to false, name to true, "'s Watch Together" to false)
+                if (title != null) socialRich(Res.string.social_rich_watched_with, title, name)
+                else socialRich(Res.string.social_rich_joined_party, name)
             SocialPartyNoticeOutcome.Declined ->
-                if (title != null) socialRich("You declined " to false, name to true, "'s invite to " to false, title to true)
-                else socialRich("You declined " to false, name to true, "'s invite" to false)
+                if (title != null) socialRich(Res.string.social_rich_declined_invite_title, name, title)
+                else socialRich(Res.string.social_rich_declined_invite, name)
             else ->
-                if (title != null) socialRich(name to true, " invited you to watch " to false, title to true)
-                else socialRich(name to true, " invited you to Watch Together" to false)
+                if (title != null) socialRich(Res.string.social_rich_invited_title, name, title)
+                else socialRich(Res.string.social_rich_invited, name)
         }
         SocialNotificationKind.WatchingNowJoinRequest -> when (outcome) {
             SocialPartyNoticeOutcome.Accepted ->
-                if (title != null) socialRich(name to true, " joined your playback of " to false, title to true)
-                else socialRich(name to true, " joined your playback" to false)
+                if (title != null) socialRich(Res.string.social_rich_joined_playback_title, name, title)
+                else socialRich(Res.string.social_rich_joined_playback, name)
             SocialPartyNoticeOutcome.Declined ->
-                if (title != null) socialRich("You declined " to false, name to true, "'s request to join " to false, title to true)
-                else socialRich("You declined " to false, name to true, "'s request to join" to false)
+                if (title != null) socialRich(Res.string.social_rich_declined_join_title, name, title)
+                else socialRich(Res.string.social_rich_declined_join, name)
             else ->
-                if (title != null) socialRich(name to true, " asked to join your playback of " to false, title to true)
-                else socialRich(name to true, " asked to join your playback" to false)
+                if (title != null) socialRich(Res.string.social_rich_asked_join_title, name, title)
+                else socialRich(Res.string.social_rich_asked_join, name)
         }
     }
     val time = relativeTimeLabel(parseSocialTimestampMs(notification.createdAt), nowMs)
@@ -1344,9 +1430,9 @@ private fun SocialNotificationCard(
         .map { action ->
             Triple(
                 when (action) {
-                    SocialNotificationAction.Accept -> "Accept"
-                    SocialNotificationAction.Decline -> "Decline"
-                    SocialNotificationAction.Join -> "Join"
+                    SocialNotificationAction.Accept -> stringResource(Res.string.social_accept)
+                    SocialNotificationAction.Decline -> stringResource(Res.string.social_decline)
+                    SocialNotificationAction.Join -> stringResource(Res.string.social_join)
                 },
                 action != SocialNotificationAction.Decline,
             ) { onAction(notification, action) }
@@ -1354,7 +1440,7 @@ private fun SocialNotificationCard(
     SocialInboxCard(
         person = notification.actor,
         text = text,
-        time = if (lapsed) listOf(time, "expired").filter(String::isNotBlank).joinToString(" · ") else time,
+        time = if (lapsed) listOf(time, stringResource(Res.string.social_expired)).filter(String::isNotBlank).joinToString(" · ") else time,
         unread = unread && !lapsed,
         dim = lapsed,
         art = notification.contentSummary?.artRef(),
@@ -1415,19 +1501,29 @@ private fun SocialInboxCard(
     }
 }
 
-/** "**Seraph** recommends **Andor**": the parts flagged true are emphasised. */
+/**
+ * "**Seraph** recommends **Andor**": [line]'s arguments (`%1$s`, `%2$s`) are drawn emphasised, the words
+ * around them soft. The template comes from the strings file, so a translation is free to move them.
+ */
 @Composable
-private fun socialRich(vararg parts: Pair<String, Boolean>): AnnotatedString {
+private fun socialRich(line: StringResource, vararg emphasised: String): AnnotatedString {
+    val template = stringResource(line)
     val strong = MaterialTheme.colorScheme.onBackground
     val soft = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.78f)
     return buildAnnotatedString {
-        parts.forEach { (text, bold) ->
-            withStyle(SpanStyle(color = if (bold) strong else soft, fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal)) {
-                append(text)
+        var at = 0
+        SocialRichArgument.findAll(template).forEach { match ->
+            withStyle(SpanStyle(color = soft)) { append(template.substring(at, match.range.first)) }
+            withStyle(SpanStyle(color = strong, fontWeight = FontWeight.SemiBold)) {
+                append(emphasised.getOrNull(match.groupValues[1].toInt() - 1).orEmpty())
             }
+            at = match.range.last + 1
         }
+        withStyle(SpanStyle(color = soft)) { append(template.substring(at)) }
     }
 }
+
+private val SocialRichArgument = Regex("%(\\d+)\\\$s")
 
 // --- sheets ----------------------------------------------------------------------------------
 
@@ -1538,12 +1634,12 @@ internal fun SocialJoinSheetContent(
     Column(Modifier.padding(start = pad, end = pad, top = 16.dp, bottom = pad), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(
             when (affordance) {
-                WatchingNowJoinAffordance.Join -> "$who lets friends join directly. You'll start in sync with them."
-                WatchingNowJoinAffordance.AskToJoin -> "$who gets a request. You'll join as soon as they accept."
-                is WatchingNowJoinAffordance.Requested -> "Waiting for $who to accept your request."
-                WatchingNowJoinAffordance.Joining -> "Joining…"
-                WatchingNowJoinAffordance.InYourParty -> "You're already watching together."
-                WatchingNowJoinAffordance.None -> "$who isn't taking joiners right now."
+                WatchingNowJoinAffordance.Join -> stringResource(Res.string.social_join_direct, who)
+                WatchingNowJoinAffordance.AskToJoin -> stringResource(Res.string.social_join_ask, who)
+                is WatchingNowJoinAffordance.Requested -> stringResource(Res.string.social_join_waiting, who)
+                WatchingNowJoinAffordance.Joining -> stringResource(Res.string.social_joining)
+                WatchingNowJoinAffordance.InYourParty -> stringResource(Res.string.social_join_together)
+                WatchingNowJoinAffordance.None -> stringResource(Res.string.social_join_closed, who)
             },
             style = MaterialTheme.typography.bodyMedium,
             color = muted,
@@ -1551,12 +1647,12 @@ internal fun SocialJoinSheetContent(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             when (affordance) {
                 WatchingNowJoinAffordance.Join ->
-                    SocialPillButton("Join now", onJoin, Modifier.weight(1f), primary = true, compact = false)
+                    SocialPillButton(stringResource(Res.string.social_join_now), onJoin, Modifier.weight(1f), primary = true, compact = false)
                 WatchingNowJoinAffordance.AskToJoin ->
-                    SocialPillButton("Ask to join", onJoin, Modifier.weight(1f), primary = true, compact = false)
+                    SocialPillButton(stringResource(Res.string.social_ask_to_join), onJoin, Modifier.weight(1f), primary = true, compact = false)
                 is WatchingNowJoinAffordance.Requested ->
                     SocialPillButton(
-                        if (affordance.cancelling) "Cancelling…" else "Cancel request",
+                        if (affordance.cancelling) stringResource(Res.string.social_cancelling) else stringResource(Res.string.social_cancel_request),
                         onCancelRequest,
                         Modifier.weight(1f),
                         compact = false,
@@ -1564,7 +1660,7 @@ internal fun SocialJoinSheetContent(
                     )
                 else -> Unit
             }
-            SocialPillButton("Details", onDetails, Modifier.weight(1f), compact = false)
+            SocialPillButton(stringResource(Res.string.social_details), onDetails, Modifier.weight(1f), compact = false)
         }
     }
 }
@@ -1617,18 +1713,17 @@ internal fun SocialProfileContent(
         // Quiet on purpose: a fun fact, not a scoreboard.
         stats?.takeIf { it.parties > 0 }?.let { together ->
             Text(
-                "${socialTogetherDuration(together.seconds)} watched together · " +
-                    "${together.parties} ${if (together.parties == 1) "party" else "parties"}",
+                pluralStringResource(Res.plurals.social_together_line, together.parties, socialTogetherDuration(together.seconds), together.parties),
                 style = MaterialTheme.typography.labelMedium,
                 color = muted,
                 modifier = Modifier.padding(top = 10.dp),
             )
         }
         Spacer(Modifier.height(16.dp))
-        SocialSectionLabel("Recently watched")
+        SocialSectionLabel(stringResource(Res.string.social_recently_watched_label))
         if (groups.isEmpty()) {
             Text(
-                "Nothing shared recently.",
+                stringResource(Res.string.social_nothing_shared),
                 style = MaterialTheme.typography.bodyMedium,
                 color = muted,
                 modifier = Modifier.padding(vertical = 6.dp),
@@ -1644,7 +1739,7 @@ internal fun SocialProfileContent(
             }
         }
         stats?.titles?.takeIf { it.isNotEmpty() }?.let { titles ->
-            SocialSectionLabel("Watched together", modifier = Modifier.padding(top = 12.dp))
+            SocialSectionLabel(stringResource(Res.string.social_watched_together), modifier = Modifier.padding(top = 12.dp))
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 titles.take(3).forEach { together ->
                     Column(
@@ -1664,7 +1759,7 @@ internal fun SocialProfileContent(
                         )
                         Text(together.title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "${together.parties} ${if (together.parties == 1) "party" else "parties"}",
+                            pluralStringResource(Res.plurals.social_party_count, together.parties, together.parties),
                             style = MaterialTheme.typography.labelSmall,
                             color = muted,
                         )
@@ -1674,26 +1769,26 @@ internal fun SocialProfileContent(
             }
         }
         if (prefs != null) {
-            SocialSectionLabel("Privacy", modifier = Modifier.padding(top = 12.dp))
-            SocialSwitchRow("Hide my activity from ${friend.displayName}", prefs.hideActivity) { onSetPrefs(it, null) }
-            SocialSwitchRow("Notify me when ${friend.displayName} starts watching", prefs.notifyWhenWatching) { onSetPrefs(null, it) }
+            SocialSectionLabel(stringResource(Res.string.social_privacy), modifier = Modifier.padding(top = 12.dp))
+            SocialSwitchRow(stringResource(Res.string.social_hide_from, friend.displayName), prefs.hideActivity) { onSetPrefs(it, null) }
+            SocialSwitchRow(stringResource(Res.string.social_notify_when, friend.displayName), prefs.notifyWhenWatching) { onSetPrefs(null, it) }
         }
         TextButton(onClick = { confirmRemove = true }, modifier = Modifier.padding(top = 8.dp)) {
-            Text("Remove friend", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(Res.string.social_remove_friend), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
         }
     }
     if (confirmRemove) {
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove ${friend.displayName}?") },
-            text = { Text("You'll stop seeing each other's activity. You can send a new request later.") },
+            title = { Text(stringResource(Res.string.social_remove_title, friend.displayName)) },
+            text = { Text(stringResource(Res.string.social_remove_friend_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmRemove = false
                     onRemove()
-                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                }) { Text(stringResource(Res.string.social_remove), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(Res.string.social_cancel)) } },
         )
     }
 }
@@ -1722,19 +1817,19 @@ private fun SocialInviteCodeDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Join with an invite code") },
+        title = { Text(stringResource(Res.string.social_invite_join_title)) },
         text = {
             OutlinedTextField(
                 value = code,
                 onValueChange = onCodeChange,
                 singleLine = true,
-                label = { Text("Invite code") },
+                label = { Text(stringResource(Res.string.social_invite_code)) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { if (code.isNotBlank()) onJoin() }),
             )
         },
-        confirmButton = { TextButton(onClick = onJoin, enabled = code.isNotBlank()) { Text("Join") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onJoin, enabled = code.isNotBlank()) { Text(stringResource(Res.string.social_join)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.social_cancel)) } },
     )
 }
 

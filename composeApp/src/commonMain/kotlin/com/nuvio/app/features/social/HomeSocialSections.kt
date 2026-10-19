@@ -30,6 +30,11 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.watchparty.WatchPartyState
 import com.nuvio.app.features.watchparty.currentEpochMs
 import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.social_friends
+import nuvio.composeapp.generated.resources.social_recommended_to_you
+import nuvio.composeapp.generated.resources.social_see_all
+import nuvio.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * What friends are up to, on Home, **underneath** the user's own Continue Watching.
@@ -72,7 +77,7 @@ fun LazyListScope.homeSocialSections(
         }
         val entries: List<Any> = live + groups
         SocialHomeShelf(
-            title = "Friends",
+            title = stringResource(Res.string.social_friends),
             sectionPadding = sectionPadding,
             items = entries,
             key = { entry ->
@@ -83,7 +88,7 @@ fun LazyListScope.homeSocialSections(
                 }
             },
             itemSpacing = 12.dp,
-            trailing = onSeeAllActivity?.let { open -> { TextButton(onClick = open) { Text("See all") } } },
+            trailing = onSeeAllActivity?.let { open -> { TextButton(onClick = open) { Text(stringResource(Res.string.social_see_all)) } } },
         ) { entry ->
             when (entry) {
                 is WatchingNowItem -> SocialHomeLiveTile(
@@ -151,7 +156,7 @@ internal fun LazyListScope.homeRecommendedSection(
         val scope = rememberCoroutineScope()
         var confirmDismiss by remember { mutableStateOf<RecommendedTitle?>(null) }
         SocialHomeShelf(
-            title = "Recommended to you",
+            title = stringResource(Res.string.social_recommended_to_you),
             sectionPadding = sectionPadding,
             items = titles,
             key = { it.contentId },

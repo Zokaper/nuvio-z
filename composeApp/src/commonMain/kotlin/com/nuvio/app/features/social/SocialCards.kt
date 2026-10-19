@@ -15,6 +15,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import nuvio.composeapp.generated.resources.social_watching_empty
+import nuvio.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Watching Now's sizes and labels. The V2 cards themselves are in `SocialV2Components.kt`; the V1
@@ -73,7 +76,7 @@ internal fun WatchingNowEmptyLine(modifier: Modifier = Modifier) {
     ) {
         Icon(Icons.Rounded.Tv, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
-            "Nobody's watching right now. When a friend presses play, you'll see it here.",
+            stringResource(Res.string.social_watching_empty),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

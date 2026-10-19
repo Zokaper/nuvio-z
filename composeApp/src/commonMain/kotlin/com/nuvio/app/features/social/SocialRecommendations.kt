@@ -53,6 +53,28 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioToastController
 import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.social_keep
+import nuvio.composeapp.generated.resources.social_pick_someone
+import nuvio.composeapp.generated.resources.social_rec_failed
+import nuvio.composeapp.generated.resources.social_rec_message
+import nuvio.composeapp.generated.resources.social_rec_remove_body
+import nuvio.composeapp.generated.resources.social_rec_who
+import nuvio.composeapp.generated.resources.social_recommend
+import nuvio.composeapp.generated.resources.social_recommend_to
+import nuvio.composeapp.generated.resources.social_recommend_to_friends
+import nuvio.composeapp.generated.resources.social_recommended_by
+import nuvio.composeapp.generated.resources.social_recommended_to_you
+import nuvio.composeapp.generated.resources.social_recommended_toast
+import nuvio.composeapp.generated.resources.social_recommended_toast_friends
+import nuvio.composeapp.generated.resources.social_remove
+import nuvio.composeapp.generated.resources.social_remove_title
+import nuvio.composeapp.generated.resources.social_search_friends
+import nuvio.composeapp.generated.resources.social_sending
+import nuvio.composeapp.generated.resources.social_sent
+import nuvio.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.stringResource
+import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.getString
 
 /*
  * Recommendations (2026-10-18; decisions and the picked renders in `Nuvio Z/PLAN-social-v2.md`,
@@ -106,8 +128,9 @@ internal fun recommendedToYou(inbox: List<SocialInboxEvent>): List<RecommendedTi
     }
 }
 
+@Composable
 private fun RecommendedTitle.whoLine(): String =
-    "${socialPeopleLabel(people)} recommend${if (from.size == 1) "s" else ""}"
+    pluralStringResource(Res.plurals.social_rec_who, from.size, socialPeopleLabel(people))
 
 // --- the shelf (A+) -------------------------------------------------------------------------------
 
@@ -144,7 +167,7 @@ internal fun SocialRecommendedShelfContent(
 ) {
     var confirmDismiss by remember { mutableStateOf<RecommendedTitle?>(null) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.padding(horizontal = horizontalPadding)) { SocialSectionLabel("Recommended to you", titles.size) }
+        Box(Modifier.padding(horizontal = horizontalPadding)) { SocialSectionLabel(stringResource(Res.string.social_recommended_to_you), titles.size) }
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = horizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -176,10 +199,10 @@ internal fun SocialRecommendedShelfContent(
 internal fun RecommendedDismissDialog(rec: RecommendedTitle, onKeep: () -> Unit, onRemove: () -> Unit) {
     AlertDialog(
         onDismissRequest = onKeep,
-        title = { Text("Remove ${rec.title}?") },
-        text = { Text("It leaves Recommended to you. ${socialPeopleLabel(rec.people)} won't be told.") },
-        confirmButton = { TextButton(onClick = onRemove) { Text("Remove") } },
-        dismissButton = { TextButton(onClick = onKeep) { Text("Keep") } },
+        title = { Text(stringResource(Res.string.social_remove_title, rec.title)) },
+        text = { Text(stringResource(Res.string.social_rec_remove_body, socialPeopleLabel(rec.people))) },
+        confirmButton = { TextButton(onClick = onRemove) { Text(stringResource(Res.string.social_remove)) } },
+        dismissButton = { TextButton(onClick = onKeep) { Text(stringResource(Res.string.social_keep)) } },
     )
 }
 
@@ -257,7 +280,7 @@ private fun SocialRecommendedByRow(rec: RecommendedTitle, modifier: Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SocialFaces(rec.people, 20.dp)
                 Text(
-                    "Recommended to you by ${socialPeopleLabel(rec.people)}",
+                    stringResource(Res.string.social_recommended_by, socialPeopleLabel(rec.people)),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
@@ -299,7 +322,7 @@ val LocalSocialRecommendAction = staticCompositionLocalOf<(() -> Unit)?> { null 
 /** The three-dot row's Recommend entry, when [LocalSocialRecommendAction] has one. */
 @Composable
 fun socialRecommendAction(): DetailSecondaryAction? = LocalSocialRecommendAction.current?.let { onClick ->
-    DetailSecondaryAction(label = "Recommend", icon = Icons.AutoMirrored.Rounded.Send, onClick = onClick)
+    DetailSecondaryAction(label = stringResource(Res.string.social_recommend), icon = Icons.AutoMirrored.Rounded.Send, onClick = onClick)
 }
 
 /** Whether this profile can recommend at all: Social on, and someone to send to. */
@@ -342,7 +365,7 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
                     )
                 }
                 Column {
-                    Text("Recommend", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(Res.string.social_recommend), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(content.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -352,7 +375,7 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text("Search friends") },
+                    placeholder = { Text(stringResource(Res.string.social_search_friends)) },
                     shape = RoundedCornerShape(12.dp),
                 )
             }
@@ -376,17 +399,19 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2,
                 maxLines = 4,
-                placeholder = { Text("Add a message (optional)") },
+                placeholder = { Text(stringResource(Res.string.social_rec_message)) },
                 supportingText = { Text("${note.length} / $RecommendNoteLimit") },
                 shape = RoundedCornerShape(14.dp),
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             SocialPillButton(
                 when {
-                    sending -> "Sending…"
-                    picked.isEmpty() -> "Pick someone"
-                    picked.size == 1 -> "Recommend to ${friends.firstOrNull { it.profileId in picked }?.displayName ?: "1 friend"}"
-                    else -> "Recommend to ${picked.size} friends"
+                    sending -> stringResource(Res.string.social_sending)
+                    picked.isEmpty() -> stringResource(Res.string.social_pick_someone)
+                    picked.size == 1 -> friends.firstOrNull { it.profileId in picked }?.displayName
+                        ?.let { stringResource(Res.string.social_recommend_to, it) }
+                        ?: pluralStringResource(Res.plurals.social_recommend_to_friends, 1, 1)
+                    else -> pluralStringResource(Res.plurals.social_recommend_to_friends, picked.size, picked.size)
                 },
                 onClick = {
                     sending = true
@@ -403,10 +428,10 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
                             ),
                             note.trim().ifBlank { null },
                         ).onSuccess { delivered ->
-                            NuvioToastController.show(if (delivered == 1) "Recommended" else "Recommended to $delivered friends")
+                            NuvioToastController.show(if (delivered == 1) getString(Res.string.social_recommended_toast) else getString(Res.string.social_recommended_toast_friends, delivered))
                             onDismiss()
                         }.onFailure {
-                            error = it.message ?: "Couldn't send the recommendation"
+                            error = it.message ?: getString(Res.string.social_rec_failed)
                             sending = false
                         }
                     }
@@ -435,7 +460,7 @@ private fun RecommendFriendRow(friend: SocialProfileSummary, picked: Boolean, se
             Text(friend.displayName.ifBlank { friend.handle }, fontWeight = FontWeight.SemiBold, color = if (sent) muted else MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("@${friend.handle}", style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (sent) Text("Sent", style = MaterialTheme.typography.labelLarge, color = muted) else RecommendCheck(picked)
+        if (sent) Text(stringResource(Res.string.social_sent), style = MaterialTheme.typography.labelLarge, color = muted) else RecommendCheck(picked)
     }
 }
 
@@ -455,7 +480,7 @@ private fun RecommendFriendFace(friend: SocialProfileSummary, picked: Boolean, s
             if (picked) Box(Modifier.align(Alignment.BottomEnd)) { RecommendCheck(true, 22.dp) }
         }
         Text(
-            if (sent) "Sent" else friend.displayName.ifBlank { friend.handle },
+            if (sent) stringResource(Res.string.social_sent) else friend.displayName.ifBlank { friend.handle },
             style = MaterialTheme.typography.labelMedium,
             color = if (sent) muted else MaterialTheme.colorScheme.onSurface,
             fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,

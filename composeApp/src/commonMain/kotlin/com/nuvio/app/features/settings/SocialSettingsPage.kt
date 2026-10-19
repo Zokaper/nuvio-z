@@ -58,6 +58,28 @@ import nuvio.composeapp.generated.resources.settings_social_share_watching
 import nuvio.composeapp.generated.resources.settings_social_share_watching_description
 import nuvio.composeapp.generated.resources.settings_social_title
 import org.jetbrains.compose.resources.stringResource
+import nuvio.composeapp.generated.resources.social_change_handle
+import nuvio.composeapp.generated.resources.social_handle_friends
+import nuvio.composeapp.generated.resources.social_handle_save_failed
+import nuvio.composeapp.generated.resources.social_hidden_from
+import nuvio.composeapp.generated.resources.social_hidden_from_desc
+import nuvio.composeapp.generated.resources.social_join_any
+import nuvio.composeapp.generated.resources.social_join_ask_first
+import nuvio.composeapp.generated.resources.social_join_no_one
+import nuvio.composeapp.generated.resources.social_privacy
+import nuvio.composeapp.generated.resources.social_settings_home
+import nuvio.composeapp.generated.resources.social_settings_you
+import nuvio.composeapp.generated.resources.social_show_friends_home
+import nuvio.composeapp.generated.resources.social_show_friends_home_desc
+import nuvio.composeapp.generated.resources.social_show_recs_home
+import nuvio.composeapp.generated.resources.social_show_recs_home_desc
+import nuvio.composeapp.generated.resources.social_turn_off
+import nuvio.composeapp.generated.resources.social_turn_off_body
+import nuvio.composeapp.generated.resources.social_turn_off_confirm
+import nuvio.composeapp.generated.resources.social_turn_off_desc
+import nuvio.composeapp.generated.resources.social_turn_off_title
+import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.getString
 
 /**
  * Sections only one platform has, drawn between Privacy and Home. Desktop registers Pop-ups and
@@ -162,7 +184,7 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
         // tab's copy only exists while it is on.
         if (preferences.enabled || inSocialTab) {
             if (me != null) {
-                SettingsSection(title = "You", isTablet = isTablet) {
+                SettingsSection(title = stringResource(Res.string.social_settings_you), isTablet = isTablet) {
                     SettingsGroup(isTablet = isTablet) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = if (isTablet) 20.dp else 16.dp, vertical = 14.dp),
@@ -180,7 +202,7 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                                 )
                                 val friends = socialState.friends.size
                                 Text(
-                                    "@${me.handle} · $friends ${if (friends == 1) "friend" else "friends"}",
+                                    pluralStringResource(Res.plurals.social_handle_friends, friends, me.handle, friends),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -188,7 +210,7 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                                 )
                             }
                             SocialPillButton(
-                                "Change handle",
+                                stringResource(Res.string.social_change_handle),
                                 onClick = {
                                     handleDraft = me.handle
                                     handleMessage = null
@@ -200,7 +222,7 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                 }
             }
 
-            SettingsSection(title = "Privacy", isTablet = isTablet) {
+            SettingsSection(title = stringResource(Res.string.social_privacy), isTablet = isTablet) {
                 SettingsGroup(isTablet = isTablet) {
                     SettingsSwitchRow(
                         title = stringResource(Res.string.settings_social_share_watching),
@@ -238,9 +260,9 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                     SettingsChoiceRow(
                         title = stringResource(Res.string.settings_social_join_policy),
                         options = listOf(
-                            WatchJoinPolicy.direct to "Any friend",
-                            WatchJoinPolicy.approval to "Ask first",
-                            WatchJoinPolicy.disabled to "No one",
+                            WatchJoinPolicy.direct to stringResource(Res.string.social_join_any),
+                            WatchJoinPolicy.approval to stringResource(Res.string.social_join_ask_first),
+                            WatchJoinPolicy.disabled to stringResource(Res.string.social_join_no_one),
                         ),
                         selected = me?.defaultJoinPolicy ?: WatchJoinPolicy.approval,
                         enabled = me != null,
@@ -255,8 +277,8 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                     if (socialState.socialV2Backend && hiddenFrom.isNotEmpty()) {
                         SettingsGroupDivider(isTablet = isTablet)
                         SettingsNavigationRow(
-                            title = "Hidden from",
-                            description = hiddenFrom.joinToString { it.displayName } + " - change it on their profile",
+                            title = stringResource(Res.string.social_hidden_from),
+                            description = stringResource(Res.string.social_hidden_from_desc, hiddenFrom.joinToString { it.displayName }),
                             isTablet = isTablet,
                             enabled = false,
                             onClick = {},
@@ -267,19 +289,19 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
 
             SocialSettingsExtensions.platformSections?.invoke(isTablet)
 
-            SettingsSection(title = "Home", isTablet = isTablet) {
+            SettingsSection(title = stringResource(Res.string.social_settings_home), isTablet = isTablet) {
                 SettingsGroup(isTablet = isTablet) {
                     SettingsSwitchRow(
-                        title = "Show friends on Home",
-                        description = "What friends are watching now and recently, in one shelf",
+                        title = stringResource(Res.string.social_show_friends_home),
+                        description = stringResource(Res.string.social_show_friends_home_desc),
                         checked = preferences.showFriendsOnHome,
                         isTablet = isTablet,
                         onCheckedChange = SocialFeaturePreferencesRepository::setShowFriendsOnHome,
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
-                        title = "Show recommendations on Home",
-                        description = "What friends recommend to you, in a shelf of its own. The Inbox always has them",
+                        title = stringResource(Res.string.social_show_recs_home),
+                        description = stringResource(Res.string.social_show_recs_home_desc),
                         checked = preferences.showRecommendedOnHome,
                         isTablet = isTablet,
                         onCheckedChange = SocialFeaturePreferencesRepository::setShowRecommendedOnHome,
@@ -295,13 +317,13 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                             .padding(horizontal = if (isTablet) 20.dp else 16.dp, vertical = 14.dp),
                     ) {
                         Text(
-                            "Turn off Social",
+                            stringResource(Res.string.social_turn_off),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium,
                         )
                         Text(
-                            "Hides the Social tab and stops sharing. Turn it back on from Settings.",
+                            stringResource(Res.string.social_turn_off_desc),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -314,11 +336,10 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
     if (confirmTurnOff) {
         AlertDialog(
             onDismissRequest = { confirmTurnOff = false },
-            title = { Text("Turn off Social?") },
+            title = { Text(stringResource(Res.string.social_turn_off_title)) },
             text = {
                 Text(
-                    "The Social tab disappears and you stop sharing what you watch. Your handle and friends are kept. " +
-                        "Turn it back on any time from Settings -> Social.",
+                    stringResource(Res.string.social_turn_off_body),
                 )
             },
             confirmButton = {
@@ -327,7 +348,7 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                         confirmTurnOff = false
                         requestDisable()
                     },
-                ) { Text("Turn off") }
+                ) { Text(stringResource(Res.string.social_turn_off_confirm)) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmTurnOff = false }) {
@@ -381,7 +402,7 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                             SocialRepository.setupHandle(handleDraft)
                                 .onSuccess { showHandleDialog = false }
                                 .onFailure { error ->
-                                    handleMessage = error.message ?: "Could not save that handle"
+                                    handleMessage = error.message ?: getString(Res.string.social_handle_save_failed)
                                 }
                             handleBusy = false
                         }
