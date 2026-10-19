@@ -158,7 +158,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 ) is PartySourceHandoff.Adopt,
                 hostAdvancingPartySource = isHost &&
                     partyReportedTimelineDecision == PartySourceTimelineDecision.AdvancePartySource,
-                localAttempt = args.playbackAttempt,
+                localAttempt = activePlaybackAttempt,
                 needsPartyMatch =
                     partyReportedTimelineDecision == PartySourceTimelineDecision.NeedsPartyMatch,
                 usingCompatibleAlternate = partyLocalSourceMatch == PartySourceMatch.alternate,
