@@ -21,6 +21,16 @@
       "category": "developer-tools",
       "versions": [
         {
+          "version": "0.5.4-z3.108",
+          "buildVersion": "108",
+          "date": "2026-10-20T14:21:17Z",
+          "localizedDescription": "Debug build 0.5.4-z3.108 (build 108) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.108/Nuvio-Z-iOS-0.5.4-z3-108-debug-unsigned.ipa",
+          "size": 103834282,
+          "sha256": "eb6f3993534d7a8b8d75976ed82287666b21f5e9021c194d7d22f0582a298019",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.4-z3.107",
           "buildVersion": "107",
           "date": "2026-10-19T18:19:35Z",
@@ -693,7 +703,9 @@
       ],
       "appPermissions": {
         "entitlements": [],
-        "privacy": {}
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Nuvio connects to media servers on your local network."
+        }
       }
     }
   ],
