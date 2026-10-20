@@ -50,6 +50,25 @@ class AdvancedSetupModelTest {
     }
 
     @Test
+    fun languageIsAvailableInEveryModeAndWithAnExternalPlayer() {
+        everyFacts.forEach { facts ->
+            assertEquals(
+                listOf(AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles),
+                advancedSetupPanels(AdvancedSetupCategory.Language, facts),
+            )
+            assertEquals(
+                listOf(AdvancedSetupControl.MyLanguage, AdvancedSetupControl.FallbackLanguage, AdvancedSetupControl.SubtitleLanguage),
+                advancedSetupControls(AdvancedSetupPanel.Languages, facts),
+            )
+            assertEquals(listOf(AdvancedSetupControl.OwnTitleSubtitles), advancedSetupControls(AdvancedSetupPanel.OwnLanguageTitles, facts))
+            assertEquals(
+                listOf(AdvancedSetupControl.OtherTitleAudio, AdvancedSetupControl.OtherTitleSubtitles),
+                advancedSetupControls(AdvancedSetupPanel.OtherLanguageTitles, facts),
+            )
+        }
+    }
+
+    @Test
     fun randomEpisodeIsMobileOnlyAndLastOnItsPanel() {
         listOf(android, iosNew).forEach { facts ->
             assertEquals(AdvancedSetupControl.RandomEpisode, advancedSetupControls(AdvancedSetupPanel.DetailEpisodes, facts).last())

@@ -3811,6 +3811,7 @@
     <string name="zlang_same_as_my_language">Same as my language</string>
     <string name="zlang_same_as_my_language_value">Same as my language (%1$s)</string>
     <string name="zlang_titles_in">Titles in %1$s</string>
+    <string name="zlang_own_titles">Titles in my language</string>
     <string name="zlang_titles_other">Titles in other languages</string>
     <string name="zlang_audio">Audio</string>
     <string name="zlang_subtitles">Subtitles</string>

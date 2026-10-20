@@ -6,6 +6,19 @@ Last updated: 2026-10-20
 | Desktop | `claude/social-v2-design` | 115 | Upstream sync to 0.1.31-alpha in progress; preserve language/What's New; Linux native CI blocker |
 | Mobile | `claude/social-v2` | 107 | Upstream sync to 0.6.2-beta in progress; language/What's New port pending |
 
+## Mobile language/What's New port and Advanced Setup (2026-10-20)
+
+Maintainer changed the order: finish the mobile port before resuming upstream sync.
+The initial upstream merge was aborted without resolutions; no upstream code is merged yet.
+Mobile now carries the four shared desktop changes (language plan, storage/player/settings/wizard,
+approved What's New cards and centered offer). Mobile shuffle sync and phone alerts are preserved;
+desktop actuals/render harnesses were excluded. Advanced Setup adds a Language category with three
+short pages, using the same settings sections and no image preview. The pure model decides controls.
+Focused pure language/setup/What's New checks pass **183/183**. Android compile/host selection is running.
+The full pure runner passed its first 284-test group, then failed on pre-existing group-2 dependencies
+(`DownloadItem`/`DownloadStatus` and `downloadSizeFigure` omitted from that compile); not a port result.
+iOS compiler/installed builds and final maintainer notes/artwork remain pending.
+
 ## Upstream sync started (2026-10-20)
 
 Targets: mobile `upstream/0.6.2-beta` (263 upstream commits), desktop

@@ -22,6 +22,7 @@ enum class AdvancedSetupCategory(val group: AdvancedSetupGroup) {
     Player(AdvancedSetupGroup.Playback),
     Skipping(AdvancedSetupGroup.Playback),
     Subtitles(AdvancedSetupGroup.Playback),
+    Language(AdvancedSetupGroup.Playback),
     Downloads(AdvancedSetupGroup.Downloads),
     Navigation(AdvancedSetupGroup.Look),
     Theme(AdvancedSetupGroup.Look),
@@ -45,6 +46,9 @@ enum class AdvancedSetupPanel(val category: AdvancedSetupCategory) {
     NextEpisode(AdvancedSetupCategory.Skipping),
     SubtitleLook(AdvancedSetupCategory.Subtitles),
     SubtitlePlacement(AdvancedSetupCategory.Subtitles),
+    Languages(AdvancedSetupCategory.Language),
+    OwnLanguageTitles(AdvancedSetupCategory.Language),
+    OtherLanguageTitles(AdvancedSetupCategory.Language),
     DownloadModeChoice(AdvancedSetupCategory.Downloads),
     DownloadPreferences(AdvancedSetupCategory.Downloads),
     DownloadDevice(AdvancedSetupCategory.Downloads),
@@ -70,6 +74,12 @@ enum class AdvancedSetupPanel(val category: AdvancedSetupCategory) {
  * rules live in `SetupWizardSteps.kt`.
  */
 enum class AdvancedSetupControl {
+    MyLanguage,
+    FallbackLanguage,
+    SubtitleLanguage,
+    OwnTitleSubtitles,
+    OtherTitleAudio,
+    OtherTitleSubtitles,
     PlaybackModeCards,
     QualityLimit,
     LanguageMatching,
@@ -184,6 +194,9 @@ data class AdvancedSetupFacts(
 fun advancedSetupControls(panel: AdvancedSetupPanel, facts: AdvancedSetupFacts): List<AdvancedSetupControl> {
     val automaticPicker = playbackSetupVariant(facts.playbackModeName) != PlaybackSetupVariant.None
     return when (panel) {
+        AdvancedSetupPanel.Languages -> listOf(AdvancedSetupControl.MyLanguage, AdvancedSetupControl.FallbackLanguage, AdvancedSetupControl.SubtitleLanguage)
+        AdvancedSetupPanel.OwnLanguageTitles -> listOf(AdvancedSetupControl.OwnTitleSubtitles)
+        AdvancedSetupPanel.OtherLanguageTitles -> listOf(AdvancedSetupControl.OtherTitleAudio, AdvancedSetupControl.OtherTitleSubtitles)
         AdvancedSetupPanel.PlaybackModeChoice -> listOf(AdvancedSetupControl.PlaybackModeCards)
         // Every source preference feeds the automatic picker, which Classic does not have - the same
         // reason the Settings rows are greyed out and the wizard's playback step is dropped.

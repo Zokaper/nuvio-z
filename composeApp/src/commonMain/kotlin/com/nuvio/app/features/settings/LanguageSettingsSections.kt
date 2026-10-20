@@ -94,13 +94,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  * segmented control, and every choice shows the same two moments of one scene so Forced (only the
  * second) and Full (both) differ at a glance.
  */
+internal enum class LanguageSettingsSection { Languages, OwnTitles, OtherTitles }
+
 @Composable
-internal fun LanguageSettingsSections(isTablet: Boolean, enabled: Boolean = true) {
+internal fun LanguageSettingsSections(
+    isTablet: Boolean,
+    enabled: Boolean = true,
+    section: LanguageSettingsSection? = null,
+) {
     val preferences by LanguagePreferencesRepository.uiState.collectAsStateWithLifecycle()
     val myLanguageName = myLanguageName(preferences)
     var dialog by remember { mutableStateOf<LanguageDialog?>(null) }
 
-    SettingsSection(title = stringResource(Res.string.settings_playback_section_language), isTablet = isTablet) {
+    if (section == null || section == LanguageSettingsSection.Languages) SettingsSection(title = stringResource(Res.string.settings_playback_section_language), isTablet = isTablet) {
         SettingsGroup(isTablet = isTablet) {
             SettingsNavigationRow(
                 title = stringResource(Res.string.zlang_my_language),
@@ -134,7 +140,7 @@ internal fun LanguageSettingsSections(isTablet: Boolean, enabled: Boolean = true
         }
     }
 
-    SettingsSection(title = stringResource(Res.string.zlang_titles_in, myLanguageName), isTablet = isTablet) {
+    if (section == null || section == LanguageSettingsSection.OwnTitles) SettingsSection(title = stringResource(Res.string.zlang_titles_in, myLanguageName), isTablet = isTablet) {
         SettingsGroup(isTablet = isTablet) {
             SubtitleKindChoices(
                 selected = preferences.ownSubtitles,
@@ -145,7 +151,7 @@ internal fun LanguageSettingsSections(isTablet: Boolean, enabled: Boolean = true
         }
     }
 
-    SettingsSection(title = stringResource(Res.string.zlang_titles_other), isTablet = isTablet) {
+    if (section == null || section == LanguageSettingsSection.OtherTitles) SettingsSection(title = stringResource(Res.string.zlang_titles_other), isTablet = isTablet) {
         SettingsGroup(isTablet = isTablet) {
             OtherAudioChoices(
                 selected = preferences.otherAudio,
