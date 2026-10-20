@@ -3,7 +3,7 @@ Last updated: 2026-10-20
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 115 | Language + What's New implementation; desktop focused suite 580/580 and live UI verified |
+| Desktop | `claude/social-v2-design` | 115 | Language + What's New; 580 baseline + 131 offer checks pass locally; Linux native CI blocker |
 | Mobile | `claude/social-v2` | 107 | Social V2; language + What's New port still pending |
 
 ## Language settings rebuild + What's New rework (2026-10-20, in progress, desktop only so far)
@@ -24,6 +24,14 @@ waits for the maintainer. Desktop's final focused selection passed **580/580**, 
 errors or skips; full/viewport renders and live scrolling/fold/actions/420x900 resize verified.
 Temporary preview source/artwork removed; mobile port and Advanced Setup panel still pending.
 Desktop `STATUS.md` records the earlier native-player timing flake and exact verification scope.
+
+**Offer follow-up (2026-10-20):** desktop pop-up now centers at a maximum of 460 dp; 131 focused
+checks and live Yes/No/X/narrow-window checks pass. New PNGs are in timestamped folders under
+`composeApp/build/language-settings-render/`. Desktop initial/upgrade Language page is implemented
+(revision 11); Advanced Setup Language and the mobile port remain pending. The actual bundled
+changelog has no Social V2 event or `review_settings` entry yet: release copy/artwork is still owed.
+The prior branch CI failed in Linux native `frame_copy_test` before Kotlin tests; desktop STATUS
+links the run and records the exact failure. This CI blocker is still open.
 
 ## Round after 106/114: invite count, Social pop-ups, subtitles, next-episode loading, silent sign-out (2026-10-19, unreleased)
 
