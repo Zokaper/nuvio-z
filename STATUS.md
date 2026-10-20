@@ -1,4 +1,10 @@
-Last updated: 2026-10-19
+Last updated: 2026-10-20
+
+
+| Repository | Active branch | Released debug | Current work |
+| --- | --- | --- | --- |
+| Desktop | `claude/social-v2-design` | 115 | Language + What's New implementation; desktop focused suite 580/580 and live UI verified |
+| Mobile | `claude/social-v2` | 107 | Social V2; language + What's New port still pending |
 
 ## Language settings rebuild + What's New rework (2026-10-20, in progress, desktop only so far)
 
@@ -8,6 +14,16 @@ Folded into the Social V2 release. All code is on desktop `claude/social-v2-desi
 language pickers + "Use Forced Subtitles" with a per-title model (my language / other languages, subtitles
 Off / Forced / Full / SDH), wizard revision 11, a "New settings available" pop-up after What's New
 (Upgrade runs no longer gate), What's New picture cards + platform tags (no "other devices" section).
+
+
+**2026-10-20 design correction:** maintainer prefers the initial What's New mocks. Desktop now
+puts illustrated features and improvements together as cards, smaller changes as text below,
+with no category headings, and neutral folded fixes. Platform tags and Review settings stay.
+The production render harness uses the original sample illustrations; release copy/art still
+waits for the maintainer. Desktop's final focused selection passed **580/580**, zero failures,
+errors or skips; full/viewport renders and live scrolling/fold/actions/420x900 resize verified.
+Temporary preview source/artwork removed; mobile port and Advanced Setup panel still pending.
+Desktop `STATUS.md` records the earlier native-player timing flake and exact verification scope.
 
 ## Round after 106/114: invite count, Social pop-ups, subtitles, next-episode loading, silent sign-out (2026-10-19, unreleased)
 
