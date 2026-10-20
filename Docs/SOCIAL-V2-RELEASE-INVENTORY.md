@@ -109,7 +109,7 @@ Descriptions below are factual scope, not final release-note wording.
 - Declined/expired/stopped/failed join requests remain visible in party controls, with Ask again/dismissal where appropriate.
 - Phones keep the full Watch Together status pill instead of an avatar-only control.
 
-### F09. Rebuilt language and subtitles - all platforms planned; desktop implemented
+### F09. Rebuilt language and subtitles - all platforms implemented
 
 - My language, fallback language and subtitle-language override, defaulting to Same as my language.
 - Separate subtitle choices for titles in your language and titles in other languages: Off, Forced, Full and SDH.
@@ -120,9 +120,9 @@ Descriptions below are factual scope, not final release-note wording.
   to your language follows the agreed subtitle-group exception.
 - Player track selection and source ranking use the preferences where metadata is available.
 - Existing choices are migrated and integrated with per-profile settings sync.
-- Mobile port, final playback/device checks and Advanced Setup Language panel are pending.
+- Mobile port and Advanced Setup Language are implemented. Final playback/device acceptance is pending.
 
-### F10. Updated setup review and What's New - all platforms planned; desktop implemented
+### F10. Updated setup review and What's New - all platforms implemented
 
 - Initial Setup uses the new Language page. Revision 11 offers it to profiles that completed revision 10;
   earlier eligible upgrades can also owe the previous download steps.
@@ -132,7 +132,7 @@ Descriptions below are factual scope, not final release-note wording.
   The actual Social V2 changelog entry is not yet present.
 - What's New supports picture cards for features or improvements, text for smaller changes, platform tags on every entry
   and folded fixes, without category headings or a grey other-devices section.
-- Actual notes, card images, the release event and mobile port remain pending.
+- Actual notes, card images and the release event remain pending.
 
 ### F11. Downloads settings within the regular Settings layout - all platforms
 
@@ -198,7 +198,7 @@ review_settings action on the language entry. Existing preview copy and images a
 
 ## Remaining before this becomes a ship list
 
-- Port language/settings/What's New to mobile by merge/cherry-pick; add Advanced Setup Language.
+- Mobile language/settings/What's New and Advanced Setup Language are ported and locally verified before upstream integration; see STATUS for post-sync verification.
 - Complete installed-build acceptance for the new language choices and latest alerts/startup/party changes.
   iOS Social has been exercised, but iOS Watch Together acceptance remains incomplete.
 - Resolve Linux native-player CI failure (`frame_copy_test`, player creation); local focused checks do not replace CI.

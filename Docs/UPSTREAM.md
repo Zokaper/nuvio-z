@@ -3,8 +3,10 @@
 **One-release exception, maintainer 2026-10-18:** the iOS install/self-signing release
 ships as mobile `0.5.4-z3` on the existing `0.5.4-beta` base. The maintainer explicitly
 deferred the upstream sync to the upcoming **Social V2** release, which must sync
-before publication. Upstream currently ships `0.6.1-beta`; the fetched branch drift
-check reported 246 upstream-only commits. This exception does not change the standing
+before publication. Social V2 now merges mobile `0.6.2-beta` (`1cfae0fe7`) and
+desktop `0.1.31-alpha` (`e808a584e`); see `UPSTREAM-SYNC-2026-10-20.md` for
+integration verification and acceptance limits. The pre-sync named-tag deltas were
+263 mobile and 434 desktop commits. This exception does not change the standing
 sync rule for later releases.
 
 **Nuvio Z is a mod of Nuvio.** Not a fork we maintain, not a separate product line - a bounded,

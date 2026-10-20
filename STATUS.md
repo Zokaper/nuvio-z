@@ -4,16 +4,17 @@ Last updated: 2026-10-20
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 115 | Upstream sync to 0.1.31-alpha in progress; preserve language/What's New; Linux native CI blocker |
-| Mobile | `claude/social-v2` | 107 | Upstream sync to 0.6.2-beta in progress; language/What's New port pending |
+| Mobile | `claude/social-v2` | 107 | Upstream sync to 0.6.2-beta in progress; language/What's New port complete; integration verification running |
 
-## Isolated upstream integration (2026-10-20; verification pending)
+## Upstream integration (2026-10-20; verification pending)
 
 Mobile `codex/social-v2-upstream-mobile` merges named upstream `0.6.2-beta` (`1cfae0fe7`)
 over the completed Social V2/language checkpoint. Desktop integration worktree:
 `codex/social-v2-upstream-desktop`, targeting `0.1.31-alpha` (`e808a584e`).
-Original Social V2 branches retain the verified pre-sync port (mobile Android compile + 575 host
+Both named tags are now merged into the active Social V2 branches (mobile `8dff1c90a`,
+desktop `74415dd0b`; shared adapters `3d30d57d7`). The pre-sync port passed (mobile Android compile + 575 host
 checks; desktop 111 focused checks and reviewed 360/420/1280 dp Advanced Setup renders; pure 183).
-Upstream integrations are **not yet compiled/tested**. Keep Z Watch Together as the default;
+Post-sync verification is running; see `Docs/UPSTREAM-SYNC-2026-10-20.md`. Keep Z Watch Together as the default;
 upstream Party UI is gated pending maintainer's optional choice. Preserve source-picker modes,
 loading host, download navigation, settings organization, iOS serial mpv ownership and existing
 release/debug metadata. Upstream tablet actions retain Download/Watch Together/Recommend.
@@ -24,12 +25,14 @@ its lifecycle regression is wired into the iOS compile workflow. Final sync audi
 ## Mobile language/What's New port and Advanced Setup (2026-10-20)
 
 Maintainer changed the order: finish the mobile port before resuming upstream sync.
-The initial upstream merge was aborted without resolutions; no upstream code is merged yet.
+The first upstream attempt was aborted so the port could land first. Named upstream tags
+were then merged; the integration section above supersedes the earlier pending entries.
 Mobile now carries the four shared desktop changes (language plan, storage/player/settings/wizard,
 approved What's New cards and centered offer). Mobile shuffle sync and phone alerts are preserved;
 desktop actuals/render harnesses were excluded. Advanced Setup adds a Language category with three
 short pages, using the same settings sections and no image preview. The pure model decides controls.
-Focused pure language/setup/What's New checks pass **183/183**. Android compile/host selection is running.
+Focused pure language/setup/What's New checks pass **183/183**. Pre-sync Android compile and
+focused host selection passed **575/575**; desktop Language/Advanced Setup passed **111/111**.
 The full pure runner passed its first 284-test group, then failed on pre-existing group-2 dependencies
 (`DownloadItem`/`DownloadStatus` and `downloadSizeFigure` omitted from that compile); not a port result.
 iOS compiler/installed builds and final maintainer notes/artwork remain pending.
