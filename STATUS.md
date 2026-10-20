@@ -3,8 +3,15 @@ Last updated: 2026-10-20
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 115 | Language + What's New; 580 baseline + 131 offer checks pass locally; Linux native CI blocker |
-| Mobile | `claude/social-v2` | 107 | Social V2; language + What's New port still pending |
+| Desktop | `claude/social-v2-design` | 115 | Upstream sync to 0.1.31-alpha in progress; preserve language/What's New; Linux native CI blocker |
+| Mobile | `claude/social-v2` | 107 | Upstream sync to 0.6.2-beta in progress; language/What's New port pending |
+
+## Upstream sync started (2026-10-20)
+
+Targets: mobile `upstream/0.6.2-beta` (263 upstream commits), desktop
+`upstream/0.1.31-alpha` (434). Preserve active Social V2 branches and existing
+release/debug metadata. Maintainer reports **no additional installed-build testing**
+since the language/What's New handoff. Previous acceptance limits remain open.
 
 ## Social V2 release inventory and artwork choices (2026-10-20)
 
