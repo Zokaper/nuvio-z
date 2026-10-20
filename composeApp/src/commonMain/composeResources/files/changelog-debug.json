@@ -197,6 +197,10 @@
     {
       "build": 107,
       "text": "Fixes: the invite picker's button no longer reads \"Invite %d\". Clicking a Social notification with a details page open now takes you to Social instead of leaving the page on top. The next-episode loading screen shows the new episode's source and the show's full-size backdrop, not the previous episode's details and a blurry still. If your Nuvio login is lost, the app now says so, with a Sign in button (Settings > Account shows Sign In too), instead of quietly running signed out. Subtitles: a remembered choice no longer comes back as another language or as the Forced track on the next episode."
+    },
+    {
+      "build": 108,
+      "text": "Social V2 verification: new language settings and Advanced Setup Language; updated to upstream Mobile 0.6.2-beta."
     }
   ]
 }
