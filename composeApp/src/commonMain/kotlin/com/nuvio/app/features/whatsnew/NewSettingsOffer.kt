@@ -53,7 +53,6 @@ internal fun NewSettingsOffer(
     onNo: () -> Unit,
     onBackToWhatsNew: () -> Unit,
 ) {
-    val tokens = MaterialTheme.nuvio
     Dialog(
         onDismissRequest = onBackToWhatsNew,
         properties = DialogProperties(
@@ -62,61 +61,72 @@ internal fun NewSettingsOffer(
             usePlatformDefaultWidth = false,
         ),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp).padding(16.dp),
-            color = tokens.colors.surfaceDialog,
-            shape = tokens.shapes.dialog,
-        ) {
-            Box {
-                Column(
-                    modifier = Modifier.padding(tokens.spacing.dialogPadding),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+        NewSettingsOfferContent(onYes, onNo, onBackToWhatsNew)
+    }
+}
+
+/** The production surface, shared with the render harness without a separate Dialog window. */
+@Composable
+internal fun NewSettingsOfferContent(
+    onYes: () -> Unit,
+    onNo: () -> Unit,
+    onBackToWhatsNew: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Surface(
+        modifier = Modifier.padding(16.dp).widthIn(max = 460.dp).fillMaxWidth(),
+        color = tokens.colors.surfaceDialog,
+        shape = tokens.shapes.dialog,
+    ) {
+        Box {
+            Column(
+                modifier = Modifier.padding(tokens.spacing.dialogPadding),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.zoffer_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(end = 40.dp),
+                )
+                Text(
+                    text = stringResource(Res.string.zoffer_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textSecondary,
+                )
+                Text(
+                    text = stringResource(Res.string.zoffer_review_later),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
                 ) {
-                    Text(
-                        text = stringResource(Res.string.zoffer_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = tokens.colors.textPrimary,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(end = 40.dp),
-                    )
-                    Text(
-                        text = stringResource(Res.string.zoffer_body),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = tokens.colors.textSecondary,
-                    )
-                    Text(
-                        text = stringResource(Res.string.zoffer_review_later),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.colors.textMuted,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
-                    ) {
-                        FilledTonalButton(onClick = onNo, shape = tokens.shapes.button) {
-                            Text(stringResource(Res.string.zoffer_no))
-                        }
-                        Button(onClick = onYes, shape = tokens.shapes.button) {
-                            Text(stringResource(Res.string.zoffer_yes))
-                        }
+                    FilledTonalButton(onClick = onNo, shape = tokens.shapes.button) {
+                        Text(stringResource(Res.string.zoffer_no))
+                    }
+                    Button(onClick = onYes, shape = tokens.shapes.button) {
+                        Text(stringResource(Res.string.zoffer_yes))
                     }
                 }
-                IconButton(
-                    onClick = onBackToWhatsNew,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(10.dp)
-                        .size(36.dp)
-                        .background(tokens.colors.surfaceCard, CircleShape),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(Res.string.zoffer_close),
-                        tint = tokens.colors.textSecondary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+            }
+            IconButton(
+                onClick = onBackToWhatsNew,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .size(36.dp)
+                    .background(tokens.colors.surfaceCard, CircleShape),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(Res.string.zoffer_close),
+                    tint = tokens.colors.textSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
     }

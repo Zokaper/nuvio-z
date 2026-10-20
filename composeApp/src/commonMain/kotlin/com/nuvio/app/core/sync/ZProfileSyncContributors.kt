@@ -6,7 +6,7 @@ import com.nuvio.app.features.language.LanguagePreferencesSync
 import com.nuvio.app.features.social.SocialHomeSync
 
 /**
- * âš  **The one per-repository file of the Z sync seam - never merge or copy it across.** `nuvio-z`
+ * ⚠ **The one per-repository file of the Z sync seam - never merge or copy it across.** `nuvio-z`
  * lists Random Episode, which `NuvioZDesktop` does not have. Everything else about the seam
  * (`ZProfileSyncContributor`, `ProfileSettingsSync`) is shared and identical.
  */
