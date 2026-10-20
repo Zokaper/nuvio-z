@@ -16,7 +16,7 @@ class LocalStoreRegistryTest {
     fun devicePreferencesSurviveAndEverythingElseIsWiped() {
         listOf("nuvio_whats_new", "nuvio_downloads", "server_configuration", "nuvio_window_state", "nuvio_desktop_renderer")
             .forEach { assertFalse(LocalStoreRegistry.isWiped(it), it) }
-        listOf("nuvio_tmdb_settings", "nuvio_aiostreams_credentials", "nuvio_player_settings", "nuvio_social_features", "nuvio_official_session")
+        listOf("nuvio_tmdb_settings", "nuvio_aiostreams_credentials", "nuvio_player_settings", "nuvio_social_features", "nuvio_official_session", "nuvio_autosync_settings", "nuvio_servers")
             .forEach { assertTrue(LocalStoreRegistry.isWiped(it), it) }
     }
 

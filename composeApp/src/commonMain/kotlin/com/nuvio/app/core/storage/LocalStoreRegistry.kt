@@ -99,6 +99,7 @@ internal object LocalStoreRegistry {
         account("nuvio_social"),
         account("nuvio_social_features"),
         account("nuvio_language_preferences"),
+        account("nuvio_autosync_settings"),
         // Which profile this phone's push token is registered for: cleared, so a signed-out phone drops its pushes.
         account("nuvio_social_push"),
         account("nuvio_download_policy"),
@@ -111,6 +112,7 @@ internal object LocalStoreRegistry {
         credential("nuvio_trakt_auth"),
         credential("nuvio_simkl_auth"),
         credential("nuvio_mdblist_auth"),
+        credential("nuvio_servers"),
         credential("nuvio_profile_pin_cache"),
         credential("nuvio_aiostreams_credentials"),
         credential("nuvio_official_session"),

@@ -52,6 +52,15 @@ internal object AutoSyncPreferencesRepository {
         loadedProfileId = null
     }
 
+    fun clearLocalState() {
+        loadedProfileId = null
+        _preferredSubtitleAutoSyncOnStart.value = false
+        _aggressiveMode.value = true
+        _syncToleranceMs.value = 0
+        lastStartupSessionKey = null
+        lastStartupPlaybackKey = null
+    }
+
     fun ensureLoaded() {
         val profileId = ProfileRepository.activeProfileId
         if (loadedProfileId == profileId) return

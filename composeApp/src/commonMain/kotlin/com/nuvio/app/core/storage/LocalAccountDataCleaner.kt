@@ -62,6 +62,7 @@ internal object LocalAccountDataCleaner {
         MemberAccessRepository.clearLocalState()
         AddonRepository.clearLocalState()
         ServerRepository.clearLocalState()
+        com.nuvio.app.features.autosync.AutoSyncPreferencesRepository.clearLocalState()
         if (AppFeaturePolicy.pluginsEnabled) {
             PluginRepository.clearLocalState()
         }

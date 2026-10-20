@@ -163,9 +163,10 @@ java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.features.playback.PlaybackEntranceMotionTest \
   com.nuvio.app.features.playback.ContentIdentityGuardTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
-# --- Group 2: files with no dependencies at all, so no stubs are involved --------------------
+# --- Group 2: standalone rules; download queue models are data-only neighbours ---------------
 rm -rf "$WORK/out-standalone"
 kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
+  "$STUBS/downloads/DownloadQueueNeighbours.kt" \
   "$M/features/downloads/DownloadTransfer.kt" \
   "$M/features/downloads/IosBackgroundTransferReconciler.kt" \
   "$M/features/downloads/DownloadsLiveStatusPolicy.kt" \
@@ -381,6 +382,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$T/features/social/SocialNotificationsTest.kt" \
   "$T/features/social/FriendActivityGroupingTest.kt" \
   "$T/features/social/OutgoingJoinRequestTest.kt" \
+  "$T/features/social/WatchingNowJoinAffordanceTest.kt" \
   "$T/features/player/WatchTogetherPanelStateTest.kt" \
   "$T/features/player/WatchTogetherBridgeTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
