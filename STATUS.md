@@ -6,6 +6,17 @@ Last updated: 2026-10-20
 | Desktop | `claude/social-v2-design` | 115 | Language + What's New; 580 baseline + 131 offer checks pass locally; Linux native CI blocker |
 | Mobile | `claude/social-v2` | 107 | Social V2; language + What's New port still pending |
 
+## Social V2 release inventory and artwork choices (2026-10-20)
+
+[Working release inventory](Docs/SOCIAL-V2-RELEASE-INVENTORY.md) audits mobile against released
+0.5.4-z3+129 and desktop against 0.1.26-alpha-z2+133 (latest stable tags checked through GitHub).
+It lists F01-F11, smaller fixes, platform limits, render candidates, existing harnesses and open
+work. It excludes the already-released iPhone installer/self-renewal and earlier performance work.
+Current code overrides superseded plan sketches: iOS alerts are in-app/tab badge; generic Inbox
+Dismiss/Mark all read and friend-profile Start party/Recommend are not wired. Maintainer copy,
+artwork choices, mobile language port, Advanced Setup Language and release gates remain pending.
+Social ledger S12 corrected to the implemented Unread/Read grouping. Documentation-only audit.
+
 ## Language settings rebuild + What's New rework (2026-10-20, in progress, desktop only so far)
 
 **Handoff: `Nuvio Z/HANDOFF-language-and-whats-new.md`** (plan: `Nuvio Z/PLAN-language-and-whats-new.md`).
