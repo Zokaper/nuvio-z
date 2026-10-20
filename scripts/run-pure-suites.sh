@@ -310,6 +310,7 @@ java -cp "$WORK/out-debrid:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUn
 rm -rf "$WORK/out-watchparty"
 kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-watchparty" \
+  "$STUBS/watchparty/Clock.kt" \
   "$M/features/watchparty/WatchPartyModels.kt" \
   "$M/features/watchparty/PartySourceDescriptorV2.kt" \
   "$M/features/watchparty/PartySessionContracts.kt" \
@@ -321,6 +322,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$M/features/watchparty/PartyAwayRecovery.kt" \
   "$M/features/watchparty/WatchPartyBarrier.kt" \
   "$M/features/watchparty/WatchPartySyncProtocol.kt" \
+  "$M/features/watchparty/WatchPartyPresentation.kt" \
   "$M/features/watchparty/PartyPresence.kt" \
   "$M/features/watchparty/PartySourceActivity.kt" \
   "$M/features/watchparty/PartyPlaybackStatus.kt" \
@@ -357,6 +359,7 @@ java -cp "$WORK/out-watchparty:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner
 rm -rf "$WORK/out-social"
 kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-social" \
+  "$STUBS/watchparty/Clock.kt" \
   "$M/features/watchparty/WatchPartyModels.kt" \
   "$M/features/watchparty/PartySourceDescriptorV2.kt" \
   "$M/features/watchparty/PartySessionContracts.kt" \
