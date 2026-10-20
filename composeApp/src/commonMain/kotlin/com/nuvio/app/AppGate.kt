@@ -82,6 +82,7 @@ import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.updater.AppReleaseNotes
 import com.nuvio.app.features.updater.fetchRecentReleaseNotes
 import com.nuvio.app.features.whatsnew.ChangelogAction
+import com.nuvio.app.features.whatsnew.NewSettingsOffer
 import com.nuvio.app.features.whatsnew.ChangelogCatalog
 import com.nuvio.app.features.whatsnew.WhatsNewBadge
 import com.nuvio.app.features.whatsnew.WhatsNewEventUi
@@ -296,6 +297,11 @@ internal fun AppGate(
     // is: the gating showing lives in this function, and one flag for both is what keeps
     // an on-demand run from being confused with the first-launch one.
     var showSetupWizardOnDemand by remember { mutableStateOf(false) }
+    // Z: the "New settings available" offer and what it opens. `whatsNewDecided` holds the offer back
+    // until the post-update What's New has been decided, so it never flashes up before that screen.
+    var whatsNewDecided by remember { mutableStateOf(false) }
+    var upgradeWizardRequested by remember { mutableStateOf(false) }
+    var reviewSettingsFromRevision by remember { mutableStateOf<Int?>(null) }
     // Device-local, so no repository flow re-evaluates the gate when the wizard writes it: the
     // gating wizard's onFinished re-reads it instead.
     var deviceSetupRevision by remember { mutableStateOf(DeviceSetupStorage.loadRevision()) }
@@ -330,6 +336,7 @@ internal fun AppGate(
             whatsNewStateAfterContinue = decision.stateAfterContinue
             showWhatsNew = true
         }
+        whatsNewDecided = true
     }
 
     // Settings -> What's new: every event released to this platform, from the shipped changelog
@@ -381,7 +388,14 @@ internal fun AppGate(
         currentRevision = SETUP_WIZARD_REVISION,
         arrivalPending = arrivalPending,
     )
-    val gatingRun = if (reviewSetupRequested) SetupWizardRun.Full else gateSetupRun
+    // Z (2026-10-20): an Upgrade no longer gates the app. It is offered after What's New instead -
+    // "New settings available" - unless it carries a cross-family arrival, which is device setup.
+    val upgradeOffered = gateSetupRun == SetupWizardRun.Upgrade && !arrivalPending && !reviewSetupRequested
+    val gatingRun = when {
+        reviewSetupRequested -> SetupWizardRun.Full
+        upgradeOffered -> SetupWizardRun.None
+        else -> gateSetupRun
+    }
     val isSetupWizardActive = gatingRun != SetupWizardRun.None || showSetupWizardOnDemand
     val isAdvancedSetupActive = advancedSetupRequested &&
         gateScreen == AppGateScreen.Main.name &&
@@ -956,6 +970,7 @@ internal fun AppGate(
                     acknowledgeWhatsNew()
                     when (action) {
                         ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
+                        ChangelogAction.REVIEW_SETTINGS -> reviewSettingsFromRevision = SETUP_WIZARD_REVISION - 1
                     }
                 },
             )
@@ -970,9 +985,49 @@ internal fun AppGate(
                     showWhatsNewOnDemand = false
                     when (action) {
                         ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
+                        ChangelogAction.REVIEW_SETTINGS -> reviewSettingsFromRevision = SETUP_WIZARD_REVISION - 1
                     }
                 },
             )
+        }
+
+        // Z: "New settings available" (see `NewSettingsOffer`), once What's New is out of the way.
+        if (
+            upgradeOffered && whatsNewDecided && gateScreen == AppGateScreen.Main.name &&
+            !showWhatsNew && !showWhatsNewOnDemand && !showSetupWizardOnDemand &&
+            !upgradeWizardRequested && reviewSettingsFromRevision == null && !isAdvancedSetupActive
+        ) {
+            NewSettingsOffer(
+                onYes = { upgradeWizardRequested = true },
+                onNo = { PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION) },
+                onBackToWhatsNew = {
+                    if (whatsNewEvents.isNotEmpty() || whatsNewDebug != null) showWhatsNew = true else showWhatsNewOnDemand = true
+                },
+            )
+        }
+
+        // Z: the offer's Yes (the steps this profile owes) and What's New's "Review new settings" (the
+        // current revision's steps, whatever is owed). Leaving early still answers the offer.
+        if ((upgradeWizardRequested || reviewSettingsFromRevision != null) && gateScreen == AppGateScreen.Main.name) {
+            val reviewFrom = reviewSettingsFromRevision
+            key(reviewFrom, upgradeWizardRequested) {
+                SetupWizardScreen(
+                    onFinished = {
+                        upgradeWizardRequested = false
+                        reviewSettingsFromRevision = null
+                    },
+                    dismissible = true,
+                    onDismiss = {
+                        PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+                        upgradeWizardRequested = false
+                        reviewSettingsFromRevision = null
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    run = SetupWizardRun.Upgrade,
+                    reviewFromRevision = reviewFrom,
+                    onOpenAdvancedSetup = AdvancedSetupLauncher::open,
+                )
+            }
         }
 
         // Opened from Settings rather than gating the app: it covers MainAppContent instead of

@@ -95,6 +95,7 @@ object ChangelogCatalog {
             title = title,
             body = entry.string("body")?.takeIf { it.isNotBlank() },
             action = ChangelogAction.fromKey(entry.string("action")),
+            image = entry.string("image")?.takeIf { it.isNotBlank() && !it.contains('/') && !it.contains('\\') },
         )
     }
 

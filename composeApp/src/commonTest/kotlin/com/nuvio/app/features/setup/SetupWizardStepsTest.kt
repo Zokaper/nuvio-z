@@ -82,11 +82,19 @@ class SetupWizardStepsTest {
     }
 
     @Test
-    fun revisionTenIsThePhaseNineDownloadSteps() {
-        assertEquals(10, SETUP_WIZARD_REVISION)
+    fun revisionElevenIsTheLanguageRebuild() {
+        assertEquals(11, SETUP_WIZARD_REVISION)
         assertTrue(shouldShowSetupWizard(completedRevision = 8))
         assertTrue(shouldShowSetupWizard(completedRevision = 9))
-        assertFalse(shouldShowSetupWizard(completedRevision = 10))
+        assertTrue(shouldShowSetupWizard(completedRevision = 10))
+        assertFalse(shouldShowSetupWizard(completedRevision = 11))
+    }
+
+    @Test
+    fun anUpgradeFromTenAsksOnlyLanguage() {
+        val plan = SetupWizardPlan(run = SetupWizardRun.Upgrade, fromRevision = 10)
+        assertEquals(listOf(SetupStep.Language), setupWizardSteps(plan))
+        assertEquals(SetupWizardRun.Upgrade, setupWizardRun(10, deviceRevision = 10, isPhone = false))
     }
 
     @Test
@@ -108,7 +116,7 @@ class SetupWizardStepsTest {
     }
 
     @Test
-    fun revisionsEightAndNineGetOnlyTheDownloadSteps() {
+    fun revisionsEightAndNineGetTheDownloadStepsAndLanguage() {
         listOf(8, 9).forEach { revision ->
             listOf(true, false).forEach { phone ->
                 assertEquals(SetupWizardRun.Upgrade, setupWizardRun(revision, deviceRevision = null, isPhone = phone))
@@ -118,7 +126,7 @@ class SetupWizardStepsTest {
                     run = SetupWizardRun.Upgrade,
                     fromRevision = revision,
                 )
-                assertEquals(listOf(SetupStep.DownloadMode, SetupStep.DownloadSetup), setupWizardSteps(plan), "rev $revision phone $phone")
+                assertEquals(listOf(SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language), setupWizardSteps(plan), "rev $revision phone $phone")
             }
         }
     }
@@ -135,14 +143,14 @@ class SetupWizardStepsTest {
     @Test
     fun anUpgradeToManualOnDesktopIsOneStep() {
         val plan = SetupWizardPlan(downloadModeName = "MANUAL", isPhone = false, run = SetupWizardRun.Upgrade, fromRevision = 9)
-        assertEquals(listOf(SetupStep.DownloadMode), setupWizardSteps(plan))
-        assertTrue(isFinalSetupStep(SetupStep.DownloadMode, plan))
+        assertEquals(listOf(SetupStep.DownloadMode, SetupStep.Language), setupWizardSteps(plan))
+        assertTrue(isFinalSetupStep(SetupStep.Language, plan))
     }
 
     @Test
     fun aCurrentProfileOnANewPhoneAsksOnlyTheDeviceQuestion() {
-        assertEquals(SetupWizardRun.Device, setupWizardRun(10, deviceRevision = null, isPhone = true))
-        assertEquals(SetupWizardRun.Device, setupWizardRun(10, deviceRevision = 9, isPhone = true))
+        assertEquals(SetupWizardRun.Device, setupWizardRun(11, deviceRevision = null, isPhone = true))
+        assertEquals(SetupWizardRun.Device, setupWizardRun(11, deviceRevision = 9, isPhone = true))
         val plan = SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Device, fromRevision = 10)
         // Done since the setup + settings pass: it offers Advanced Setup.
         assertEquals(listOf(SetupStep.DownloadSetup, SetupStep.Done), setupWizardSteps(plan))
@@ -156,7 +164,7 @@ class SetupWizardStepsTest {
         listOf(true, false).forEach { phone ->
             assertEquals(
                 SetupWizardRun.Device,
-                setupWizardRun(10, deviceRevision = 10, isPhone = phone, arrivalPending = true),
+                setupWizardRun(11, deviceRevision = 10, isPhone = phone, arrivalPending = true),
                 "phone $phone",
             )
         }
@@ -203,7 +211,7 @@ class SetupWizardStepsTest {
     @Test
     fun anArrivingUpgradeGreetsFirst() {
         val plan = SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9, arrival = true)
-        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DownloadMode, SetupStep.DownloadSetup), setupWizardSteps(plan))
+        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language), setupWizardSteps(plan))
     }
 
     @Test
@@ -337,6 +345,7 @@ class SetupWizardStepsTest {
                 SetupStep.DevicePlayer,
                 SetupStep.DownloadMode,
                 SetupStep.DownloadSetup,
+                SetupStep.Language,
             ),
             setupWizardSteps(plan),
         )
@@ -408,15 +417,15 @@ class SetupWizardStepsTest {
 
     @Test
     fun desktopHasNoDeviceRun() {
-        assertEquals(SetupWizardRun.None, setupWizardRun(10, deviceRevision = null, isPhone = false))
+        assertEquals(SetupWizardRun.None, setupWizardRun(11, deviceRevision = null, isPhone = false))
     }
 
     @Test
     fun nothingIsOwedOnceBothAreCurrent() {
-        assertEquals(SetupWizardRun.None, setupWizardRun(10, deviceRevision = 10, isPhone = true))
+        assertEquals(SetupWizardRun.None, setupWizardRun(11, deviceRevision = 10, isPhone = true))
         // A downgrade asks nothing either.
-        assertEquals(SetupWizardRun.None, setupWizardRun(11, deviceRevision = 11, isPhone = true))
-        assertEquals(SetupWizardRun.None, setupWizardRun(11, deviceRevision = 11, isPhone = false))
+        assertEquals(SetupWizardRun.None, setupWizardRun(12, deviceRevision = 11, isPhone = true))
+        assertEquals(SetupWizardRun.None, setupWizardRun(12, deviceRevision = 11, isPhone = false))
     }
 
     @Test

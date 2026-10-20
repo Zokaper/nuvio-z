@@ -3803,4 +3803,50 @@
     <!-- /Nuvio Z: Social V2 strings. -->
     <!-- Nuvio Z: a login lost by itself while the app runs on cached profiles. -->
     <string name="z_auth_signed_out_notice">You're signed out of your Nuvio account. Social, Watch Together and sync are off until you sign in again.</string>
+    <!-- Nuvio Z: language settings (2026-10-20). -->
+    <string name="zlang_my_language">My language</string>
+    <string name="zlang_fallback_language">Fallback language</string>
+    <string name="zlang_fallback_none">None · used when nothing is available in %1$s</string>
+    <string name="zlang_subtitle_language">Subtitle language</string>
+    <string name="zlang_same_as_my_language">Same as my language</string>
+    <string name="zlang_same_as_my_language_value">Same as my language (%1$s)</string>
+    <string name="zlang_titles_in">Titles in %1$s</string>
+    <string name="zlang_titles_other">Titles in other languages</string>
+    <string name="zlang_audio">Audio</string>
+    <string name="zlang_subtitles">Subtitles</string>
+    <string name="zlang_audio_original">Original language</string>
+    <string name="zlang_audio_original_body">The language it was made in. For example, Korean for a Korean film.</string>
+    <string name="zlang_audio_mine_body">A dub in %1$s when the release has one, otherwise the original language.</string>
+    <string name="zlang_audio_footer">If a release doesn't have the original language, it plays in %1$s and the Titles in %1$s settings apply.</string>
+    <string name="zlang_sub_off">Off</string>
+    <string name="zlang_sub_off_body">No subtitles at all</string>
+    <string name="zlang_sub_forced">Forced</string>
+    <string name="zlang_sub_forced_body">Only lines in a different language from the audio, and signs</string>
+    <string name="zlang_sub_full">Full</string>
+    <string name="zlang_sub_full_body">Everything that's said</string>
+    <string name="zlang_sub_sdh">Deaf and hard of hearing (SDH)</string>
+    <string name="zlang_sub_sdh_body">Everything that's said, plus sounds and who's speaking</string>
+    <string name="zlang_said_in">Said in %1$s</string>
+    <string name="zlang_said_in_original">Said in the original language</string>
+    <string name="zlang_said_in_another">Said in another language</string>
+    <string name="zlang_no_subtitle">no subtitle</string>
+    <string name="zlang_example_own_first">Get in the car.</string>
+    <string name="zlang_example_own_second">Where's the money?</string>
+    <string name="zlang_example_own_sound">[engine starts]</string>
+    <string name="zlang_example_own_speaker">[in Spanish]</string>
+    <string name="zlang_example_other_first">Do you want to see it?</string>
+    <string name="zlang_example_other_second">We have to go.</string>
+    <string name="zlang_example_other_sound">[fire crackling]</string>
+    <string name="zlang_example_other_speaker">[in Japanese]</string>
+    <string name="zlang_wizard_footnote">You can change all of this later in Settings → Playback → Language.</string>
+    <string name="zoffer_title">New settings available</string>
+    <string name="zoffer_body">This update includes new or changed settings. Would you like to go through them now?</string>
+    <string name="zoffer_review_later">You can review them any time from Settings → What's New.</string>
+    <string name="zoffer_yes">Yes (Recommended)</string>
+    <string name="zoffer_no">No</string>
+    <string name="zoffer_close">Back to What's New</string>
+    <string name="zwhatsnew_action_review_settings">Review new settings</string>
+    <string name="zwhatsnew_all_platforms">All platforms</string>
+    <string name="zwhatsnew_bug_fixes_count">Bug fixes (%1$d)</string>
+    <!-- /Nuvio Z: language settings. -->
 </resources>

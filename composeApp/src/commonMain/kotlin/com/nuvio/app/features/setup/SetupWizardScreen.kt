@@ -211,6 +211,11 @@ fun SetupWizardScreen(
     onReviewSetup: (() -> Unit)? = null,
     importRetry: (suspend () -> Unit)? = null,
     onOpenAdvancedSetup: (() -> Unit)? = null,
+    /**
+     * Z: an Upgrade run that re-asks the steps added after this revision whatever the profile has
+     * finished - What's New's "Review new settings". Null plans from the profile's own revision.
+     */
+    reviewFromRevision: Int? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val scope = rememberCoroutineScope()
@@ -258,7 +263,7 @@ fun SetupWizardScreen(
     val isPhone = !isDesktop
     // Captured once: finishing writes the new revision, and an upgrade must not re-plan itself
     // from the value it just wrote.
-    val fromRevision = remember { playerSettings.setupWizardCompletedRevision }
+    val fromRevision = remember { reviewFromRevision ?: playerSettings.setupWizardCompletedRevision }
     // Captured once for the same reason: finishing writes the device revision.
     val deviceStale = remember { isDeviceSetupStale(DeviceSetupStorage.loadRevision(), isPhone) }
     // Device Setup's navigation and player steps borrow Advanced Setup's controls and previews, so
@@ -1802,86 +1807,16 @@ internal fun SetupStepBody(
  */
 @Composable
 private fun SetupLanguageBody(
-    preferredAudioLanguage: String,
-    preferredSubtitleLanguage: String,
+    @Suppress("UNUSED_PARAMETER") preferredAudioLanguage: String,
+    @Suppress("UNUSED_PARAMETER") preferredSubtitleLanguage: String,
 ) {
-    var showAudioDialog by remember { mutableStateOf(false) }
-    var showSubtitleDialog by remember { mutableStateOf(false) }
-
+    // Z (2026-10-20): the language settings, exactly as Settings → Playback draws them - one model,
+    // one surface (`LanguageSettingsSections`). No stills: the maintainer kept the plain layout here too.
     SetupParagraph(stringResource(Res.string.setup_language_body))
-
-    SetupLanguageRow(
-        title = stringResource(Res.string.settings_playback_preferred_audio_language),
-        value = when (preferredAudioLanguage) {
-            AudioLanguageOption.DEFAULT -> stringResource(Res.string.settings_playback_option_default)
-            AudioLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-            AudioLanguageOption.ORIGINAL -> stringResource(Res.string.settings_playback_option_original)
-            else -> languageLabelForCode(preferredAudioLanguage)
-        },
-        onClick = { showAudioDialog = true },
-    )
-    SetupLanguageRow(
-        title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-        value = when (preferredSubtitleLanguage) {
-            SubtitleLanguageOption.NONE -> stringResource(Res.string.settings_playback_option_none)
-            SubtitleLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-            SubtitleLanguageOption.FORCED -> stringResource(Res.string.settings_playback_option_forced)
-            else -> languageLabelForCode(preferredSubtitleLanguage)
-        },
-        onClick = { showSubtitleDialog = true },
-    )
-
-    SetupParagraph(stringResource(Res.string.setup_language_more))
-
-    if (showAudioDialog) {
-        val originalHint = stringResource(Res.string.settings_playback_option_original_hint)
-        LanguageSelectionDialog(
-            title = stringResource(Res.string.settings_playback_preferred_audio_language),
-            options = listOf(
-                LanguageSelectionOption(
-                    AudioLanguageOption.DEVICE,
-                    stringResource(Res.string.settings_playback_option_device_language),
-                ),
-                LanguageSelectionOption(
-                    AudioLanguageOption.ORIGINAL,
-                    stringResource(Res.string.settings_playback_option_original),
-                    description = originalHint,
-                ),
-            ) + AvailableLanguageOptions.map { option ->
-                LanguageSelectionOption(option.code, stringResource(option.labelRes))
-            },
-            selectedValue = preferredAudioLanguage,
-            onSelect = { value ->
-                PlayerSettingsRepository.setPreferredAudioLanguage(value ?: AudioLanguageOption.DEVICE)
-                showAudioDialog = false
-            },
-            onDismiss = { showAudioDialog = false },
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        com.nuvio.app.features.settings.LanguageSettingsSections(isTablet = false)
     }
-
-    if (showSubtitleDialog) {
-        LanguageSelectionDialog(
-            title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-            options = listOf(
-                LanguageSelectionOption(
-                    SubtitleLanguageOption.NONE,
-                    stringResource(Res.string.settings_playback_option_none),
-                ),
-                LanguageSelectionOption(
-                    SubtitleLanguageOption.DEVICE,
-                    stringResource(Res.string.settings_playback_option_device_language),
-                ),
-            ) + AvailableLanguageOptions.map { option ->
-                LanguageSelectionOption(option.code, stringResource(option.labelRes))
-            },
-            selectedValue = preferredSubtitleLanguage,
-            onSelect = { value ->
-                PlayerSettingsRepository.setPreferredSubtitleLanguage(value ?: SubtitleLanguageOption.NONE)
-                showSubtitleDialog = false
-            },
-            onDismiss = { showSubtitleDialog = false },
-        )
-    }
+    SetupFootnote(stringResource(Res.string.zlang_wizard_footnote))
 }
 
 /** A label and the current answer, sized to its content like [SetupChoiceGroup]'s chips. */

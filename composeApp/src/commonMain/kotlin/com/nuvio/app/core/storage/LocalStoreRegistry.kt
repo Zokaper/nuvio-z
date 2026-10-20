@@ -98,6 +98,7 @@ internal object LocalStoreRegistry {
         account("nuvio_search_history"),
         account("nuvio_social"),
         account("nuvio_social_features"),
+        account("nuvio_language_preferences"),
         // Which profile this phone's push token is registered for: cleared, so a signed-out phone drops its pushes.
         account("nuvio_social_push"),
         account("nuvio_download_policy"),

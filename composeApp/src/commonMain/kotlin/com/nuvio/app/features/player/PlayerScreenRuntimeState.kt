@@ -117,7 +117,16 @@ internal class PlayerScreenRuntime(
     lateinit var scope: CoroutineScope
     lateinit var hapticFeedback: HapticFeedback
 
+    /**
+     * Z: what the player reads - [rawPlayerSettingsUiState] with this title's language plan applied
+     * (`PlayerTitleLanguagePlan.kt`). Written only by `applyTitleLanguagePlan`.
+     */
     var playerSettingsUiState by mutableStateOf(PlayerSettingsUiState())
+    var rawPlayerSettingsUiState by mutableStateOf(PlayerSettingsUiState())
+    /** Null until the screen hands them over; while null, [playerSettingsUiState] is left as assigned. */
+    var languagePreferences by mutableStateOf<com.nuvio.app.core.language.LanguagePreferences?>(null)
+    var titleLanguagePlan: com.nuvio.app.core.language.TitleLanguagePlan? = null
+    var titleLanguageInputs: Any? = null
     var p2pSettingsUiState by mutableStateOf(P2pSettingsUiState())
     var p2pStreamingState by mutableStateOf<P2pStreamingState>(P2pStreamingState.Idle)
     var metaScreenSettingsUiState: MetaScreenSettingsUiState = MetaScreenSettingsUiState()

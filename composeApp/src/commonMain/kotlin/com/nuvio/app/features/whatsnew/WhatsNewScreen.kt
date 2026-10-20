@@ -1,5 +1,25 @@
 package com.nuvio.app.features.whatsnew
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import nuvio.composeapp.generated.resources.zwhatsnew_action_review_settings
+import nuvio.composeapp.generated.resources.zwhatsnew_all_platforms
+import org.jetbrains.compose.resources.decodeToImageBitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,7 +62,6 @@ import nuvio.composeapp.generated.resources.whats_new_debug_build
 import nuvio.composeapp.generated.resources.whats_new_improvements
 import nuvio.composeapp.generated.resources.whats_new_new_features
 import nuvio.composeapp.generated.resources.whats_new_no_notes
-import nuvio.composeapp.generated.resources.whats_new_other_devices
 import nuvio.composeapp.generated.resources.whats_new_platform_android
 import nuvio.composeapp.generated.resources.whats_new_platform_desktop
 import nuvio.composeapp.generated.resources.whats_new_platform_ios
@@ -207,9 +226,6 @@ private fun WhatsNewEventContent(event: WhatsNewEventUi, onAction: ((ChangelogAc
             }
         }
         event.sections.forEach { section -> WhatsNewSectionContent(section, onAction) }
-        if (event.otherDevices.isNotEmpty()) {
-            OtherDevices(event.otherDevices)
-        }
     }
 }
 
@@ -228,9 +244,19 @@ private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((Changel
         WhatsNewCategory.BugFixes -> stringResource(Res.string.whats_new_bug_fixes)
         WhatsNewCategory.DebugBuild -> stringResource(Res.string.whats_new_debug_build)
     }
+    // Z (2026-10-20, What's New option A): fixes fold away behind their count; everything else is open.
+    val foldable = section.category == WhatsNewCategory.BugFixes
+    var expanded by remember(section) { mutableStateOf(!foldable) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .then(if (foldable) Modifier.clickable { expanded = !expanded } else Modifier)
+                .then(if (foldable) Modifier.background(tokens.colors.surfaceCard).padding(horizontal = 14.dp, vertical = 12.dp) else Modifier),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier
                     .size(9.dp)
@@ -238,87 +264,152 @@ private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((Changel
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = label,
+                text = if (foldable) "$label (${section.items.size})" else label,
                 style = MaterialTheme.typography.labelLarge,
                 color = accent,
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
             )
-        }
-        section.items.forEach { item ->
-            Column(modifier = Modifier.padding(start = 17.dp)) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = tokens.colors.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
+            if (foldable) {
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = tokens.colors.textMuted,
                 )
-                if (item.description.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = item.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = tokens.colors.textMuted,
-                    )
-                }
-                val action = item.action
-                if (action != null && onAction != null) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Button(
-                        onClick = { onAction(action) },
-                        shape = tokens.shapes.button,
-                    ) {
-                        Text(
-                            stringResource(
-                                when (action) {
-                                    ChangelogAction.ADVANCED_SETUP -> Res.string.whats_new_action_advanced_setup
-                                },
-                            ),
-                        )
-                    }
+            }
+        }
+        if (expanded) {
+            section.items.forEach { item ->
+                if (item.image != null) {
+                    WhatsNewPictureCard(item, onAction)
+                } else {
+                    WhatsNewLine(item, onAction)
                 }
             }
         }
     }
 }
 
+/** An entry without a picture: its title with the platforms beside it, then the body. */
+@Composable
+private fun WhatsNewLine(item: WhatsNewItem, onAction: ((ChangelogAction) -> Unit)?) {
+    val tokens = MaterialTheme.nuvio
+    Column(modifier = Modifier.padding(start = 17.dp)) {
+        WhatsNewTitleRow(item, MaterialTheme.typography.titleMedium)
+        if (item.description.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = item.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = tokens.colors.textMuted,
+            )
+        }
+        WhatsNewActionButton(item, onAction)
+    }
+}
+
+/** A feature with a picture (option A): the picture, then the title with its platforms beside it. */
+@Composable
+private fun WhatsNewPictureCard(item: WhatsNewItem, onAction: ((ChangelogAction) -> Unit)?) {
+    val tokens = MaterialTheme.nuvio
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(tokens.colors.surfaceCard),
+    ) {
+        item.image?.let { WhatsNewImage(it) }
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            WhatsNewTitleRow(item, MaterialTheme.typography.titleMedium)
+            if (item.description.isNotBlank()) {
+                Text(
+                    text = item.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textSecondary,
+                )
+            }
+            WhatsNewActionButton(item, onAction)
+        }
+    }
+}
+
+@Composable
+private fun WhatsNewTitleRow(item: WhatsNewItem, style: androidx.compose.ui.text.TextStyle) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = item.title,
+            style = style,
+            color = MaterialTheme.nuvio.colors.textPrimary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+        )
+        WhatsNewPlatformTags(item.platforms)
+    }
+}
+
+/** One tag per platform; all three collapse to "All platforms" so the common case stays quiet. */
+@Composable
+private fun WhatsNewPlatformTags(platforms: List<ChangelogPlatform>) {
+    if (platforms.isEmpty()) return
+    val tokens = MaterialTheme.nuvio
+    val labels = if (platforms.containsAll(ChangelogPlatformOrder)) {
+        listOf(stringResource(Res.string.zwhatsnew_all_platforms))
+    } else {
+        platforms.map { platformLabel(it) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        labels.forEach { label ->
+            Text(
+                text = label,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .border(1.dp, tokens.colors.borderDefault, CircleShape)
+                    .padding(horizontal = 9.dp, vertical = 3.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.colors.textSecondary,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WhatsNewActionButton(item: WhatsNewItem, onAction: ((ChangelogAction) -> Unit)?) {
+    val action = item.action ?: return
+    onAction ?: return
+    Spacer(modifier = Modifier.height(10.dp))
+    Button(
+        onClick = { onAction(action) },
+        shape = MaterialTheme.nuvio.shapes.button,
+    ) {
+        Text(
+            stringResource(
+                when (action) {
+                    ChangelogAction.ADVANCED_SETUP -> Res.string.whats_new_action_advanced_setup
+                    ChangelogAction.REVIEW_SETTINGS -> Res.string.zwhatsnew_action_review_settings
+                },
+            ),
+        )
+    }
+}
+
 /**
- * Entries about other platforms. Smaller and muted, each tagged with the platforms it is about, and
- * without action buttons - an action is something to do on this device.
+ * The entry's picture, shipped in the app (`composeResources/files/whatsnew/`). Nothing is drawn
+ * until it decodes, and nothing at all if it does not - a missing file costs the card its picture,
+ * never the entry.
  */
 @Composable
-private fun OtherDevices(items: List<WhatsNewItem>) {
-    val tokens = MaterialTheme.nuvio
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = stringResource(Res.string.whats_new_other_devices),
-            style = MaterialTheme.typography.labelLarge,
-            color = tokens.colors.textMuted,
-            fontWeight = FontWeight.SemiBold,
+private fun WhatsNewImage(file: String) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, file) {
+        value = runCatching { Res.readBytes("files/whatsnew/$file").decodeToImageBitmap() }.getOrNull()
+    }
+    bitmap?.let { image ->
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxWidth().aspectRatio(2f),
         )
-        items.forEach { item ->
-            Column(modifier = Modifier.padding(start = 17.dp)) {
-                val tag = item.platforms.map { platformLabel(it) }.joinToString(" · ")
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = tokens.colors.textSecondary, fontWeight = FontWeight.SemiBold)) {
-                            append(item.title)
-                        }
-                        if (tag.isNotEmpty()) {
-                            withStyle(SpanStyle(color = tokens.colors.textMuted)) { append("  ·  $tag") }
-                        }
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                if (item.description.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = item.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.colors.textMuted,
-                    )
-                }
-            }
-        }
     }
 }
 

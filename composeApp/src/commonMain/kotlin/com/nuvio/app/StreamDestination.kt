@@ -94,6 +94,7 @@ import com.nuvio.app.features.player.resolvePreferredAudioLanguageTargets
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PartyPlayerLaunchKey
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.forTitle
 import com.nuvio.app.features.player.sanitizePlaybackHeaders
 import com.nuvio.app.features.player.sanitizePlaybackResponseHeaders
 import com.nuvio.app.features.streams.StreamBehaviorHints
@@ -517,6 +518,11 @@ internal fun StreamDestination(
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
+    // Z: the language settings, applied per title by `playbackSelectionContextOf`.
+    val languagePreferences by remember {
+        com.nuvio.app.features.language.LanguagePreferencesRepository.ensureLoaded()
+        com.nuvio.app.features.language.LanguagePreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
     /**
      * The title's original language, for the loading band's language inference
      * (`SourceLanguageInference`) and the player's "original" audio target.
@@ -819,6 +825,7 @@ internal fun StreamDestination(
     val playbackSelectionContext = remember(
         requestedYear,
         contentOriginalLanguage,
+        languagePreferences,
         launch.runtimeMinutes,
         launch.seasonNumber,
         launch.episodeNumber,
@@ -842,6 +849,7 @@ internal fun StreamDestination(
             isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
             runtimeMinutes = launch.runtimeMinutes,
             contentOriginalLanguage = contentOriginalLanguage,
+            languagePreferences = languagePreferences,
             // ⚠ **Automatic modes only.** Classic and every manual path leave this null, so the
             // guard is inert for them: a manual pick is the user reading the release name and
             // choosing anyway, and overriding that would be a refusal wearing a helper's name.
@@ -2422,12 +2430,17 @@ internal fun StreamDestination(
             )
         }
         val loadingFacts = if (manualPlaybackStarting) manualCandidateFacts ?: activeCandidateFacts else activeCandidateFacts
+        val titleSettings = playerSettings.forTitle(
+            languagePreferences,
+            requestedContentLanguage,
+            DeviceLanguagePreferences.preferredLanguageCodes(),
+        )
         val preferredAudioLanguageTarget = resolvePreferredAudioLanguageTargets(
-            preferredAudioLanguage = playerSettings.preferredAudioLanguage,
-            secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
+            preferredAudioLanguage = titleSettings.preferredAudioLanguage,
+            secondaryPreferredAudioLanguage = titleSettings.secondaryPreferredAudioLanguage,
             deviceLanguages = DeviceLanguagePreferences.preferredLanguageCodes(),
             contentOriginalLanguage = requestedContentLanguage,
-        ).firstOrNull() ?: playerSettings.preferredAudioLanguage
+        ).firstOrNull() ?: titleSettings.preferredAudioLanguage
         val loadingState = PlaybackLoadingState(
             step = loadingStep,
             attempt = autoPickAttempt,

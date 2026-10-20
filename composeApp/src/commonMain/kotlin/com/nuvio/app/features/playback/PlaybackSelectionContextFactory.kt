@@ -2,6 +2,7 @@ package com.nuvio.app.features.playback
 
 import com.nuvio.app.features.player.DeviceLanguagePreferences
 import com.nuvio.app.features.player.PlayerSettingsUiState
+import com.nuvio.app.features.player.forTitle
 import com.nuvio.app.platformDisplayMaxHeight
 
 /**
@@ -41,7 +42,13 @@ internal fun playbackSelectionContextOf(
      */
     preferredEmbeddedSubtitleLanguage: String? = null,
     deviceLanguages: List<String> = DeviceLanguagePreferences.preferredLanguageCodes(),
+    /**
+     * Z: the language settings, applied for this title (`PlayerTitleLanguagePlan.kt`). Null keeps
+     * [settings] as given - the in-player callers pass settings the runtime has already applied them to.
+     */
+    languagePreferences: com.nuvio.app.core.language.LanguagePreferences? = null,
 ): PlaybackSelectionContext {
+    val settings = settings.forTitle(languagePreferences, contentOriginalLanguage, deviceLanguages)
     val languages = resolveRankableLanguages(
         preferredAudio = settings.preferredAudioLanguage,
         secondaryAudio = settings.secondaryPreferredAudioLanguage,

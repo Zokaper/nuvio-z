@@ -135,12 +135,14 @@ internal fun findPreferredSubtitleTrackIndex(
     targets: List<String>,
     mode: SubtitleAutoSelectionMode,
     selectedAudioTrack: AudioTrack? = null,
+    preferSdh: Boolean? = null,
 ): Int = findBestInternalSubtitleTrackIndex(
     tracks = tracks,
     targets = targets,
     forcedOnly = mode == SubtitleAutoSelectionMode.FORCED_ONLY,
     normalOnly = mode == SubtitleAutoSelectionMode.NORMAL_ONLY,
     selectedAudioTrack = selectedAudioTrack,
+    preferSdh = preferSdh,
 )
 
 internal fun findBestInternalSubtitleTrackIndex(
@@ -149,6 +151,8 @@ internal fun findBestInternalSubtitleTrackIndex(
     forcedOnly: Boolean = false,
     normalOnly: Boolean = false,
     selectedAudioTrack: AudioTrack? = null,
+    /** Z: Full (false) puts plain tracks first, Deaf and hard of hearing (true) SDH/CC first; null keeps file order. */
+    preferSdh: Boolean? = null,
 ): Int {
     for ((targetPosition, target) in targets.withIndex()) {
         if (forcedOnly) {
@@ -181,13 +185,17 @@ internal fun findBestInternalSubtitleTrackIndex(
             continue
         }
 
-        val preferredCandidateIndexes = candidateIndexes.filter { index -> !tracks[index].isForced }
-            .takeIf { it.isNotEmpty() }
-            ?: if (normalOnly) {
-                continue
-            } else {
-                candidateIndexes
-            }
+        val preferredCandidateIndexes = (
+            candidateIndexes.filter { index -> !tracks[index].isForced }
+                .takeIf { it.isNotEmpty() }
+                ?: if (normalOnly) {
+                    continue
+                } else {
+                    candidateIndexes
+                }
+            ).let { indexes ->
+            if (preferSdh == null) indexes else indexes.sortedBy { index -> if (subtitleTrackIsSdh(tracks[index]) == preferSdh) 0 else 1 }
+        }
 
         if (preferredCandidateIndexes.size == 1) {
             if (normalizedTarget == "pt" || normalizedTarget == "es") {
@@ -216,6 +224,24 @@ internal fun findBestInternalSubtitleTrackIndex(
     }
     return -1
 }
+
+/**
+ * Z: whether a track is for the deaf and hard of hearing - SDH, CC or "hearing impaired" in its label
+ * or id. Only orders candidates (see `preferSdh`); a wrong answer changes which full track wins, never
+ * whether one does.
+ */
+internal fun subtitleTrackIsSdh(track: SubtitleTrack): Boolean {
+    val text = listOf(track.label, track.id).joinToString(" ").lowercase()
+    return SdhMarkers.any { marker -> marker.containsMatchIn(text) }
+}
+
+private val SdhMarkers = listOf(
+    Regex("""\bsdh\b"""),
+    Regex("""\bcc\b"""),
+    Regex("""hearing[ -]?impaired"""),
+    Regex("""\bhoh\b"""),
+    Regex("""[(\[]hi[)\]]"""),
+)
 
 internal fun findBestForcedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,

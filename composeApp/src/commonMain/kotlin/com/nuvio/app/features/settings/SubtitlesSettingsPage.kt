@@ -92,19 +92,8 @@ private fun SubtitlesSettingsSection(
                     isTablet = isTablet,
                     onClick = onOpenPlaybackLanguage,
                 )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_subtitle_use_forced),
-                    description = stringResource(Res.string.settings_playback_subtitle_use_forced_description),
-                    checked = autoPlayPlayerSettings.subtitleStyle.useForcedSubtitles,
-                    enabled = otherSubtitleOptionsEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = { enabled ->
-                        PlayerSettingsRepository.setSubtitleStyle(
-                            autoPlayPlayerSettings.subtitleStyle.copy(useForcedSubtitles = enabled),
-                        )
-                    },
-                )
+                // Z: "Use Forced Subtitles" is gone - Forced is one of the subtitle choices in
+                // Playback → Language now, per group of titles (`LanguageSettingsSections`).
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_subtitle_show_preferred_only),

@@ -192,6 +192,7 @@ internal fun PlayerScreenRuntime.refreshTracks() {
     subtitleTracks = ctrl.getSubtitleTracks()
     val selectedAudio = audioTracks.firstOrNull { it.isSelected }
     if (selectedAudio != null) selectedAudioIndex = selectedAudio.index
+    applyTitleLanguagePlan()
     val selectedSub = subtitleTracks.firstOrNull { it.isSelected }
     if (selectedSub != null && !useCustomSubtitles) selectedSubtitleIndex = selectedSub.index
     if (!playbackSnapshot.isLoading) {
@@ -348,6 +349,7 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
         targets = selectionPlan.targets,
         mode = selectionPlan.mode,
         selectedAudioTrack = selectedAudioTrack,
+        preferSdh = titleLanguagePlan?.preferSdh,
     )
     if (internalIndex >= 0 && hasScannedTextTracksOnce) {
         val matchedTrack = subtitleTracks[internalIndex]

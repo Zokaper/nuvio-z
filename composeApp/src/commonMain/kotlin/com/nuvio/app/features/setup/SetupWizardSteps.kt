@@ -38,7 +38,7 @@ package com.nuvio.app.features.setup
  * launch - see `mergeMonotonicSyncInt` in `core/sync/SyncPreferenceJson.kt`. When testing this,
  * the launch that proves anything is the **second** one.
  */
-const val SETUP_WIZARD_REVISION: Int = 10
+const val SETUP_WIZARD_REVISION: Int = 11
 
 /**
  * Below this, a profile gets the **whole** wizard; from it up to [SETUP_WIZARD_REVISION], only the
@@ -124,6 +124,8 @@ fun shouldShowSetupWizard(
  */
 fun setupStepOfferedOnUpgradeFrom(step: SetupStep): Int? = when (step) {
     SetupStep.DownloadMode, SetupStep.DownloadSetup -> 10
+    // Revision 11 (2026-10-20): the language settings were rebuilt (`LanguageSettingsSections`).
+    SetupStep.Language -> 11
     else -> null
 }
 

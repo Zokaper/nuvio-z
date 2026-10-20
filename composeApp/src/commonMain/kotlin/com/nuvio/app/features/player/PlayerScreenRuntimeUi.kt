@@ -1957,37 +1957,39 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
         }
         "subtitleFontSizeDelta" -> {
             PlayerSettingsRepository.setSubtitleStyle(
-                subtitleStyle.copy(fontSizeSp = (subtitleStyle.fontSizeSp + value.toInt()).coerceIn(subtitleFontSizeRangeSp)),
+                writableSubtitleStyle.copy(fontSizeSp = (subtitleStyle.fontSizeSp + value.toInt()).coerceIn(subtitleFontSizeRangeSp)),
             )
         }
         "subtitleOutlineToggle" -> {
-            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(outlineEnabled = !subtitleStyle.outlineEnabled))
+            PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(outlineEnabled = !subtitleStyle.outlineEnabled))
         }
         "subtitleBoldToggle" -> {
-            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(bold = !subtitleStyle.bold))
+            PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(bold = !subtitleStyle.bold))
         }
         "subtitleBottomOffsetDelta" -> {
             PlayerSettingsRepository.setSubtitleStyle(
-                subtitleStyle.copy(bottomOffset = (subtitleStyle.bottomOffset + value.toInt()).coerceIn(0, 200)),
+                writableSubtitleStyle.copy(bottomOffset = (subtitleStyle.bottomOffset + value.toInt()).coerceIn(0, 200)),
             )
         }
         "subtitleTextColor" -> {
             SubtitleColorSwatches.getOrNull(value.toInt())?.let { color ->
-                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(textColor = color.copy(alpha = subtitleStyle.textColor.alpha)))
+                PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(textColor = color.copy(alpha = subtitleStyle.textColor.alpha)))
             }
         }
         "subtitleOutlineColor" -> {
             SubtitleOutlineColorSwatches.getOrNull(value.toInt())?.let { color ->
                 PlayerSettingsRepository.setSubtitleStyle(
-                    subtitleStyle.copy(outlineEnabled = true, outlineColor = color),
+                    writableSubtitleStyle.copy(outlineEnabled = true, outlineColor = color),
                 )
             }
         }
         "subtitleTextOpacity" -> {
             val alpha = (value.toFloat() / 100f).coerceIn(0f, 1f)
-            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(textColor = subtitleStyle.textColor.copy(alpha = alpha)))
+            PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(textColor = subtitleStyle.textColor.copy(alpha = alpha)))
         }
-        "subtitleStyleReset" -> PlayerSettingsRepository.setSubtitleStyle(SubtitleStyleState.DEFAULT)
+        "subtitleStyleReset" -> PlayerSettingsRepository.setSubtitleStyle(
+            SubtitleStyleState.DEFAULT.copy(useForcedSubtitles = writableSubtitleStyle.useForcedSubtitles),
+        )
         "parentalGuideComplete" -> {
             showParentalGuide = false
         }

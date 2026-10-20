@@ -19,8 +19,10 @@ data class WhatsNewItem(
     val description: String,
     /** An action card: the entry offers to do something now ("Try Advanced Setup"). */
     val action: ChangelogAction? = null,
-    /** Set for "on other devices" entries only: the platforms the entry is about. */
+    /** The platforms the entry is about, in [ChangelogPlatformOrder]; shown beside every entry. */
     val platforms: List<ChangelogPlatform> = emptyList(),
+    /** See [ChangelogEntry.image]. */
+    val image: String? = null,
 )
 
 data class WhatsNewSection(
@@ -91,14 +93,21 @@ private fun ChangelogCategory.toWhatsNewCategory(): WhatsNewCategory = when (thi
     ChangelogCategory.FIX -> WhatsNewCategory.BugFixes
 }
 
-private fun ChangelogEntry.toItem(withPlatforms: Boolean) = WhatsNewItem(
+private fun ChangelogEntry.toItem(viewer: ChangelogPlatform) = WhatsNewItem(
     title = title,
     description = body.orEmpty(),
-    action = action,
-    platforms = if (withPlatforms) ChangelogPlatformOrder.filter { it in platforms } else emptyList(),
+    // An action is something to do on this device.
+    action = action?.takeIf { viewer in platforms },
+    platforms = ChangelogPlatformOrder.filter { it in platforms },
+    image = image,
 )
 
-/** [events] for [platform], newest first, in the screen's shape. */
+/**
+ * [events] for [platform], newest first, in the screen's shape.
+ *
+ * Z (2026-10-20): **one list.** Every entry sits in its own category with its platform tags - an entry
+ * about another platform is no longer moved to a muted "on other devices" list at the bottom.
+ */
 fun whatsNewEventsUi(events: List<ChangelogEvent>, platform: ChangelogPlatform): List<WhatsNewEventUi> =
     events.sortedByDescending { it.seq }.map { event ->
         val view = event.viewFor(platform)
@@ -107,10 +116,12 @@ fun whatsNewEventsUi(events: List<ChangelogEvent>, platform: ChangelogPlatform):
             date = view.date?.let(::formatReleaseDateForDisplay),
             summary = event.summary,
             versions = view.versions.map { (p, ship) -> WhatsNewVersion(p, ship.version, p == platform) },
-            sections = view.own.map { (category, entries) ->
-                WhatsNewSection(category.toWhatsNewCategory(), entries.map { it.toItem(withPlatforms = false) })
+            sections = ChangelogCategoryOrder.mapNotNull { category ->
+                event.entries.filter { it.category == category }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { entries -> WhatsNewSection(category.toWhatsNewCategory(), entries.map { it.toItem(platform) }) }
             },
-            otherDevices = view.otherDevices.map { it.toItem(withPlatforms = true) },
+            otherDevices = emptyList(),
         )
     }
 
