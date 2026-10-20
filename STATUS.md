@@ -1,5 +1,562 @@
-Last updated: 2026-10-18
+Last updated: 2026-10-20
 
+
+| Repository | Active branch | Released debug | Current work |
+| --- | --- | --- | --- |
+| Desktop | `claude/social-v2-design` | 115 | Language + What's New implementation; desktop focused suite 580/580 and live UI verified |
+| Mobile | `claude/social-v2` | 107 | Social V2; language + What's New port still pending |
+
+## Language settings rebuild + What's New rework (2026-10-20, in progress, desktop only so far)
+
+**Handoff: `Nuvio Z/HANDOFF-language-and-whats-new.md`** (plan: `Nuvio Z/PLAN-language-and-whats-new.md`).
+Folded into the Social V2 release. All code is on desktop `claude/social-v2-design`; **mobile
+`claude/social-v2` has none of it yet** (port by cherry-pick, see the handoff, step 3). Replaces the four
+language pickers + "Use Forced Subtitles" with a per-title model (my language / other languages, subtitles
+Off / Forced / Full / SDH), wizard revision 11, a "New settings available" pop-up after What's New
+(Upgrade runs no longer gate), What's New picture cards + platform tags (no "other devices" section).
+
+
+**2026-10-20 design correction:** maintainer prefers the initial What's New mocks. Desktop now
+puts illustrated features and improvements together as cards, smaller changes as text below,
+with no category headings, and neutral folded fixes. Platform tags and Review settings stay.
+The production render harness uses the original sample illustrations; release copy/art still
+waits for the maintainer. Desktop's final focused selection passed **580/580**, zero failures,
+errors or skips; full/viewport renders and live scrolling/fold/actions/420x900 resize verified.
+Temporary preview source/artwork removed; mobile port and Advanced Setup panel still pending.
+Desktop `STATUS.md` records the earlier native-player timing flake and exact verification scope.
+
+## Round after 106/114: invite count, Social pop-ups, subtitles, next-episode loading, silent sign-out (2026-10-19, unreleased)
+
+Maintainer, on 106/114: the invite picker's button read `Invite %d`; clicking a Social pop-up with a details page
+open switched the tab underneath and the page stayed on top until closed.
+
+- **`social_party_invite_send`**: Compose resources only substitute positional args, so `%d` is printed literally.
+  Now `%1$d` in both repos. The upstream `entity_browse_title_count*` strings (every locale) have the same bare `%d` -
+  vanilla, left alone; candidate for `VANILLA-BUGS.md`.
+- **Social pop-up navigation**: `SocialNavigation.pending` now calls `popToTabsRoot()` before `activateTab(Social)`
+  (skipped under native navigation and while a `PlayerRoute` is on top). Desktop had no `popToTabsRoot`: it came
+  with mobile's `6c424bf23` (Downloads toast fix) that never reached desktop, now cherry-picked there as well.
+- Desktop navigation tests 12/12 fresh; mobile `compileFullDebugKotlin` green. Not yet in a Debug build.
+
+Three feedback-board bugs, same round, every commit made on desktop and cherry-picked to mobile:
+
+- **Wrong subtitles on entering the player** (none / another language / "Forced"). Not root-caused. Maintainer's
+  settings: audio en, subtitles en, **Use Forced Subtitles on** (forced-only mode: a forced English track or
+  nothing, by design), Prefer built-in on, Instant. Proven *not* the cause: per-show track memory (none stored on
+  this machine). Hypothesis: mpv's own pick (its defaults: forced track matching audio, else the file's
+  default-flagged track, else none - exactly the three symptoms) survives because the picker did not override it;
+  `SubtitleAutoPickScenarioTest` (mobile host) shows the picker *does* override it with well-tagged tracks, so the
+  real trigger is in real files' tags or timing. **Next step: read `subtitle_pick` (PlaybackStartup) lines** from
+  a Debug build after a wrong pick - each records the track list (lang, forced, default, `:on`) and the decision.
+  Fixed on the way: the per-show restore matched mpv's positional track id before language (next episode's
+  release could restore another language) and ignored a remembered *non*-forced choice (restored the forced one).
+- **Next episode loading screen**: band / copy-error / stall watchdog read `args.sourceFacts` and
+  `args.playbackAttempt`, the launch's, forever; now `activeSourceFacts` / `activePlaybackAttempt`, set by every
+  source switch. Backdrop was the episode's w500 still; now the show's backdrop, as on a first launch.
+- **Silent sign-out**: a lost login (no stored session at launch, refused refresh) ran on cached profiles looking
+  signed in. AppGate now raises a 10 s toast with Sign in, and Account shows Sign In instead of Sign Out while
+  signed out. Sign in uses a new `SignInNavigation` request answered by AppGate (clears profiles in memory only);
+  Sign Out was the old way there and wipes account data. The Oct 18 realtime `InvalidJWTToken` give-ups were a
+  pre-109 build; none since.
+- Verified: desktop player+playback 660/660, mobile player+playback host 717/717 (fresh), both compile. **Not
+  verified on a device:** the toast, the Account button, and a next-episode loading screen.
+
+## Push dropped until Social loaded; duplicate invite notices; invite picker (2026-10-19, Debug mobile 106 / desktop 114)
+
+Maintainer, after the first Android push on a phone: it came only after opening the app and the Social tab; and an
+invite showed as the pop-up **and** the old bottom prompt.
+
+- **Push** (mobile only, `ebe9dda17`): every Social activation starts with no capabilities, and `SocialPush` read
+  that as signed out, removing the remembered profile, so `onMessage` dropped each push as "not for this profile"
+  until Social finished loading (a late session: until the Social tab ran `recoverIfStale`). Production showed it:
+  pushes sent 11:04 / 12:25 / 12:26:05 (`sent:1`), the phone re-registered at 12:26:23. Now a pure
+  `socialPushStep` forgets only on a real sign-out, Social off, or another profile (`SocialPushStepTest` 6/6).
+- **Old prompt removed** (both repos, mobile `b8376d6a1`, desktop `e38b2876e`): the V1 `NuvioFloatingPrompt` for
+  Social notices in `MainAppContent`; the pop-ups / phone banners own them.
+- **Invite picker** (maintainer picked C, "don't change the current invite button"): `PartyInvitePicker` (shared,
+  desktop `ba6ed5828` -> mobile `76cc990c0`) - search past 8 friends, watching now first (`partyInviteWatching`), check
+  circles up to the free slots, "Invite N friends"; Sent keeps its cross, Declined its cooldown. Opened by the unchanged
+  lobby Invite tile / "Invite a friend" row (dialog on wide, sheet on phones; the lobby now tracks Sending / Sent /
+  Declined like the player), the phone player's "+ Invite friends" (mobile `d0f4a16ab`, a dialog) and the desktop
+  player's "+ Invite friends" (HTML picker over the video in `controls.js`, desktop `7842905a9`; keys stay inside it).
+  The dialog's list takes what the window leaves, so a landscape phone keeps the button (`shipped-picker-*` renders in
+  `PartyInviteListHarness`). Tests: desktop 922/922 (Social, Watch Together, player), mobile host 950 (6 skipped),
+  Android compiles. **Not seen on a device.**
+
+## Social strings to resources (2026-10-19, Debug mobile 105 / desktop 113)
+
+The Stage 1 string-resources sweep, held until the Recommended placement was picked.
+
+- **Block**: `values/strings.xml` gains one appended block, `<!-- Nuvio Z: Social V2 strings (2026-10-19). -->`
+  (141 strings, 5 plurals), **identical in both repos** - written by one script, so phone-only keys sit unused on
+  desktop and the tray keys sit unused on mobile. Edit the block in both repos together.
+- **Shared Kotlin** (desktop `fdff0b7bb` -> mobile): everything the Social screens draw directly - tab, Friends view,
+  Inbox, join sheet, friend profile, invite dialog, recommendations (shelf, details line, picker, toasts), Home
+  shelves, Watch Together dock, Social settings. Coroutine feedback uses `getString`. `socialRich` now takes a
+  template (`%1$s recommends %2$s`) and emphasises its arguments, so translations can reorder them;
+  `dockPresentation` became `@Composable`.
+- **Per repo**: `DesktopSocialSettingsSections` (Pop-ups, In the background), `PhoneSocialAlertsSection` (Notifications).
+- **Left as code, deliberately**: pure label builders that unit tests assert word for word, some compared by value
+  (`socialStatusLabel() == "WATCH PARTY"`): `socialPeopleLabel`, relative times and activity buckets, status / sentence /
+  meta, pop-up lines, join step notices, affordance labels, friend-request error mapping, `socialTogetherDuration`, the
+  facts line, `phoneSocialAlertsDescription` actuals. Moving them means passing resolved strings in; a later pass.
+- Renders unchanged (Inbox emphasis, plurals "1 party" / "3 parties"). Tests: desktop 319/319 (Social, Settings, Home,
+  Tray), mobile host 277/277, Android compiles; iOS on CI.
+
+## Inbox: Unread / Read (2026-10-19, Debug mobile 104 / desktop 112)
+
+Maintainer on desktop 111: an invite that had just arrived ("Just now") sat under **Earlier**. "New" was a snapshot of what was
+unread when the page opened, so anything arriving while it was open (or before its state caught up after a pop-up click) fell
+into the other group. Now `splitInboxUnreadRead` snapshots what was already **read** at open; the groups are **Unread** and
+**Read** (maintainer: "it should be about read/unread"), and the read marks are keyed on the unread ids, so a message arriving
+while the page is open is marked read as well. `SocialInboxGroupingTest`. Shared, desktop `963cb345e` -> mobile.
+
+## Recommended to you: Inbox, plus an opt-in Home shelf (2026-10-19, Debug mobile 103 / desktop 111)
+
+Maintainer picked placement **D (the Inbox)** "then an option to display it on home as well as a shelf".
+
+- **Inbox** (shared `SocialScreen.kt`): the A+ shelf leads the Inbox on every layout. A `recommendation` event is no
+  longer also an Inbox card under it (the D render showed both); `recommendation_started` still is. The empty line
+  shows only when the shelf is empty too.
+- **Home**: Social settings -> Home -> **Show recommendations on Home**, **off by default** (the maintainer had called
+  Home busy). `SocialFeaturePreferencesRepository.showRecommendedOnHome` (nullable stored, like the Friends switch),
+  synced per profile by `SocialHomeSync` under `show_recommended_on_home`; each key is exported only once moved and a
+  missing key leaves the device's value alone (older builds export the Friends key alone). `homeRecommendedSection`
+  draws the A+ tiles at Home tile width under the Friends shelf, read from the live state so it does not depend on the
+  Friends switch; long-press removes after the same confirm (`RecommendedDismissDialog`). `HomeScreen` is per repo
+  (diverged), edited identically in both.
+- **Deleted**: `RecommendedPlacement` / `LocalRecommendedPlacement`, the feed shelf, `SocialRecommendedRail`,
+  `SocialRecommendedPage`, `SocialOverlay.ForYou` and the header's For you pill (`SocialCountPill` stays; Inbox uses it).
+- Tests: `SocialHomeSyncTest` (defaults, export, restart, partial and full sync); `SocialRenderHarness.renderRecommendedToYou`
+  (`build/social-render/recommended-{inbox,home}-{desktop,phone}.png`) replaces the placement renders; the Home
+  contrast test now includes recommendation tiles.
+- **Next: the string-resources sweep** (Social files are still hardcoded English; ~130 strings across `SocialScreen`,
+  `SocialRecommendations`, `SocialSettingsPage` and smaller files; each repo's `strings.xml` by hand).
+
+## Circle glyphs, Recommended-by colour, Start with Windows, placement candidates (2026-10-19, Debug mobile 102 / desktop 110)
+
+Maintainer, on 100/108: avatar initials and the Inbox count sat low in their circles; the details page's
+"Recommended to you by ..." headline was invisible (the black-text bug again); Start with Windows: build it;
+update the ledger; do the Stage 1 cleanup; "Recommended to you" in the Social tab feels shoehorned - where should it go?
+
+- **Circle glyphs** (shared, desktop `c78a468e4` -> mobile `71e323c53`): `SocialCircleGlyph` gives the glyph a line
+  exactly its own size, centred (`LineHeightStyle` Center/Trim.Both). A bare `fontSize` kept the inherited line height,
+  so an 18-20dp avatar's initial drew 1-2dp low. `SocialCircleGlyphHarness` measures the ink box: +2.13dp -> +0.13dp.
+- **Recommended-by line**: `SocialRecommendedByContent` provides `onBackground` itself; the details page hosts it outside
+  any Surface. The harness had provided the colour, which is why the render never showed it.
+- **Placement candidates** (`RecommendedPlacement`, default `Feed` = what 100/108 ship): Rail (top of the Friends rail /
+  phone Friends view), ForYou (a "For you N" pill beside Inbox opening its own page), Inbox (shelf at the top of the
+  Inbox). Rendered by `SocialRenderHarness.renderRecommendedPlacements` (`build/social-render/placement-*`). **Pick
+  pending**; delete the losers after. On phones the For you pill truncates the handle.
+- **V1 cards removed** (Stage 1 cleanup): `SocialWatchingNowCard` and its compact body / join button / surface /
+  artwork / label helpers, `socialGridItems`, `FriendActivityRow` + poster - nothing drew them in either repo. Sizes the
+  feed metrics compute with, `watchingNowPeopleLabel` (a mobile test uses it) and `WatchingNowEmptyLine` stay.
+  **String resources: not done** - wait for the placement pick, then sweep (each repo's `strings.xml` by hand).
+- **Start with Windows** (desktop only, `0f2cec0ee`): Social settings -> In the background. The channel's own value
+  under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (named after the launcher), `reg.exe`, installed builds
+  only, repointed at startup if the install moved. `--background` starts with no window; the player / WebView2 warm-up
+  waits for the first show (`DesktopTrayController.startHidden`); `DesktopBackgroundStart` restores the session and
+  activates Social for the **last profile used** (never a PIN profile; wider than the gate's remember-last rule,
+  because the maintainer's install has the picker on). A background launch while Nuvio runs exits quietly.
+  Measured from source, signed in, Social live: **93 MB working set / 248 MB private** after 3 minutes, no WebView2.
+  Uninstalling leaves the Run value behind (Windows skips a missing program).
+- **Ledger** (`Docs/Z-FEATURES.md` revision 20): S12-S17 for the rest of Social V2, S11 updated, S1/S2/S5 iOS `yes`
+  on the maintainer's iPhone test. Watch Together iOS cells stay `defer` until an iPhone party is reported.
+- Production check 2026-10-19: Android push is deployed and live (`social_push_tokens`, `social-push` function v5,
+  both vault secrets). `friend_watching` is never pushed (migration comment); an older line here implied otherwise.
+
+Tests: desktop 662/662 (Social, tray, Watch Together, ZSession, details), mobile host 604/604, Android compiles.
+**Not seen on hardware:** Start with Windows across a real sign-in; the glyph and colour fixes on a device.
+
+## Social channel died after an hour idle (2026-10-18, Debug mobile 101 / desktop 109)
+
+Maintainer: two pop-ups never came while Nuvio sat minimized; restoring the window brought both at once. The
+desktop debug log (`nuvio-debug-20261018-170416-*`): pop-ups fine 17:05-17:46, then from 19:02
+`realtime:social:<id>` refused with `InvalidJWTToken: Token has expired`, giving up and retrying until 21:23;
+the 21:39 foreground sync refreshed and both friend requests popped. Cause: the Z client never auto-refreshes
+(`alwaysAutoRefresh = false`, by design), `ZSessionBridge.ensureSession` renews only when someone calls it, an
+idle app calls nothing, and even a renewal never reached the socket (`setAuth()` ran only when a channel opened).
+
+- `ZSessionBridge.exchange` now calls `realtime.setAuth(accessToken)` after every install (Social and Watch
+  Together channels both get renewed tokens).
+- `SocialRepository.keepRealtime`: every 60s while the Social channel is open (inside the bridge's 2-minute
+  renewal window) `ensureSession`; if the channel is not `SUBSCRIBED`, `refresh(false)` by hand - a dead socket
+  now delays a pop-up by about a minute.
+
+Tests: desktop 293/293 (Social, ZSession, Watch Together), mobile host 109/109. **Not yet seen over an idle hour.**
+
+## Recommendations (2026-10-18, Debug mobile 100 / desktop 108)
+
+Design in `Nuvio Z/PLAN-social-v2.md` ("Recommendations, settled 2026-10-18"); picks from `SocialRecommendHarness`:
+picker B (face grid) on phones / A (list) on desktop, shelf A+, details line M1.
+
+- **Shared** (`SocialRecommendations.kt`, desktop `9ea9f0a33` -> mobile): `SocialRecommendSheet`,
+  `SocialRecommendedShelf` (Social tab, between Watching now and Recently watched; long-press removes),
+  `SocialRecommendedByLine`, `recommendedToYou` grouping (`RecommendedToYouTest`), `LocalSocialRecommendAction` +
+  `socialRecommendAction()` so each repo's `MetaDetailsScreen` / `DesktopDetailHero` adds Recommend to the three-dot
+  row with no new parameters. Inbox kind `recommendation_started`; pop-up kind `Recommendation` with its own switch
+  (desktop tray, phone Notifications). `SocialTitleArt` carries `releaseInfo` + `seasonCount` for the tile's facts.
+- **Backend** (`nuvio-z-backend` `0d8ad73`, `202610180003_recommendations.sql`, pgTAP 499/499): Sent dedupe +
+  `social_recommendation_sent_to`, recommendations exempt from the 60-day purge until dismissed and returned apart
+  from the inbox's 100 (`social_get_state_v2` = deployed definition, inbox subquery only), and the started trigger
+  (dismisses the card, tells the sender, never past share-Watching-Now or a hide, never pushed).
+  **Deployed 2026-10-18** on the maintainer's go-ahead (live `social_get_state_v2` matched the copied definition by md5
+  first; post-push smoke test on a real profile returned its inbox, friends and notices).
+
+Tests: desktop 154/154 (Social, tray, details), mobile host 132/132; shipped shelf + line rendered at 320/411/1280.
+The picker and the details wiring are not seen on a device yet.
+
+## Android push (Stage 4), phone notification switches, iOS tab badge (2026-10-18, Debug mobile 99)
+
+Maintainer: iOS Social has been tested on a device and works (the ledger's iOS `defer` cells lag).
+
+- **Backend** (`nuvio-z-backend` `39ccb93`, `202610180002_social_push.sql`, function `social-push`; pgTAP
+  485/485 locally). `social_push_tokens` + `social_register_push_token` / `unregister` (owner-checked, a
+  token moves to whoever registered it last). Triggers on friend requests, party invites, join requests
+  (insert, or renewed as pending) and inbox events (friend accepted, recommendation, friend watching) call
+  `social_push()` -> `pg_net` -> the Edge Function, with a shared secret; it never raises. Vault secrets
+  `social_push_url` / `social_push_secret` and function secret `SOCIAL_PUSH_SECRET` switch it on; without
+  them it is silent. Keys match the banner ledger (`notice:<kind>:<id>`, `inbox:<id>`).
+- **Android** (`SocialPush.android.kt`): registers the FCM token for the active Social profile while
+  Notifications is on; drops pushes for another profile, a switched-off kind, or while Nuvio is in front;
+  marks the banner seen; draws the notification with the title's art; tap -> friend requests or Inbox.
+  Firebase from `androidApp/google-services.json` (gitignored; the maintainer's copy is on this machine)
+  or `NUVIO_GOOGLE_SERVICES_JSON` (repo secret, set 2026-10-18), turned into the plugin's res values per
+  variant in `androidApp/build.gradle.kts` - no Google Services plugin, so a build without it still works.
+- **Phone switches** (`PhoneSocialAlerts`, per device): Settings -> Social -> Notifications, master + friend
+  requests / parties / friends watching; gates banners, the in-player card and push.
+- **iOS badge** (`NativeSocialBadge` -> `NativeTabIconStore.socialBadge`, `.badge` on both TabView
+  variants). Compiled only by the Debug release workflow.
+- Shared commit `26287270d` (push-token calls, `SocialPopupLedger.markSeen`) cherry-picked to desktop.
+
+Tests: mobile host 300/300 (Social, settings, party, Watch Together), Android `compileFullDebugKotlin` ok,
+res values checked per build type. **Not yet seen on a phone.**
+
+## Join sheet art, phone in-player card, desktop pop-up queue (2026-10-18, Debug mobile 98 / desktop 107)
+
+Maintainer's second round of 2026-10-18. Renders first (`SocialJoinSheetHarness`, desktop desktopTest; contact
+sheets in `Nuvio Z/render-review/2026-10-18-social/`), picks: join sheet **B**, in-player card **A**.
+
+- **Join sheet** (shared, desktop `5ca0259d6` -> mobile): backdrop full-bleed with who / title / episode on it,
+  state chip and progress on its edges, Join + Details side by side. `SocialSheet(edgeToEdge = true)` at both
+  doors (Social tab, Home Friends shelf); `SocialJoinSheetContent` takes `wide`.
+- **Phone in-player card** (mobile only, `MobilePartyOverlays`): the compact `SocialPopupCard` itself, fed by
+  the shared `SocialNotification.toSocialPopup()` / `SocialInboxEvent.toSocialPopup()` (extracted from
+  `socialPopupCandidates`, unchanged; shared commit `3eca36981`). Buttons inside the card on a short surface
+  (card's new `trailing` slot), under it otherwise. No Dismiss button: swipe up (`onDismissSocialCard`: a
+  notice is marked read, a friend-watching card is cleared). The card's line now reads like the banners
+  ("wants to be friends", "invited you to watch") rather than the old in-player sentences.
+- **Desktop pop-ups** (desktop only): `SocialPopupQueue` (pure, `SocialPopupQueueTest` 4) - three on screen,
+  the rest wait (a fourth used to push the oldest off, already marked seen); hover holds all and gives time back
+  (min 3s); cards slide/fade in from the edge and out, the window follows the stack's measured height.
+  **Not seen on a screen yet**: hover hold and the animation are untested outside unit tests.
+
+Tests: desktop 164/164 (Social + tray), mobile host 162/162 (Social, party overlays, Watch Together).
+
+## First 3-device round on 96/105; fixes in Debug mobile 97 / desktop 106 (2026-10-18)
+
+Maintainer tested iOS + Android + desktop together. Five reports, five fixes:
+
+- **Started-watching stopped arriving** (server). The trigger allowed one `friend_watching` per friend pair
+  per 30 minutes, whatever was started: production showed `11cee346` start Obsession minutes after an Oak
+  Street event and nothing written. **Deployed** `202610180001_friend_watching_rules.sql` (approved): the half
+  hour now holds back only the same `content_id`. Backend `33506df` on `claude/social-v2-backend`, pgTAP 472/472.
+- **Host told "X is watching" when X joined their party** (same migration): members of one live party
+  (`left_at is null`, party not ended) never get each other's event; friends outside the party still do.
+- **Guest backed out to the lobby: no way back, status "Ready"**. `PartyReadyTone.Lobby` / "In lobby" when
+  the party is playing and the member's `client_location` is lobby (below resolving, so a member on the way in
+  still reads Resolving source); `PartyLobbyModel.canRejoin` gives guests **Rejoin** on both action bars,
+  calling the lobby's own `onStart` (retained launch, authoritative position). Desktop `controls.js/.css`
+  know the `lobby` tone; mobile's panel shows unknown tones muted already. Render: `lobby-render/rejoin-*`.
+- **Friends shelf info button** now drawn like `ContinueWatchingDetailsButton` (`SocialInfoDot`).
+- **Watching Now reordered itself**: the server sorts by latest heartbeat. `stableWatchingNowOrder` keeps
+  cards already on screen in place; new sessions lead.
+
+Shared commit desktop `9877928e0` -> mobile `2725be123`; desktop-only `5af72db84`. Desktop 619/619 and
+mobile host 630/630 (Social + Watch Together filters).
+
+**Next (maintainer, 2026-10-18):** the Watching Now join sheet should put more emphasis on the title's art
+(render candidates first); desktop pop-ups should hold while hovered and slide in/out.
+
+## Social V2 rebuilt on the z3 trunks (2026-10-18, Debug mobile 96 / desktop 105)
+
+Debug 92-95 came from the installer/self-signing line and carry no Social work, so the update channel was
+offering builds without Social V2. `main` (0.5.4-z3, Installer 3, self-signing) is merged into
+`claude/social-v2` (`117f9945d`) and desktop `Dev` into `claude/social-v2-design`; no product change beyond the
+merge. The maintainer is re-testing Social from scratch on 96 / 105. Conflict calls: `AppUpdater` keeps
+`newestChannelReleaseIndex` and passes the release body (self-signing markers); `SettingsPage` ends
+Navigation, About, Downloads, KeepNuvioWorking (`ZSettingsHubTest` updated to the last four). Host tests for
+settings + updater: 19/19.
+
+## Social pop-ups shared; phone in-app banners (2026-10-17, Debug mobile 91 / desktop 104)
+
+Maintainer: "we should have in-app notifications for mobile, esp iOS which can't have system notifications.
+Have the banner mirror the ones on desktop, but smaller." Android system notifications (FCM, Stage 4) are
+still not built; the server prerequisites (`FCM_SERVICE_ACCOUNT` secret, both `google-services.json`) are in hand.
+
+- **Shared** (desktop `718f670a1`, cherry-picked here): `SocialPopups.kt` - `SocialPopupKind`, `SocialPopup`,
+  `socialPopupCandidates` (pending actionable notices + unread friend-watching from friends with Notify on) and
+  `SocialPopupLedger` (once per profile per device; first sight of a profile is history; loading / offline
+  states ignored; older than the platform's freshness is marked seen silently). `SocialPopupCard.kt` - the
+  desktop card moved to commonMain, plus `compact = true` (72dp, title and meta on one line, no NUVIO mark).
+  `SocialStorage.load/savePopupSeen` keeps the ledger; desktop's actual reads the pop-up window's old
+  `nuvio_social_popups` / `seen_<profile>` keys, so nothing re-pops after updating. `SocialPopupLedgerTest` (5).
+- **Desktop** (`a6551e9d2`): `DesktopSocialPopups` uses the shared pieces (6h freshness, tray switches,
+  fullscreen hold unchanged). Render harness `renderSocialPopupCards` draws both sizes.
+- **Phone** (mobile only, `SocialBanners.kt` + `MainAppContent`): `SocialBannerHost` at TopCenter, z 21,
+  under the status bar; up to 2, 6s each; tap = `SocialNavigation.open` (switches to Social and opens the
+  place), swipe up = dismiss. Fed through `collectAsStateWithLifecycle`, so nothing is spent while the app is
+  backgrounded; 30-minute freshness on return. On `PlayerRoute` it shows nothing but still marks seen (the
+  player's own card covers it, including mobile 90's friend-watching card).
+- **Not done:** no per-kind switches on the phone (desktop has them in the tray settings); iOS compile is only
+  exercised by the Debug release workflow; nothing seen on a device yet.
+- Z-FEATURES gains **S11 Social pop-ups**. The rest of Social V2 (inbox, per-friend switches, tray, invite
+  outcomes) still has no ledger rows.
+
+## Updater picked the wrong debug build (2026-10-17, Debug mobile 89 / desktop 101)
+
+Maintainer on desktop Debug 99: Check for updates never found 100. GitHub's releases list is not in version
+order - it returned debug 99, 98, 97 and only then 100 - and `getLatestChannelUpdate` took the first
+eligible release, so 99 was offered to a 99 install and judged not newer. Both `AppUpdater.kt` copies now
+take `newestChannelReleaseIndex` (highest by `VersionUtils.compareTags`: serial when both tags carry one,
+version otherwise; ties keep GitHub's order). Tests in both `DebugChannelVersionTest`. **Installs on desktop
+99/100 and mobile 88 or earlier still have the old picker**: they may need one manual install from the
+release page before the updater is trustworthy again.
+
+**Desktop 102: social pop-ups during playback.** A friend-started-watching event reached the maintainer's
+desktop profile at 13:24:39 while a video was playing (13:22:53-13:25:32 in the debug log) and never
+showed: with Nuvio in front, `DesktopSocialPopups` draws the card in-app, under the mpv surface and the
+WebView2 controls. While the native surface is promoted (`PlayerEngine.desktop.kt` reports it), the cards
+now use the pop-up window anchored to the top-right of Nuvio's window, and a click there only dismisses.
+"In front" also accepts `window.isActive`, since focus inside the player's native children may read as
+unfocused. Each pop now logs `(SocialPopups) popped <kinds> over the player | in the window | on the
+desktop`, or `held` when another app is fullscreen. Not yet seen on screen.
+
+**Desktop 103 supersedes that: pop-ups are always the corner window, like Steam** (maintainer's call). The
+in-app copy and the over-the-player anchor are gone; a friend-started-watching card at 16:02:50 had popped
+"in the window" and gone unnoticed. Nuvio in front now only decides that its own fullscreen never holds a
+pop-up back; a click while a video is on screen still only dismisses. Log line: `(SocialPopups) popped
+<kinds> (nuvio in front=…, video on screen=…)`.
+
+**Mobile 90: friend-started-watching in the player.** Mobile had no surface for it but the Inbox. The
+in-player social card (`MobilePartyOverlays`) now also says "Friend is watching Andor · S1 E2" for 7s,
+buttonless, for unread events from friends with Notify on created since the player opened (less 60s
+skew), each once, and only when no actionable card is showing (`inPlayerFriendWatchingEvent`, mobile
+`PlayerScreenRuntimeUi` only). Still no pop-ups anywhere on mobile outside the player.
+
+Desktop CI's "Desktop tests" job has been red on every push since 2026-10-16 at
+`:composeMediaPlayer:buildNativeLinux` (`frame_copy_test`), before any Kotlin test runs; the MSI job and
+the debug releases are green. Not investigated.
+
+## Social V2: invite outcomes, request outcomes, activity names, phone join pill (2026-10-16/17, Debug mobile 88 / desktop 100)
+
+Maintainer's report after Debug 87/99, four items. Shared commit `dc0ec4774` (desktop) cherry-picked as
+`aca7376c4` (mobile); per-repo player commits on top.
+
+- **Activity showed episode names and stills.** Production proof: Outer Banks S5 E7 stored with title
+  "Bal des Sauvages" - `toEpisodeWatchedItem` puts the episode name and still in `WatchedItem`, and
+  `SocialWatchedActivity` published them as-is. Fixed at both ends: rows display `displayTitle()` (the show's
+  name from `SocialTitleArtStore` metadata, blank while pending) and `artwork()` uses the show backdrop only;
+  new events publish the show name/poster from `MetaDetailsRepository.peek` with the episode name as
+  `episode_title`. Existing rows are not backfilled (the display fix covers them). "N episodes · last SxEy"
+  is now "Latest SxEy · N watched".
+- **Join pill on phones** was a bare 44dp avatar (text appeared on hover only): `WatchTogetherDock` is always
+  the full pill now (maintainer's pick), width capped by the window.
+- **A declined join request said nothing while watching**: the dock is hidden over the player and the
+  player mirrored only pending/accepted. The panel now shows declined/expired/stopped/failed with Ask again
+  and ✕ (desktop `controls.*`, mobile `MobileWatchTogetherPanel`), and the status pill says it
+  (`PartyStatusOutgoingOutcome`, rule 14).
+- **"Invited ✓" forever** -> Sent with ✕ to cancel; an ignored invite stays Sent; Declined blocks re-invite for
+  **5 minutes** (maintainer's pick), enforced by the server. Pure rule `partyInviteButton` in
+  `WatchTogetherBridge.kt`. Backend `nuvio-z-backend` `da52135` (`202610160001_party_invite_outcomes.sql`:
+  `party_invite_cooldown()`, cooldown in `party_invite_friend` - rebuilt from production's definition,
+  `party_cancel_invite`, `sent_party_invites` in `social_get_state_v2`). pgTAP 467/467 locally.
+  **DEPLOYED 2026-10-17** on the maintainer's approval (production `party_invite_friend` re-checked identical by
+  md5 first; post-push: functions, grants, cooldown and state key verified). Published as Desktop debug 100 /
+  mobile Debug 88. An older backend makes the client fall back to a local "Sent" with no ✕.
+- **Verified:** desktop social + watch together + controls + status + tray 234/234 (JBR 25); mobile host
+  204/204; Android compiles. Not seen on a device yet.
+- **Android push (Stage 4) unblocked:** Firebase project `nuvio-z` exists; `FCM_SERVICE_ACCOUNT` is set as a
+  Supabase secret on `pzbpghmmordvzcfbayoh`. The maintainer's `google-services.json` (both
+  `com.nuvio.app.z` and `.debug`) is not committed - the repo is public; CI should get it from a secret.
+
+## Social V2 backend DEPLOYED; single-instance desktop; shelf time chip (2026-10-16, Debug mobile 87 / desktop 99)
+
+- **Backend deployed to `pzbpghmmordvzcfbayoh`** on the maintainer's go-ahead: `202610050001_social_v2.sql` from
+  `nuvio-z-backend` `claude/social-v2-backend` (`d740ecf`, still unmerged there). Pre-push checks: it was the only pending
+  migration; production `social_get_state_v2` was identical to the repo's last definition (`202609170001`), the only
+  pre-existing function it replaces; every column and helper the new triggers use exists. Post-push: both tables, all
+  four triggers, the five RPCs, the `authenticated` grant and the migration row are live. The V2-only client controls
+  (Sent, stored inbox, recommendations, per-friend Hide / Notify) now appear on existing builds.
+- **Why Debug 98 never popped "friend started watching":** the inbox event is written by the `watch_presence` trigger
+  in that migration, which was not deployed. It also only fires for friends the viewer has switched **Notify** on for
+  (default off). Not yet re-tested end to end.
+- **Desktop single instance** (`features/tray/DesktopSingleInstance.kt`, called first thing in `main`): an installed
+  build (`jpackage.app-path` set) takes an OS file lock `instance.lock` in its channel's data folder and listens on a
+  loopback port written to `instance.port` with a random token. A later launch grants it the foreground
+  (`AllowSetForegroundWindow`, new in `WindowsForeign`), hands over its `nuvio://` / `stremio://` args, and exits; the
+  running copy shows and raises its window (from the tray too). Dev runs and the player smoke run are exempt; release,
+  Debug and vanilla stay independent. If the holder never answers within 10 s the new launch exits; if the lock frees
+  meanwhile it takes over. Found from two Debug 98 processes in the maintainer's logs. Tests: `DesktopSingleInstanceTest`
+  (6) and `WindowsForeignTest` (3), tray + social 177/177 on JBR 25. Not yet tried on the installed MSI.
+- **Home friends shelf:** the activity tile's "3h ago" now sits on `SocialGlassChip` (both repos, shared file).
+
+## Social V2: settings page, desktop tray + pop-ups, Downloads settings (2026-10-16, Debug mobile 86 / desktop 98)
+
+All on the Social V2 branches (mobile `claude/social-v2`, desktop `claude/social-v2-design`), unmerged. Shared commits
+were made on one branch and cherry-picked to the other; the per-repo `ZProfileSyncContributors.kt` was resolved by hand.
+Decisions and renders: `Nuvio Z/PLAN-social-v2.md`, "Scope added 2026-10-16" (picks: gear beside Inbox, desktop side
+panel, pop-up B with no buttons, close prompt B).
+
+- **Social settings page** (`SocialSettingsSections`, shared): one page for Settings -> Social and a new gear in the
+  Social tab. You / Privacy (join policy as chips, who you hide from) / platform sections / Home / Turn off Social.
+  Platform sections are a registration (`SocialSettingsExtensions`), not an `expect`. The rail's "Privacy and
+  sharing" link is gone.
+- **Show friends on Home:** stored with the social feature preferences, synced per profile via the Z contributor
+  `z_features.social_home` (`SocialHomeSync`); Home empties its social state when off.
+- **Inbox and Social settings** share `SocialPageShell`: right-hand panel at >= 1040dp (desktop, big tablets in
+  landscape), full page below.
+- **`SocialNavigation`** (shared): a held request for a place in the Social tab; desktop pop-ups use it, Android push
+  can reuse it.
+- **`AppGateResume`** (shared, off unless enabled): desktop enables it so a window re-created from the tray resumes
+  Main instead of re-running the gate.
+- **Desktop tray** (`features/tray/`): first close asks once (Hide default) and becomes the "Closing the window"
+  setting; hiding removes the window and its composition, keeps the process, session and Social alive; image cache
+  cleared, heap collected, working set trimmed via `java.lang.foreign` (K32EmptyWorkingSet), re-trimmed every 10 min.
+  New JVM flags: `G1PeriodicGCInterval=60000`, `Min/MaxHeapFreeRatio=10/30`, `--enable-native-access=ALL-UNNAMED`.
+- **Desktop pop-ups:** friend requests, party invites, join requests, friend started watching (per-friend Notify,
+  needs the backend). Backdrop card, click opens the place. Own always-on-top non-focusable window bottom-right, or
+  drawn inside Nuvio when it is focused; suppressed over fullscreen apps unless allowed (`SHQueryUserNotificationState`).
+  Each event pops once (seen keys per profile in `nuvio_social_popups`).
+- **Settings -> Downloads** rebuilt from the shared Settings rows and made an inline `SettingsPage.Downloads`
+  (it was a separate route that dropped the desktop sidebar).
+- **Verified:** desktop Social + party + gate tests 611/611, settings tests 22/22; mobile host 598/598; Android
+  compiles; render harness `SocialSettingsTrayHarness` (`build/social-settings-tray/`) and the Downloads harness.
+- **Not verified / not built:** the tray and pop-ups have not been exercised on a real desktop yet (Debug 98 is the
+  first chance); the hidden-memory figure with these flags is projected (~220 MB after use), not measured on the MSI.
+  Start with Windows is not built (it ships only if its measured cost is minimal). In-player pop-up placement is the
+  in-app top-right card, not player-specific. Backend still not deployed.
+
+## Social V2 is the next release; branches caught up with the z2 trunks (2026-10-16)
+
+The maintainer set the scope: **the next release is Social V2, and none of Reaction Mode.** Reaction Mode stays on desktop
+`claude/reaction-mode` (Debug 92-96 came from there, published from the desktop PC). It is experimental and not for a
+public release. Do not merge it into a Social V2 branch or a trunk, and do not work on it unless asked.
+
+- **Trunks merged into the Social V2 branches** (merge commits, no rebase):
+  - mobile `claude/social-v2` <- `origin/main`, which brings 0.5.4-z2 and iOS Setup 2.1.1. Only docs conflicted:
+    `STATUS.md` and `Docs/PATCH-SURFACE.md`. Both sides were kept.
+  - desktop `claude/social-v2-design` <- `origin/Dev`, which brings 0.1.26-alpha-z2 and the perf pass. It merged cleanly.
+  - Both trunks were checked first and carry no Reaction Mode commit.
+- **Debug counters:** both files keep the trunk value: mobile `DEBUG_BUILD=84`, desktop `91`. The next published
+  Social V2 debug builds are **mobile 85** and **desktop 97**, because desktop 92-96 are Reaction Mode tags. Check
+  `gh release list` before bumping (see the debug-counter note).
+- **Backend:** `nuvio-z-backend` `claude/social-v2-backend` (`d740ecf`) is now pushed to origin. Until today it was
+  local-only. It is still **not deployed**: production has no `social_friend_prefs` or `social_inbox_events`
+  (checked 2026-10-16).
+- **Verified on the merges:** desktop Social + watchparty tests 586/586 and mobile host tests 576/576, both on fresh
+  results; Android `:androidApp:compileFullDebugKotlin` passes. iOS will be checked by the next debug build.
+- **Next for Social V2:** see "Still not built" and "Other open work" in the entry below, plus the plan's stage list
+  in `Nuvio Z/PLAN-social-v2.md`.
+
+## Social V2 - Stages 1-3 landed on branches, unmerged, backend not deployed (2026-10-05)
+
+The Social redesign is planned and its decisions are recorded in `Nuvio Z/PLAN-social-v2.md` (workspace root). That file holds the
+decision ledger and the stage list. Stage 0 settled the look from rendered candidates the maintainer picked:
+
+- Watching Now: backdrop cards. Tapping one opens a join sheet; long-press or the info dot opens details.
+- Recently watched: 16:9 still rows. No mini portrait posters.
+- Home: one "Friends" shelf.
+- Inbox: a page of cards.
+- Profile: a sheet.
+- Your avatar, name and @handle sit top-left.
+
+**Branches:**
+
+| Repo | Branch | Base | Contents |
+| --- | --- | --- | --- |
+| NuvioZDesktop | `claude/social-v2-design` | `docs/post-release-0.1.26-alpha-z1` | The Stage 0 design harness `SocialV2DesignHarness.kt` (test-only); Stage 1 `7f78f5069` (UI); `cf291d8ad` (nav badge). |
+| nuvio-z | `claude/social-v2` | `docs/post-release-0.5.4-z1` | `518601079`: the same two commits, carried by cherry-pick without the desktop-only harness. The shared files are identical (`diff --strip-trailing-cr`). |
+
+**Stage 1 uses existing RPCs only.** There is no backend change and no deploy.
+
+**Verified:**
+- Desktop `compileKotlinDesktop` passes.
+- Desktop Social and watchparty tests pass, 567/567 on fresh results.
+- `SocialRenderHarness` renders the V2 tab, Friends, Inbox, join sheet and profile at phone sizes, and the dashboard at desktop sizes.
+- Android `:androidApp:compileFullDebugKotlin` exits 0.
+- Mobile `:composeApp:testAndroidHostTest` (Social and watchparty) passes, 563/563 on fresh results.
+- **Not yet:** physical device checks, iOS build.
+
+**Stage 2 (backend) and Stage 3 (client), same day:**
+
+- **Backend:** `nuvio-z-backend` branch `claude/social-v2-backend`, base `claude/ios-watch-together-hardening`.
+  - Commit `d740ecf` adds `202610050001_social_v2.sql` with:
+    - per-friend hide / notify (`social_friend_prefs`)
+    - the stored inbox (`social_inbox_events`: friend accepted, friend started watching, recommendation)
+    - `social_recommend_title`, `social_mark_inbox_read`, `social_dismiss_inbox`, `social_get_together_stats`
+    - `social_get_state_v2`, which now filters hidden activity and adds `sent_requests`, `friend_prefs` and `inbox`
+  - `notifications` keeps only the three kinds the released clients' closed enum can decode.
+  - **Local pgTAP 446/446** (43 new). **NOT deployed.** Before deploying, re-read production `social_get_state_v2` with
+    `pg_get_functiondef`.
+  - Local runs need the ports moved: Windows reserved 54268-54367 (see the memory note).
+- **Client:**
+  - Desktop `ed255e113` and the mobile cherry-pick add:
+    - the Sent list with Cancel
+    - the profile together line, the Watched together strip, and the Hide / Notify switches
+    - stored events in the Inbox (Recommendation has Open and its note)
+    - the nav badge, which also counts unread stored events
+  - The new payload keys are nullable, so a client on today's backend hides these controls.
+  - Tests: desktop 567/567, mobile host 563/563, Android compiles.
+- **Still not built:**
+  - an entry point to *send* a recommendation, which needs the divergent per-repo `MetaDetailsScreen`
+  - Android push (Stage 4, needs a Firebase project)
+  - the iOS local fallback (Stage 5)
+  - the "Show friends on Home" toggle
+
+**Debug builds (published 2026-10-05):**
+
+- **Mobile Debug 80:** `debug-v0.5.4-z1.80`, from `claude/social-v2`.
+  - The first run, 37363488845, failed on iOS: `putIfAbsent` is JVM-only.
+  - The fix was carried to both repos. Re-run 37365418202 published at 20:19Z.
+- **Desktop debug 86:** `debug-v0.1.26-alpha-z1.86`, from `claude/social-v2-design`. Run 37378822161 published at 22:04Z.
+  - Two earlier runs were lost to a GitHub Actions outage: a macOS `hdiutil` step hung, and jobs were "not acquired by
+    Runner". Neither was a code problem.
+- The backend is not deployed, so the V2-only controls stay hidden in these builds.
+- Desktop CI fails on `composeMediaPlayer:buildNativeLinux`. That failure predates this work; it is also red on `Dev` since 2026-10-03.
+
+**Physical QA follow-up (2026-10-06)** - see "Physical QA round" in `Nuvio Z/PLAN-social-v2.md`:
+- Fixes on both branches (desktop `a930efbe6`, mobile `16ca8567e`):
+  - Activity stills hydrate real backdrops locally (`SocialTitleArt`). Production activity carries no backdrop at all.
+  - Finished party invites and join requests read as history and leave the inbox after a day.
+  - The extra header gap under the desktop top bar is gone.
+- **Recently watched redesign, built** (desktop `e7caa3a8d`, mobile `5290b48d5`). The maintainer picked direction F
+  after six rendered rounds (A to F) in `SocialActivityRedesignHarness`.
+  - Layout: a per-friend timeline, Today / Yesterday / This week / Last week / Earlier, one card per friend.
+  - Each card's art is a sideways-fanned deck of 16:9 stills.
+  - Bucket labels sit inside the grid, so short buckets share a line.
+  - Watching Now cards are 16:9.
+  - A one-title card opens the title; several titles open the friend's profile.
+  - Pure `friendActivityTimeline` has tests.
+- Tests: desktop Social + Watch Together 583/583; mobile host 575/575; Android compiles. iOS is checked by the debug build.
+- Debug builds 81 (mobile) and 87 (desktop) carry all of this.
+- **QA of 87** led to two fixes (desktop `43be2bd59`, mobile `8d0a7052a`), shipped in debug builds 82 / 88:
+  - The deck was too subtle. Older stills now sit 22dp further right per step, tilted 4 degrees up.
+  - On desktop hover the deck spins out and draws above its neighbours.
+  - "S2 E6 · 225 episodes" now reads "225 episodes · last S2 E6".
+  - Tests: desktop 585/585; mobile host 576/576.
+- **QA of 88:** the hover spin-out was removed ("doesn't fit the app"). Desktop `d087101dc`, mobile `97e7a66d9`.
+  - The deck is now a centred stack: older stills sit centred above the front one, each 9dp higher and 8% narrower.
+  - It was picked from three rendered styles: diagonal, centred stack, centred tilted fan.
+  - Shipped in debug builds 83 (mobile) and 89 (desktop). Tests: desktop 586/586; mobile host 576/576.
+- Do not run `--tests "com.nuvio.app.promo.*"` alongside the Social tests. Those harnesses render video reels; the run
+  died after 20 minutes with no results.
+
+**Other open work:**
+- The iOS native SwiftUI tab bar has no unread badge yet; it needs a Swift bridge.
+- The "Show friends on Home" toggle is planned for Stage 3.
+- Strings are still hardcoded English.
+- The old `SocialCards.kt` / `FriendActivityRow.kt` composables are now unused by the screens. `SocialFeedMetricsTest` still references their constants. Remove them together.
 ## RELEASED: Mobile 0.5.4-z3 + Installer 3 for Windows and universal Mac (2026-10-18)
 
 | Scope | Active branch / state |
@@ -1057,7 +1614,7 @@ or code auth smoke remain open. RC is not accepted; no stable publication.
 
 # Nuvio Z Status
 
-Last updated: 2026-10-01
+Last updated: 2026-10-18
 
 ## RC convergence audit / auth integration gate (2026-10-01)
 
