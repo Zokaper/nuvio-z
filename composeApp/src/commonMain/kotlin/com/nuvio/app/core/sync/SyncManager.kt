@@ -46,6 +46,7 @@ internal enum class ProfileSyncStep {
     ActiveWatchSource,
     Collections,
     HomeCatalogSettings,
+    MediaServers,
 }
 
 internal data class ProfileSyncOperations(
@@ -57,6 +58,7 @@ internal data class ProfileSyncOperations(
     val refreshActiveWatchSource: suspend (Int) -> Unit,
     val pullCollections: suspend (Int) -> Unit,
     val pullHomeCatalogSettings: suspend (Int) -> Unit,
+    val syncMediaServers: suspend (Int) -> Unit = {},
 )
 
 internal data class ProfileActivitySyncOperations(
@@ -137,6 +139,9 @@ internal suspend fun runOrderedProfileSync(
         }
         launch {
             runStep(ProfileSyncStep.HomeCatalogSettings, operations.pullHomeCatalogSettings)
+        }
+        launch {
+            runStep(ProfileSyncStep.MediaServers, operations.syncMediaServers)
         }
     }
     return ProfileSyncResult(
@@ -292,6 +297,7 @@ object SyncManager {
         },
         pullCollections = { profileId -> CollectionSyncService.pullFromServer(profileId) },
         pullHomeCatalogSettings = { profileId -> HomeCatalogSettingsSyncService.pullFromServer(profileId) },
+        syncMediaServers = { profileId -> MediaServerSync.syncFromRemote(profileId) },
     )
     private val profileActivitySyncOperations = ProfileActivitySyncOperations(
         pullLibrary = { profileId -> LibraryRepository.pullFromServer(profileId) },

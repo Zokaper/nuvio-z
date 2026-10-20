@@ -77,6 +77,8 @@ data class PlayerLaunch(
     val expectedRuntimeMinutes: Int? = null,
     /** Credential-free identity captured before any local debrid resolution. */
     val partySourceDescriptor: com.nuvio.app.features.watchparty.PartySourceDescriptorV2? = null,
+    val sourceFilename: String? = null,
+    val stream: com.nuvio.app.features.streams.StreamItem? = null,
 )
 
 object PlayerLaunchStore {
@@ -290,6 +292,7 @@ internal data class PlaybackKey(
     val videoId: String?,
     val seasonNumber: Int?,
     val episodeNumber: Int?,
+    val playbackEngine: AndroidPlaybackEngine? = null,
 )
 
 data class PlayerPlaybackSnapshot(

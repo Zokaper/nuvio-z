@@ -379,6 +379,11 @@ internal fun AppGate(
         false
     }
 
+    fun reportAppReady(ready: Boolean) {
+        appGateController?.reportAppReady(ready)
+        onAppReady?.invoke(ready)
+    }
+
     // Full, an upgrade (revision 8 or 9: only the download steps), a device run (a current
     // profile on a phone never set up here), or nothing.
     val gateSetupRun = setupWizardRun(
@@ -406,7 +411,7 @@ internal fun AppGate(
 
     LaunchedEffect(gateScreen, onAppReady, isSetupWizardActive, isWhatsNewActive, isAdvancedSetupActive) {
         if (gateScreen != AppGateScreen.Main.name || isSetupWizardActive || isWhatsNewActive || isAdvancedSetupActive) {
-            onAppReady?.invoke(false)
+            reportAppReady(false)
         }
     }
 
@@ -742,7 +747,7 @@ internal fun AppGate(
             !isSetupWizardActive &&
             !isWhatsNewActive &&
             !isAdvancedSetupActive
-        onAppReady?.invoke(ready)
+        reportAppReady(ready)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

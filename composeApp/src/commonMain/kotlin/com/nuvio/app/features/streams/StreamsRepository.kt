@@ -20,6 +20,7 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.pluginContentId
 import com.nuvio.app.features.plugins.PluginsUiState
+import com.nuvio.app.features.servers.ServerStreams
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -138,6 +139,12 @@ object StreamsRepository {
         ) {
             parentMetaId?.let { BingeGroupCacheRepository.get(it)?.bingeGroup }
         } else null
+        val persistedFilename = if (persistedBingeGroup != null) {
+            parentMetaId?.let { BingeGroupCacheRepository.getFilename(it) }
+        } else null
+        val persistedInfoHash = if (persistedBingeGroup != null) {
+            parentMetaId?.let { BingeGroupCacheRepository.getInfoHash(it) }
+        } else null
 
         // Enable direct auto-play flow if normal auto-play is enabled,
         // OR if we have a persisted binge group in MANUAL mode
@@ -178,8 +185,11 @@ object StreamsRepository {
             return
         }
 
-        val installedAddons = AddonRepository.uiState.value.addons.enabledAddons()
-        val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled) {
+        val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
+        val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
+        val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
+        val installedAddons = if (isNativeServerRequest) emptyList() else AddonRepository.uiState.value.addons.enabledAddons()
+        val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled && !isNativeServerRequest) {
             PluginRepository.getEnabledScrapersForType(type)
         } else {
             emptyList()
@@ -189,7 +199,7 @@ object StreamsRepository {
             groupByRepository = pluginUiState.groupStreamsByRepository,
         )
 
-        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 isAnyLoading = false,
@@ -213,7 +223,7 @@ object StreamsRepository {
 
         log.d { "Found ${streamAddons.size} addons for stream type=$type id=$videoId" }
 
-        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 isAnyLoading = false,
@@ -239,7 +249,7 @@ object StreamsRepository {
                 streams = emptyList(),
                 isLoading = true,
             )
-        }, installedAddonOrder)
+        } + serverSources.map { it.loadingGroup() }, installedAddonOrder, preferredGroupIds)
         val isInitiallyLoading = initialGroups.any { it.isLoading }
         _uiState.value = StreamsUiState(
             requestToken = requestToken,
@@ -259,7 +269,8 @@ object StreamsRepository {
                 .toMutableMap()
             val pluginFirstErrorByAddonId = mutableMapOf<String, String>()
             val totalTasks = streamAddons.size +
-                pluginProviderGroups.sumOf { it.scrapers.size }
+                pluginProviderGroups.sumOf { it.scrapers.size } +
+                serverSources.size
 
             val installedAddonNames = installedAddonOrder.toSet()
             val installedAddonIds = streamAddons.map { it.addonId }.toSet()
@@ -305,6 +316,41 @@ object StreamsRepository {
             fun updateAutoPlayAfterStreamsChanged() {
                 if (!isDirectAutoPlayFlow || autoSelectTriggered) return
 
+                // Try binge group + filename first (most precise), then infoHash
+                if (persistedBingeGroup != null && !timeoutElapsed) {
+                    val allStreams = _uiState.value.groups.flatMap { it.streams }
+                    // Filename match
+                    if (persistedFilename != null) {
+                        val nextFilename = run {
+                            val extracted = FilenameEpisodeMatcher.extractSeasonEpisode(persistedFilename)
+                            if (extracted != null) {
+                                FilenameEpisodeMatcher.buildNextFilename(
+                                    persistedFilename, extracted.first, extracted.second, season, episode ?: 0
+                                ) ?: persistedFilename
+                            } else persistedFilename
+                        }
+                        val bingeAndFilename = allStreams.firstOrNull { stream ->
+                            stream.behaviorHints.bingeGroup == persistedBingeGroup &&
+                                FilenameEpisodeMatcher.matches(stream.behaviorHints.filename, nextFilename)
+                        }
+                        if (bingeAndFilename != null) {
+                            settleAutoPlay(StreamAutoPlayEvaluation(bingeAndFilename, allStreams))
+                            return
+                        }
+                    }
+                    // InfoHash match (fallback when filename didn't match or was null)
+                    if (persistedInfoHash != null) {
+                        val bingeAndInfoHash = allStreams.firstOrNull { stream ->
+                            stream.behaviorHints.bingeGroup == persistedBingeGroup &&
+                                stream.infoHash?.equals(persistedInfoHash, ignoreCase = true) == true
+                        }
+                        if (bingeAndInfoHash != null) {
+                            settleAutoPlay(StreamAutoPlayEvaluation(bingeAndInfoHash, allStreams))
+                            return
+                        }
+                    }
+                }
+
                 val earlyEvaluation = when {
                     timeoutElapsed -> evaluateAutoPlay()
                     persistedBingeGroup != null -> evaluateAutoPlay(bingeGroupOnly = true)
@@ -349,6 +395,7 @@ object StreamsRepository {
                             if (currentGroup.addonId == group.addonId) group else currentGroup
                         },
                         installedOrder = installedAddonOrder,
+                        preferredGroupIds = preferredGroupIds,
                     )
                     val anyLoading = updated.any { it.isLoading }
                     current.copy(
@@ -495,6 +542,10 @@ object StreamsRepository {
                 }
             }
 
+            serverSources.forEach { source ->
+                launch { publishCompletion(StreamLoadCompletion.Addon(source.load())) }
+            }
+
             pluginProviderGroups.forEach { providerGroup ->
                 val includeScraperNameInSubtitle = false
                 providerGroup.scrapers.forEach { scraper ->
@@ -578,6 +629,7 @@ object StreamsRepository {
                                     }
                                 },
                                 installedOrder = installedAddonOrder,
+                                preferredGroupIds = preferredGroupIds,
                             )
                             val anyLoading = updated.any { it.isLoading }
                             current.copy(

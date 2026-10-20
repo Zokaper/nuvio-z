@@ -6,6 +6,21 @@ Last updated: 2026-10-20
 | Desktop | `claude/social-v2-design` | 115 | Upstream sync to 0.1.31-alpha in progress; preserve language/What's New; Linux native CI blocker |
 | Mobile | `claude/social-v2` | 107 | Upstream sync to 0.6.2-beta in progress; language/What's New port pending |
 
+## Isolated upstream integration (2026-10-20; verification pending)
+
+Mobile `codex/social-v2-upstream-mobile` merges named upstream `0.6.2-beta` (`1cfae0fe7`)
+over the completed Social V2/language checkpoint. Desktop integration worktree:
+`codex/social-v2-upstream-desktop`, targeting `0.1.31-alpha` (`e808a584e`).
+Original Social V2 branches retain the verified pre-sync port (mobile Android compile + 575 host
+checks; desktop 111 focused checks and reviewed 360/420/1280 dp Advanced Setup renders; pure 183).
+Upstream integrations are **not yet compiled/tested**. Keep Z Watch Together as the default;
+upstream Party UI is gated pending maintainer's optional choice. Preserve source-picker modes,
+loading host, download navigation, settings organization, iOS serial mpv ownership and existing
+release/debug metadata. Upstream tablet actions retain Download/Watch Together/Recommend.
+iOS PiP, AutoSync, Exo buffer/VOD controls, media servers and stream-info/engine controls are inherited.
+The new Swift media-info snapshot avoids reintroducing native reads on main or racing teardown;
+its lifecycle regression is wired into the iOS compile workflow. Final sync audit/docs remain due.
+
 ## Mobile language/What's New port and Advanced Setup (2026-10-20)
 
 Maintainer changed the order: finish the mobile port before resuming upstream sync.

@@ -32,6 +32,19 @@ import nuvio.composeapp.generated.resources.playback_source_failed_advancing_unn
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
 import com.nuvio.app.features.watchparty.ownsNextEpisodeChoice
+import com.nuvio.app.features.servers.ServerPlayback
+import com.nuvio.app.features.servers.serverPlaybackMessage
+import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.StreamLinkCacheRepository
+import com.nuvio.app.features.streams.YouTubeStreamResolver
+import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.youtube_resolution_failed
+import org.jetbrains.compose.resources.getString
 
 internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     stream: StreamItem,
@@ -59,6 +72,37 @@ internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     }
     return true
 }
+
+internal fun PlayerScreenRuntime.prepareServerForPlayer(
+    stream: StreamItem,
+    onPrepared: suspend (StreamItem) -> Unit,
+): Boolean {
+    if (!stream.needsServerPreparation) return false
+    scope.launch {
+        runCatching { ServerPlayback.prepare(stream) }
+            .onFailure { if (it is CancellationException) throw it }
+            .onSuccess { onPrepared(it) }
+            .onFailure { NuvioToastController.show(it.serverPlaybackMessage()) }
+    }
+    return true
+}
+
+internal fun PlayerScreenRuntime.resolveYouTubeForPlayer(
+    stream: StreamItem,
+    onResolved: (StreamItem) -> Unit,
+): Boolean {
+    if (stream.youTubeIdToResolve == null) return false
+    scope.launch {
+        val resolved = YouTubeStreamResolver.Default.resolve(stream)
+        if (resolved == null) {
+            NuvioToastController.show(getString(Res.string.youtube_resolution_failed))
+            return@launch
+        }
+        onResolved(resolved)
+    }
+    return true
+}
+
 internal fun PlayerScreenRuntime.isP2pStream(stream: StreamItem): Boolean =
     stream.needsLocalDebridResolve && stream.p2pInfoHash != null
 
@@ -75,6 +119,7 @@ internal fun PlayerScreenRuntime.openExternalSourceUrl(stream: StreamItem): Bool
 }
 
 internal fun StreamItem.playerSourceIdentityKey(): String? {
+    serverTarget?.let { target -> return "server:${target.item.encode()}:${target.mediaSourceId.orEmpty()}" }
     p2pInfoHash?.trim()?.lowercase()?.takeIf { it.isNotBlank() }?.let { hash ->
         return "torrent:$hash:${p2pFileIdx ?: -1}"
     }
@@ -163,6 +208,7 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     activeTorrentInfoHash = infoHash
     activeTorrentFileIdx = stream.p2pFileIdx
     activeTorrentFilename = stream.behaviorHints.filename
+    activeSourceFilename = stream.behaviorHints.filename
     activeTorrentTrackers = stream.p2pTrackers
     activeSourceIdentityKey = stream.playerSourceIdentityKey()
     activeStreamTitle = stream.streamLabel
@@ -170,7 +216,10 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activePartySourceDescriptor = stream.toPartySourceDescriptor()
+    activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     activeInitialPositionMs = currentPositionMs
     activeInitialProgressFraction = null
     showSourcesPanel = false
@@ -506,6 +555,8 @@ internal fun PlayerScreenRuntime.publishHostPartySourceRealignment(
 }
 
 internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
+    if (prepareServerForPlayer(stream) { switchToSource(it) }) return
+    if (resolveYouTubeForPlayer(stream) { switchToSource(it) }) return
     // A real source change, so the next URL change is not a re-mint however it got here. Belt
     // and braces - the flag is set immediately before the assignment it excuses - but the cost of
     // it being wrong is a swap that silently keeps the previous source's subtitles and never
@@ -553,12 +604,16 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     activeSourceResponseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response)
     activeStreamType = stream.streamType
     activeSourceIdentityKey = sourceIdentityKey
+    activeSourceFilename = stream.behaviorHints.filename
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activePartySourceDescriptor = stream.toPartySourceDescriptor()
+    activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     activeInitialPositionMs = currentPositionMs
     activeInitialProgressFraction = null
     showSourcesPanel = false
@@ -566,7 +621,17 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     PlayerStreamsRepository.pauseSearchForPlayback()
 }
 
-internal fun PlayerScreenRuntime.switchToEpisodeStream(stream: StreamItem, episode: MetaVideo) {
+internal fun PlayerScreenRuntime.switchToEpisodeStream(
+    stream: StreamItem,
+    episode: MetaVideo,
+    serverResumeMs: Long? = null,
+) {
+    if (prepareServerForPlayer(stream) { switchToEpisodeStream(it, episode, serverResumeMs = newerServerResumeMs(it, episode)) }) return
+    if (
+        resolveYouTubeForPlayer(stream) { resolved ->
+            switchToEpisodeStream(resolved, episode)
+        }
+    ) return
     if (
         resolveDebridForPlayer(
             stream = stream,
@@ -599,7 +664,7 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(stream: StreamItem, episo
     flushWatchProgress()
     stopActiveP2pStream()
     val epVideoId = episode.id
-    val resume = resolveEpisodeResume(epVideoId, episode)
+    val resume = serverResumeMs?.let { EpisodeResume(positionMs = it, fraction = null) } ?: resolveEpisodeResume(epVideoId, episode)
     externalSubtitles = stream.externalSubtitles
     activeSourceUrl = url
     setActiveSourceFacts(stream)
@@ -648,6 +713,7 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     activeSourceResponseHeaders = emptyMap()
     activeStreamType = null
     activeSourceIdentityKey = null
+    activeSourceFilename = null
     activeStreamTitle = downloadItem.streamTitle.ifBlank {
         episode.title.ifBlank { title }
     }
@@ -655,7 +721,10 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     activeProviderName = downloadItem.providerName.ifBlank { downloadedLabel }
     activeProviderAddonId = downloadItem.providerAddonId
     activePartySourceDescriptor = null
+    activeStream = null
     currentStreamBingeGroup = null
+    currentStreamFilename = null
+    currentStreamInfoHash = null
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
     activeEpisodeTitle = episode.title
@@ -696,6 +765,7 @@ internal val PlayerScreenRuntime.ownsNextEpisode: Boolean
     }
 
 internal fun PlayerScreenRuntime.playNextEpisode() {
+    nextEpisodePreloadTriggered = false
     if (!ownsNextEpisode) return
     resolveNextEpisodeVideo()?.let { episode ->
         startNextEpisodeResolution(episode, PlayerNextEpisodeOrigin.AUTOMATIC)
@@ -1083,19 +1153,26 @@ private fun PlayerScreenRuntime.resetEpisodePanelAndNextEpisodeState(
     PlayerStreamsRepository.clearEpisodeStreams()
 }
 
-private fun PlayerScreenRuntime.resolveEpisodeResume(epVideoId: String, episode: MetaVideo): EpisodeResume {
+private fun PlayerScreenRuntime.episodeProgress(epVideoId: String, episode: MetaVideo): WatchProgressEntry? {
     val epResumeVideoId = buildPlaybackVideoId(
         parentMetaId = parentMetaId,
         seasonNumber = episode.season,
         episodeNumber = episode.episode,
         fallbackVideoId = epVideoId,
     )
-    val epEntry = WatchProgressRepository.progressForVideo(
+    return WatchProgressRepository.progressForVideo(
         videoId = epVideoId.takeIf { it.isNotBlank() } ?: epResumeVideoId,
         parentMetaId = parentMetaId,
         seasonNumber = episode.season,
         episodeNumber = episode.episode,
-    )?.takeIf { !it.isCompleted }
+    )
+}
+
+private suspend fun PlayerScreenRuntime.newerServerResumeMs(stream: StreamItem, episode: MetaVideo): Long? =
+    ServerPlayback.newerResumePositionMs(stream.playableDirectUrl, episodeProgress(episode.id, episode)?.lastUpdatedEpochMs)
+
+private fun PlayerScreenRuntime.resolveEpisodeResume(epVideoId: String, episode: MetaVideo): EpisodeResume {
+    val epEntry = episodeProgress(epVideoId, episode)?.takeIf { !it.isCompleted }
     val epResumeFraction = epEntry?.progressPercent
         ?.takeIf { it > 0f }
         ?.let { (it / 100f).coerceIn(0f, 1f) }
@@ -1109,12 +1186,16 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     resume: EpisodeResume,
 ) {
     activeSourceIdentityKey = stream.playerSourceIdentityKey()
+    activeSourceFilename = stream.behaviorHints.filename
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activePartySourceDescriptor = stream.toPartySourceDescriptor()
+    activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
     activeEpisodeTitle = episode.title

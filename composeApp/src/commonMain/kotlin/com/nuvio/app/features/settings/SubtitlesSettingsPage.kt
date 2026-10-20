@@ -19,6 +19,7 @@ import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
 import com.nuvio.app.features.player.SubtitleColorSwatches
 import com.nuvio.app.features.player.subtitleFontSizeRangeSp
 import com.nuvio.app.features.player.SubtitleLanguageOption
+import com.nuvio.app.isDesktop
 import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.*
 import nuvio.composeapp.generated.resources.Res
@@ -92,6 +93,14 @@ private fun SubtitlesSettingsSection(
                     isTablet = isTablet,
                     onClick = onOpenPlaybackLanguage,
                 )
+                if (!isIos && !isDesktop) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    AutoSyncPlaybackSettingsRows(
+                        isTablet = isTablet,
+                        enabled = otherSubtitleOptionsEnabled && androidPlaybackEngine != AndroidPlaybackEngine.Libmpv,
+                        preferredSubtitleLanguage = autoPlayPlayerSettings.preferredSubtitleLanguage,
+                    )
+                }
                 // Z: "Use Forced Subtitles" is gone - Forced is one of the subtitle choices in
                 // Playback → Language now, per group of titles (`LanguageSettingsSections`).
                 SettingsGroupDivider(isTablet = isTablet)

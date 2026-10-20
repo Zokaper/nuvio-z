@@ -61,3 +61,26 @@ for cycle in 0..<50 {
 // Drain main publications and delayed work before ending the harness.
 RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 print("PASS 50 subtitle / exit / recreation cycles, ordered destruction, stale-work rejection")
+
+// Media info must remain readable without synchronous native work on the UI thread.
+let mediaCache = PlayerMediaPropertyCache()
+let mediaExecutor = MPVSerialExecutor()
+let mediaRead = DispatchSemaphore(value: 0)
+mediaExecutor.perform {
+    mediaCache.refresh(now: 10) { name in
+        require(!Thread.isMainThread, "Media property read reached main")
+        return "cached:" + name
+    }
+    mediaRead.signal()
+}
+require(mediaRead.wait(timeout: .now() + 2) == .success, "Media cache did not refresh")
+require(mediaCache.value(for: "video-params/w") == "cached:video-params/w", "Media info snapshot was not published")
+mediaExecutor.perform {
+    mediaCache.refresh(now: 10.5) { _ in fatalError("Media cache ignored its sample interval") }
+    mediaCache.clear()
+    mediaRead.signal()
+}
+require(mediaRead.wait(timeout: .now() + 2) == .success, "Media cache did not clear")
+require(mediaCache.value(for: "video-params/w").isEmpty, "A new source retained old media info")
+_ = mediaExecutor.close {}
+print("PASS media-info reads use a bounded cache owned by the mpv executor")

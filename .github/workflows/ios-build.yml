@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: |
-          swiftc iosApp/iosApp/Player/MPVSerialExecutor.swift iosApp/iosApp/DownloadsLiveActivityManager.swift scripts/ios-rc-regressions/main.swift -o /tmp/nuvio-ios-rc-regressions
+          swiftc iosApp/iosApp/Player/MPVSerialExecutor.swift iosApp/iosApp/Player/PlayerMediaPropertyCache.swift iosApp/iosApp/DownloadsLiveActivityManager.swift scripts/ios-rc-regressions/main.swift -o /tmp/nuvio-ios-rc-regressions
           /tmp/nuvio-ios-rc-regressions
   build:
     needs: rc_regressions

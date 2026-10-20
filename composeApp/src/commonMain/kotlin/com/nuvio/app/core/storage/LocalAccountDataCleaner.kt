@@ -25,6 +25,7 @@ import com.nuvio.app.features.player.SubtitleRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.MAX_PROFILES
 import com.nuvio.app.features.search.SearchRepository
+import com.nuvio.app.features.servers.ServerRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.streams.StreamContextStore
@@ -60,6 +61,7 @@ internal object LocalAccountDataCleaner {
         ProfileRepository.clearInMemory()
         MemberAccessRepository.clearLocalState()
         AddonRepository.clearLocalState()
+        ServerRepository.clearLocalState()
         if (AppFeaturePolicy.pluginsEnabled) {
             PluginRepository.clearLocalState()
         }

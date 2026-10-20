@@ -190,7 +190,7 @@ final class PlayerNowPlayingController {
             RemoteCommandTarget(
                 command: center.playCommand,
                 token: center.playCommand.addTarget { [weak self] _ in
-                    DispatchQueue.main.async { self?.owner?.remotePlay() }
+                    DispatchQueue.main.async { self?.owner?.requestSystemPlaying(true) }
                     return .success
                 }
             )
@@ -199,7 +199,7 @@ final class PlayerNowPlayingController {
             RemoteCommandTarget(
                 command: center.pauseCommand,
                 token: center.pauseCommand.addTarget { [weak self] _ in
-                    DispatchQueue.main.async { self?.owner?.remotePause() }
+                    DispatchQueue.main.async { self?.owner?.requestSystemPlaying(false) }
                     return .success
                 }
             )
@@ -208,7 +208,10 @@ final class PlayerNowPlayingController {
             RemoteCommandTarget(
                 command: center.togglePlayPauseCommand,
                 token: center.togglePlayPauseCommand.addTarget { [weak self] _ in
-                    DispatchQueue.main.async { self?.owner?.remoteTogglePlayPause() }
+                    DispatchQueue.main.async {
+                        guard let owner = self?.owner else { return }
+                        owner.requestSystemPlaying(!owner.isPlayerPlaying)
+                    }
                     return .success
                 }
             )
@@ -219,7 +222,7 @@ final class PlayerNowPlayingController {
                 token: center.skipForwardCommand.addTarget { [weak self] event in
                     guard let event = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
                     DispatchQueue.main.async {
-                        self?.owner?.remoteSeekBy(Int64(event.interval * 1000.0))
+                        self?.owner?.requestSystemSeekBy(Int64(event.interval * 1000.0), exact: true)
                     }
                     return .success
                 }
@@ -231,7 +234,7 @@ final class PlayerNowPlayingController {
                 token: center.skipBackwardCommand.addTarget { [weak self] event in
                     guard let event = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
                     DispatchQueue.main.async {
-                        self?.owner?.remoteSeekBy(-Int64(event.interval * 1000.0))
+                        self?.owner?.requestSystemSeekBy(-Int64(event.interval * 1000.0), exact: true)
                     }
                     return .success
                 }
@@ -243,7 +246,7 @@ final class PlayerNowPlayingController {
                 token: center.changePlaybackPositionCommand.addTarget { [weak self] event in
                     guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
                     DispatchQueue.main.async {
-                        self?.owner?.remoteSeekTo(Int64(event.positionTime * 1000.0))
+                        self?.owner?.requestSystemSeekTo(Int64(event.positionTime * 1000.0))
                     }
                     return .success
                 }

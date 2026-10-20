@@ -53,6 +53,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +89,13 @@ import com.nuvio.app.features.playback.PlaybackModeCard
 import com.nuvio.app.features.playback.playbackModeName
 import com.nuvio.app.features.player.AddonSubtitleStartupMode
 import com.nuvio.app.features.player.AndroidLibmpvVideoOutput
+import com.nuvio.app.features.player.PlaybackBufferSettings
+import com.nuvio.app.features.player.playbackHeapBufferMaxMb
+import com.nuvio.app.features.player.VodCacheSizeMode
+import com.nuvio.app.features.player.VodCacheSizing
+import com.nuvio.app.features.player.exoNativeMemoryInfo
+import com.nuvio.app.features.player.isExoNativeMemorySupported
+import com.nuvio.app.features.player.playbackCacheUsableSpaceBytes
 import com.nuvio.app.features.player.AndroidPlaybackEngine
 import com.nuvio.app.features.player.AudioLanguageOption
 import com.nuvio.app.features.player.AvailableLanguageOptions
@@ -223,6 +231,7 @@ fun calculateSteps(
     return (totalSteps - 1).coerceAtLeast(0)
 }
 
+
 @Composable
 fun ValueBox(
     text: String,
@@ -247,7 +256,7 @@ fun ValueBox(
 internal fun SettingsSliderRow(
     title: String,
     value: Int,
-    valueText: String,
+    valueText: @Composable (Int) -> String,
     valueRange: IntRange,
     step: Int,
     isTablet: Boolean,
@@ -255,7 +264,16 @@ internal fun SettingsSliderRow(
     onValueChange: (Int) -> Unit,
 ) {
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
-    var sliderValue by remember(value) { mutableFloatStateOf(value.toFloat()) }
+    val rangeStart = valueRange.first.toFloat()
+    val rangeEnd = valueRange.last.toFloat()
+    var isDragging by remember { mutableStateOf(false) }
+    var sliderValue by remember { mutableFloatStateOf(value.toFloat()) }
+    LaunchedEffect(value) {
+        if (!isDragging) {
+            sliderValue = value.toFloat().coerceIn(rangeStart, rangeEnd)
+        }
+    }
+    val shownValue = sliderValue.roundToInt().coerceIn(valueRange.first, valueRange.last)
 
     Column(
         modifier = Modifier
@@ -275,13 +293,25 @@ internal fun SettingsSliderRow(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
-            ValueBox(text = valueText, modifier = Modifier.wrapContentWidth())
+            ValueBox(text = valueText(shownValue), modifier = Modifier.wrapContentWidth())
         }
         Slider(
-            value = sliderValue.coerceIn(valueRange.first.toFloat(), valueRange.last.toFloat()),
-            onValueChange = { if (enabled) sliderValue = snapToStep(it, step.toFloat()) },
+            value = sliderValue.coerceIn(rangeStart, rangeEnd),
+            onValueChange = { raw ->
+                if (enabled) {
+                    isDragging = true
+                    val snapped = snapToStep(raw, step.toFloat()).coerceIn(rangeStart, rangeEnd)
+                    sliderValue = snapped
+                    val next = snapped.roundToInt().coerceIn(valueRange.first, valueRange.last)
+                    if (next != value) onValueChange(next)
+                }
+            },
             onValueChangeFinished = {
-                if (enabled) onValueChange(sliderValue.roundToInt().coerceIn(valueRange.first, valueRange.last))
+                isDragging = false
+                if (enabled) {
+                    val next = sliderValue.roundToInt().coerceIn(valueRange.first, valueRange.last)
+                    if (next != value) onValueChange(next)
+                }
             },
             enabled = enabled,
             valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
@@ -819,6 +849,14 @@ private fun PlaybackSettingsSection(
                         )
                     }
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_preload_next_episode),
+                    description = stringResource(Res.string.settings_playback_preload_next_episode_description),
+                    checked = autoPlayPlayerSettings.preloadNextEpisodeSources,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setPreloadNextEpisodeSources,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 var showThresholdModeDialog by remember { mutableStateOf(false) }
                 SettingsNavigationRow(

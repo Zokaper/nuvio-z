@@ -15,7 +15,6 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsScreen
 import com.nuvio.app.features.downloads.DownloadsSettingsScreen
 import com.nuvio.app.features.home.HomeCatalogSection
-import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.settings.SettingsScreen
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.CollectionEditorPageRoute
@@ -28,7 +27,11 @@ import com.nuvio.app.features.downloads.DownloadChooseSourcesScreen
 import com.nuvio.app.navigation.DownloadsSettingsRoute
 import com.nuvio.app.navigation.FolderDetailRoute
 import com.nuvio.app.navigation.NuvioNavigator
+import com.nuvio.app.navigation.PartyRoute
 import com.nuvio.app.navigation.SettingsPageRoute
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.party_title
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun SettingsDestination(
@@ -53,6 +56,8 @@ internal fun SettingsRootDestination(
     onWhatsNew: (() -> Unit)?,
     onRunSetupAgain: (() -> Unit)? = null,
 ) {
+    val onBack = rememberGuardedPopBackStack(navController, route)
+    val watchPartyTitle = stringResource(Res.string.party_title)
     SettingsScreen(
         modifier = Modifier.fillMaxSize(),
         requestedPageName = route.pageName,
@@ -63,6 +68,9 @@ internal fun SettingsRootDestination(
         },
         onCollectionsClick = {
             navController.navigate(CollectionsRoute(collectionsTitle))
+        },
+        onWatchPartyClick = {
+            navController.navigate(PartyRoute(title = watchPartyTitle))
         },
         onCheckForUpdatesClick = onCheckForUpdates,
         onTestUpdateBannerClick = onTestUpdateBanner,
@@ -206,8 +214,6 @@ internal fun FolderDestination(
     FolderDetailScreen(
         onBack = onBack,
         onCatalogClick = onCatalogClick,
-        onPosterClick = { meta: MetaPreview ->
-            navController.navigate(DetailRoute(type = meta.type, id = meta.id, title = meta.name))
-        },
+        onPosterClick = rememberOpenMeta(navController),
     )
 }

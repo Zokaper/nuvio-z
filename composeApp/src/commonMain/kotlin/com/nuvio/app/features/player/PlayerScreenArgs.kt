@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.ui.Modifier
+import com.nuvio.app.features.party.PartyMedia
 import com.nuvio.app.features.watchparty.PartyContent
 import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
 
@@ -77,4 +78,7 @@ internal data class PlayerScreenArgs(
      */
     val automaticSourceSelection: Boolean = false,
     val launchId: Long? = null,
+    val sourceFilename: String? = null,
+    val onOpenPartyMedia: (PartyMedia) -> Unit = {},
+    val stream: com.nuvio.app.features.streams.StreamItem? = null,
 )

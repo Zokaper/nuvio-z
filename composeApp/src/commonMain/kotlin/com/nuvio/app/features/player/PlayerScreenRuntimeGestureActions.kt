@@ -11,6 +11,8 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 internal data class PlayerSurfaceGestureCallbacks(
     val onSurfaceTap: State<(Offset) -> Unit>,
@@ -66,6 +68,7 @@ internal fun PlayerScreenRuntime.lockPlayerControls() {
     showAudioModal = false
     showSubtitleModal = false
     showVideoSettingsModal = false
+    showStreamInfo = false
     showSourcesPanel = false
     showEpisodesPanel = false
     episodeStreamsPanelState = EpisodeStreamsPanelState()
@@ -152,6 +155,10 @@ internal fun PlayerScreenRuntime.showVolumeFeedback(level: PlayerAudioLevel) {
 }
 
 internal fun PlayerScreenRuntime.togglePlayback() {
+    if (isPartyControlLocked) {
+        toggleOwnPlayback()
+        return
+    }
     val nextIsPlaying = !playbackSnapshot.isPlaying
     val positionMs = if (nextIsPlaying && playbackSnapshot.isEnded) 0L else playbackSnapshot.positionMs
     // The party performs the transport itself, at an instant every member reaches together, so
@@ -167,6 +174,26 @@ internal fun PlayerScreenRuntime.togglePlayback() {
         }
     }
     controlsVisible = true
+    publishPartyPlayback(positionMs = if (playbackSnapshot.isEnded) 0L else currentPlaybackPositionMs())
+}
+
+/** Sets the requested state; system controls may send pause, skip and play in a row. */
+internal fun PlayerScreenRuntime.setPlaybackPlaying(playing: Boolean) {
+    if (playing == shouldPlay) return
+    if (isPartyControlLocked) {
+        toggleOwnPlayback()
+        return
+    }
+    val restart = playing && playbackSnapshot.isEnded
+    if (restart) playerController?.seekTo(0L)
+    shouldPlay = playing
+    if (playing) playerController?.play() else playerController?.pause()
+    // A seek issued just before may not be reflected in the playback snapshot yet.
+    val positionMs = pendingSeekTarget
+        ?.takeIf { (_, mark) -> mark.elapsedNow() < PendingSeekWindow }
+        ?.first
+        ?: currentPlaybackPositionMs()
+    publishPartyPlayback(positionMs = if (restart) 0L else positionMs)
 }
 
 internal fun PlayerScreenRuntime.prepareTogglePlaybackForNativeFallback(revealControls: Boolean = true): Boolean {
@@ -186,12 +213,18 @@ internal fun PlayerScreenRuntime.prepareTogglePlaybackForNativeFallback(revealCo
 }
 
 internal fun PlayerScreenRuntime.seekBy(offsetMs: Long) {
-    val fromMs = playbackSnapshot.positionMs
-    val targetMs = (fromMs + offsetMs).coerceAtLeast(0L)
+    val fromMs = pendingSeekTarget
+        ?.takeIf { (_, mark) -> mark.elapsedNow() < PendingSeekWindow }
+        ?.first
+        ?: currentPlaybackPositionMs()
+    val requestedMs = (fromMs + offsetMs).coerceAtLeast(0L)
         .let { if (playbackSnapshot.durationMs > 0L) it.coerceAtMost(playbackSnapshot.durationMs) else it }
+    val targetMs = if (isPartyControlLocked) ownSeekTarget(requestedMs) ?: return else requestedMs
     lastManualSkipSeekPositions = fromMs to targetMs
-    if (!submitPartySeek((playbackSnapshot.positionMs + offsetMs).coerceAtLeast(0L))) {
-        playerController?.seekBy(offsetMs)
+    pendingSeekTarget = targetMs to kotlin.time.TimeSource.Monotonic.markNow()
+    if (!submitPartySeek(targetMs)) {
+        if (isPartySynced) playerController?.seekTo(targetMs) else playerController?.seekBy(offsetMs)
+        publishPartyPlayback(positionMs = targetMs)
     }
     applySeekByControlFeedback(offsetMs)
 }
@@ -243,10 +276,8 @@ private fun PlayerScreenRuntime.handleDoubleTapSeek(
             amountMs = PlayerDoubleTapSeekStepMs,
         )
     }
-    accumulatedSeekState = nextState
-
     val maxDurationMs = playbackSnapshot.durationMs.takeIf { it > 0L }
-    val targetPositionMs = when (direction) {
+    val requestedPositionMs = when (direction) {
         PlayerSeekDirection.Backward -> {
             (nextState.baselinePositionMs - nextState.amountMs).coerceAtLeast(0L)
         }
@@ -255,6 +286,8 @@ private fun PlayerScreenRuntime.handleDoubleTapSeek(
             maxDurationMs?.let { unclamped.coerceAtMost(it) } ?: unclamped
         }
     }
+    val targetPositionMs = if (isPartyControlLocked) ownSeekTarget(requestedPositionMs) ?: return else requestedPositionMs
+    accumulatedSeekState = nextState
     lastManualSkipSeekPositions = currentPositionMs to targetPositionMs
     // The party submit comes first and outside any branch, deliberately: `sendToController = false`
     // is the native-fallback caller, where the controls layer performs the seek itself unless this
@@ -266,6 +299,7 @@ private fun PlayerScreenRuntime.handleDoubleTapSeek(
         playerController?.seekTo(targetPositionMs)
     }
     scheduleProgressSyncAfterSeek()
+    publishPartyPlayback(positionMs = targetPositionMs)
     showSeekFeedback(direction, nextState.amountMs)
 
     accumulatedSeekResetJob?.cancel()
@@ -293,10 +327,15 @@ internal fun PlayerScreenRuntime.cycleResizeMode() {
 }
 
 internal fun PlayerScreenRuntime.cyclePlaybackSpeed() {
+    if (partyBlocksControl()) return
     val speeds = listOf(1f, 1.25f, 1.5f, 2f)
     val current = nominalPlaybackSpeed
     val next = speeds.firstOrNull { it > current + 0.01f } ?: speeds.first()
-    if (!submitPartySpeed(next)) playerController?.setPlaybackSpeed(next)
+    partyRateNudge = null
+    if (!submitPartySpeed(next)) {
+        playerController?.setPlaybackSpeed(next)
+        publishPartyPlayback(rate = next)
+    }
     showGestureMessage(formatPlaybackSpeedLabel(next))
     controlsVisible = true
 }
@@ -305,7 +344,7 @@ internal fun PlayerScreenRuntime.activateHoldToSpeed() {
     if (!playerSettingsUiState.holdToSpeedEnabled) return
     // A private speed boost is a private drift. The party's speed is shared state, and hold-to-speed
     // is by definition not shared, so it is simply unavailable while a party owns this playback.
-    if (partyOwnsTransport()) return
+    if (partyOwnsTransport() || isPartySynced) return
     val controller = playerController ?: return
     if (speedBoostRestoreSpeed != null) return
 
@@ -377,10 +416,18 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
         playerControlsLocked = rememberUpdatedState(playerControlsLocked),
         currentPositionMs = rememberUpdatedState(playbackSnapshot.positionMs.coerceAtLeast(0L)),
         currentDurationMs = rememberUpdatedState(playbackSnapshot.durationMs),
-        commitHorizontalSeek = rememberUpdatedState { targetPositionMs: Long ->
+        commitHorizontalSeek = rememberUpdatedState { requestedPositionMs: Long ->
+            val targetPositionMs = if (isPartyControlLocked) {
+                ownSeekTarget(requestedPositionMs) ?: return@rememberUpdatedState
+            } else {
+                requestedPositionMs
+            }
             lastManualSkipSeekPositions = playbackSnapshot.positionMs to targetPositionMs
             if (!submitPartySeek(targetPositionMs)) playerController?.seekTo(targetPositionMs)
             scheduleProgressSyncAfterSeek()
+            publishPartyPlayback(positionMs = targetPositionMs)
         },
     )
 }
+
+private val PendingSeekWindow = 1_500.milliseconds
