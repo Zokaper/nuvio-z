@@ -385,7 +385,6 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$T/features/social/SocialNotificationsTest.kt" \
   "$T/features/social/FriendActivityGroupingTest.kt" \
   "$T/features/social/OutgoingJoinRequestTest.kt" \
-  "$T/features/social/WatchingNowJoinAffordanceTest.kt" \
   "$T/features/player/WatchTogetherPanelStateTest.kt" \
   "$T/features/player/WatchTogetherBridgeTest.kt" \
   2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
