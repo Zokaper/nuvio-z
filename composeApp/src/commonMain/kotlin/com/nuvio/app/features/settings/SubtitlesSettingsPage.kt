@@ -152,7 +152,7 @@ private fun SubtitlesSettingsSection(
                 SettingsSliderRow(
                     title = stringResource(Res.string.settings_playback_subtitle_size),
                     value = subtitleStyle.fontSizeSp,
-                    valueText = stringResource(Res.string.compose_player_font_size_value, subtitleStyle.fontSizeSp),
+                    valueText = { size -> stringResource(Res.string.compose_player_font_size_value, size) },
                     valueRange = subtitleFontSizeRangeSp,
                     step = 2,
                     isTablet = isTablet,
@@ -165,7 +165,7 @@ private fun SubtitlesSettingsSection(
                 SettingsSliderRow(
                     title = stringResource(Res.string.settings_playback_subtitle_vertical_offset),
                     value = subtitleStyle.bottomOffset,
-                    valueText = subtitleStyle.bottomOffset.toString(),
+                    valueText = { offset -> offset.toString() },
                     valueRange = 0..200,
                     step = 5,
                     isTablet = isTablet,

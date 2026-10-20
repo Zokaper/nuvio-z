@@ -1143,11 +1143,11 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
     }
 
     LaunchedEffect(playbackSnapshot.isEnded) {
-        if (playbackSnapshot.isEnded && nextEpisodeCardDismissed &&
+        if (playbackSnapshot.isEnded && nextEpisodeDismissedForVideoId == activeVideoId &&
             playerSettingsUiState.streamAutoPlayNextEpisodeEnabled &&
             nextEpisodeInfo?.hasAired == true
         ) {
-            nextEpisodeCardDismissed = false
+            nextEpisodeDismissedForVideoId = null
         }
     }
 

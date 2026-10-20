@@ -286,7 +286,7 @@ private fun PlayerScreenRuntime.handleDoubleTapSeek(
             maxDurationMs?.let { unclamped.coerceAtMost(it) } ?: unclamped
         }
     }
-    val targetPositionMs = if (isPartyControlLocked) ownSeekTarget(requestedPositionMs) ?: return else requestedPositionMs
+    val targetPositionMs = if (isPartyControlLocked) ownSeekTarget(requestedPositionMs) ?: return true else requestedPositionMs
     accumulatedSeekState = nextState
     lastManualSkipSeekPositions = currentPositionMs to targetPositionMs
     // The party submit comes first and outside any branch, deliberately: `sendToController = false`

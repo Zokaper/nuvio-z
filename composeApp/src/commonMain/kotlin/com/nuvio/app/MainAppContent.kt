@@ -1380,6 +1380,7 @@ internal fun MainAppContent(
                 resumeProgressFraction = null,
                 manualSelection = true,
                 startFromBeginning = resumePositionMs == null,
+                runtimeMinutes = null,
             )
         }
 

@@ -73,6 +73,7 @@ class ServerSignIn(
     override fun toString(): String = "ServerSignIn(serverId=$serverId)"
 }
 
+@Serializable
 data class ServerItemRef(
     val connectionId: String,
     val itemId: String,
@@ -102,6 +103,7 @@ private fun String.unescapeSegment(): String? {
     return replace("%3A", ":", ignoreCase = true).replace("%25", "%")
 }
 
+@Serializable
 data class ServerPlaybackTarget(
     val item: ServerItemRef,
     val mediaSourceId: String?,
