@@ -52,8 +52,9 @@ These are vanilla capabilities arriving with mobile **0.6.2-beta** and desktop
 | New Nuvio engine and native packaging replacing TorrServer; player/window refinements and download completion badge | Desktop |
 | Localization, formatting and UI fixes in the named upstream tags | Inherited alongside Z layout/language seams |
 
-Z Watch Together remains the active party system; upstream's duplicate Party UI is
-gated pending the optional maintainer choice. Desktop shuffle remains disabled under
+Z Watch Together remains the active party system; on 2026-10-21 the maintainer confirmed
+keeping it for its integration with Social. Upstream's duplicate Party UI stays gated;
+exposing both is not planned. Desktop shuffle remains disabled under
 the standing mobile-only decision. Final release copy should name the new vanilla bases.
 
 ## Feature inventory

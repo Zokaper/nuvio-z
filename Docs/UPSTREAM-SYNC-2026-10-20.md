@@ -38,7 +38,7 @@ Old TorrServer-specific fixes are inapplicable after its upstream removal.
 
 | Upstream difference | Resolution and reason |
 | --- | --- |
-| Official Party service/UI | Keep Z Watch Together (S07/S11/S17) as the active surface. Inherited official Party code is gated by `UPSTREAM_PARTY_UI_ENABLED=false`, including settings/player/deep links. Optional maintainer choice to expose both remains open; no second party system is silently activated. |
+| Official Party service/UI | Keep Z Watch Together (S07/S11/S17) as the active surface. Maintainer confirmed on 2026-10-21 that its integration with Social is the reason to retain ours. Inherited official Party code remains gated by `UPSTREAM_PARTY_UI_ENABLED=false`, including settings/player/deep links; exposing both is not planned. |
 | Desktop episode shuffle | Keep the explicit mobile-only, off-by-default decision in UPSTREAM.md. Desktop settings/search hide it and repository reads cannot enable imported shuffle preferences. Mobile behavior stays inherited and off by default. |
 | Source route, next-episode selection and loading | Keep Z Classic/Streamlined/Instant ranking, watchdog/failover, quality sheets and PlaybackLoadingHost. Carry server/YouTube preparation, stream identity and prefetch deltas through those paths. Deleted upstream tests of the replaced autoplay flags/loading screen stay deleted; Z coordinator/runtime tests remain. |
 | Detail hero/actions | Inherit upstream tablet hero and availability logic; retain Download, Watch Together and Recommend through the new ZDetailActions adapter and defaulted prefix/suffix action seam. |
