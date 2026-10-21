@@ -3,33 +3,36 @@ Last updated: 2026-10-21
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 117 | Upstream 0.1.31-alpha merged; Windows/Mac debug 117 published; final Linux CI after portable path-fixture follow-up running |
-| Mobile | `claude/social-v2` | 108 | Upstream 0.6.2-beta merged; Android/iOS CI and debug 108 published; installed acceptance pending |
+| Desktop | `claude/social-v2-design` | 117 | Upstream 0.1.31-alpha sync complete; full Linux CI and Windows MSI green; Windows/Mac debug 117 published; installed acceptance pending |
+| Mobile | `claude/social-v2` | 108 | Upstream 0.6.2-beta sync complete; Android/iOS CI green and debug 108 published; installed acceptance pending |
 
-## Sync completion follow-up (2026-10-21)
+## Upstream sync complete (2026-10-21)
 
-Maintainer confirms no additional installed-build testing. Mobile CI, iOS build and debug 108
-publication passed at `e5d618e81`. Desktop local full run passed 3,874 tests (one existing ignored
-test); subsequent native isolation/navigation focused checks passed. Linux run 39440410030
-no longer crashed in native lifecycle tests, but two phone navigation fitting checks still failed;
-the hosted runner then shut down (exit 143). Its Windows MSI and changelog jobs passed.
-Final local phone-scale/native follow-up passes 28/28 with inspected 411/360 dp PNGs.
-Linux 39598087116 passes those four navigation checks and native lifecycle tests, then exposes
-a setup-render observer crossing threads. Setup/Advanced Setup now use a render-thread virtual
-dispatcher and close native buffers; final local follow-up passes 3/3, with Welcome/Home renders
-inspected. CI 39601058782 completes all 3,874 tests (three GUI-dependent skips), with only three
-Windows path fixtures failing on Linux. These now use host-native File paths; Windows follow-up
-passes 17/17 including the real registry round trip. Final full CI 39605019493 at `19ef03c94`
-is running. Compilation exits before tests to release compiler memory for native rendering.
-Desktop debug 116's Windows/Mac packages and mounted Mac launch checks pass (39599213572).
-Publication gets GitHub 403 because its explicit target changes workflows relative to Dev.
-The publisher now checks pre-created tags against the build SHA and omits that redundant target;
-Debug 117 at `b758afaf8` is published by 39602019489 with Windows x64 MSI and macOS arm64
-DMG, both with GitHub SHA-256 digests. Debug 116 remains an unpublished tag.
-TV/web source is unchanged; its Node suite passes 184/184. Global changelog validates and
-matches between the two Kotlin repos (still four events, no Social V2 event yet).
-Current release readiness and full change list: `Docs/SOCIAL-V2-RELEASE-INVENTORY.md`.
-Earlier in-progress entries are historical and do not override this checkpoint.
+Both named bases are merged: mobile **0.6.2-beta** and desktop **0.1.31-alpha**,
+zero commits behind those tags. Mobile language/What's New and Advanced Setup Language are complete.
+Final desktop CI [39609270820](https://github.com/Zokaper/NuvioZDesktop/actions/runs/39609270820)
+at `cd4bf21ed` passes: **3,871 passed, 0 failed, 3 existing headless GUI skips** (3,874 total),
+plus clean Windows MSI and global changelog jobs. Native Linux compilation/frame-copy checks pass.
+Evidence: desktop `build/upstream-linux-final-green.log`; full test execution finished in 16m52s.
+Phone-scale, render-thread, portable path-fixture and native-buffer/JVM-lifetime fixes are verified;
+all production UI render and real download-fault tests remain enabled. Earlier CI blockers are resolved.
+
+Mobile Android full compilation/host tests **3,828/3,828**, pure checks **1,090/1,090**,
+Android/iOS framework/Xcode/Swift lifecycle CI and debug **108** publication pass at `e5d618e81`.
+Desktop pure checks **1,080/1,080** and local full suite (3,873 passed, one ignored) pass.
+Desktop debug **117** at `b758afaf8` is published (39602019489): Windows x64 MSI and macOS arm64
+DMG, with Mac architecture/dependency/mounted-launch checks and GitHub SHA-256 digests.
+Subsequent desktop changes are tests/CI/docs only; debug 116 remains an unpublished tag.
+TV/web is unchanged and passes **184/184** Node checks. This sync performs no backend deployment.
+
+Social V2 is implemented, including its earlier deployed backend, but **not stable-released**.
+Maintainer confirms no new installed-device testing: retain existing acceptance limits, especially
+iOS Watch Together Home/lock/return/rejoin. Final maintainer notes/artwork, the actual Social V2
+global changelog event with `review_settings`, trunk merges and final version/serial bumps remain
+before explicitly requested stable publication. The current changelogs match (four existing events).
+Full scope, optional gaps and acceptance checklist: `Docs/SOCIAL-V2-RELEASE-INVENTORY.md`.
+Sync decisions and earlier diagnostic history: `Docs/UPSTREAM-SYNC-2026-10-20.md`.
+Earlier in-progress entries below are historical and do not override this checkpoint.
 
 ## Historical checkpoint: upstream integration (2026-10-20)
 
