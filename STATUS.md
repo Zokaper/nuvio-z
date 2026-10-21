@@ -19,8 +19,12 @@ a setup-render observer crossing threads. Setup/Advanced Setup now use a render-
 dispatcher and close native buffers; final local follow-up passes 3/3, with Welcome/Home renders
 inspected. CI 39601058782 completes all 3,874 tests (three GUI-dependent skips), with only three
 Windows path fixtures failing on Linux. These now use host-native File paths; Windows follow-up
-passes 17/17 including the real registry round trip. Final full CI 39605019493 at `19ef03c94`
-is running. Compilation exits before tests to release compiler memory for native rendering.
+passes 17/17 including the real registry round trip. Run 39605019493 then reaches 2,768
+passes with no assertion failures before another runner shutdown while entering Social renders.
+Social PNG buffers now close explicitly, and CI pins Ubuntu 24.04 with a fresh test JVM every
+25 classes. Social rendering passes 7/7 locally; the exact CI init script reports forkEvery=25
+and passes the 17 startup/install checks (exit 0). Full CI 39609270820 at `cd4bf21ed` is running.
+Compilation exits before tests to release compiler memory for native rendering.
 Desktop debug 116's Windows/Mac packages and mounted Mac launch checks pass (39599213572).
 Publication gets GitHub 403 because its explicit target changes workflows relative to Dev.
 The publisher now checks pre-created tags against the build SHA and omits that redundant target;

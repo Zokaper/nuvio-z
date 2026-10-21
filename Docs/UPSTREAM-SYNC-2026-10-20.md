@@ -88,7 +88,12 @@ It completes all **3,874 tests**, with three existing headless GUI skips; naviga
 native lifecycle, Setup and Advanced Setup pass. Its only three failures use Windows
 path fixtures on Linux. Fixtures now construct host-native File paths without changing
 the shipped code or assertions; focused Windows checks pass **17/17**, including the
-private registry round trip (Gradle exit 0). Final full CI 39605019493 at 19ef03c94 is running.
+private registry round trip (Gradle exit 0). Run 39605019493 reaches 2,768 passes with
+no assertions failing before another runner shutdown on entering Social renders.
+Social's PNG Image/Data buffers now close explicitly; CI pins stable Ubuntu 24.04
+and forks a fresh JVM every 25 test classes. Social rendering passes **7/7** locally;
+the exact extracted CI init script confirms forkEvery=25 and the 17 startup/install
+checks pass (exit 0). Full CI **39609270820** at cd4bf21ed is running with every test enabled.
 Debug 116's first fresh run found the old
 macOS TorrServer source/package requirement; 05bb85efb replaces it with real Nuvio
 engine resource, architecture and dependency-path checks. The universal engine's
