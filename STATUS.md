@@ -10,6 +10,8 @@ Last updated: 2026-10-21
 
 Both named bases are merged: mobile **0.6.2-beta** and desktop **0.1.31-alpha**,
 zero commits behind those tags. Mobile language/What's New and Advanced Setup Language are complete.
+Maintainer confirms keeping Z Watch Together for its Social integration; upstream Party UI stays
+gated and exposing both is not planned (2026-10-21).
 Final desktop CI [39609270820](https://github.com/Zokaper/NuvioZDesktop/actions/runs/39609270820)
 at `cd4bf21ed` passes: **3,871 passed, 0 failed, 3 existing headless GUI skips** (3,874 total),
 plus clean Windows MSI and global changelog jobs. Native Linux compilation/frame-copy checks pass.
@@ -55,7 +57,7 @@ Language/What's New mobile port and Advanced Setup Language are complete. Pre-sy
 Android full compile + 575 focused host checks; desktop 111 focused checks and inspected
 360/420/1280 dp Language panels; standalone language/setup/What's New 183 checks.
 Maintainer reports **no additional installed-build testing**. Keep hardware acceptance pending.
-Keep Z Watch Together; duplicate official Party UI stays gated pending optional preference.
+Keep Z Watch Together; duplicate official Party UI stays gated (maintainer confirmed 2026-10-21).
 Keep mobile-only shuffle. iOS PiP, Android AutoSync/buffer/cache, media servers and stream
 information arrive by inheritance. Final maintainer notes, artwork and release event remain open.
 Earlier dated checkpoints below describe the work before this integration and are superseded.
