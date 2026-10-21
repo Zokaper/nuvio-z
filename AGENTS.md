@@ -824,6 +824,16 @@ still be checked locally.
 Both debug workflows refuse to run if their tag already exists. Bump the counter
 instead - `DEBUG_BUILD` in `iosApp/Configuration/DebugVersion.xcconfig` for mobile, and
 in `composeApp/Configuration/DesktopDebugVersion.properties` for desktop.
+
+**Desktop debug publication after a workflow-changing sync:** GitHub's Actions token
+cannot explicitly target a commit whose workflow files differ from `Dev` (the default
+branch). Before dispatch, create and push the exact `debug-v<version>.<DEBUG_BUILD>`
+tag at the source SHA with the maintainer's normal Git credentials. The desktop workflow
+checks that any existing tag matches its build SHA, then publishes with `--verify-tag`
+and no redundant `target_commitish`. This keeps package building, verification and
+publication in the existing workflow. Never move an existing debug tag to new source;
+bump the counter. See [GitHub's release permission rule](https://docs.github.com/en/rest/releases/releases#create-a-release).
+
 Mobile's opt-in `diagnostic_ios_only=true` dispatch is an exception: it builds only a
 SHA-identified iOS Actions artifact on the current counter, skipping Android and release/feed
 publication. Use it only for explicitly authorized diagnostic capture, not an updater release.
