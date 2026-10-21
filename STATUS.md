@@ -3,7 +3,7 @@ Last updated: 2026-10-21
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 115 | Upstream 0.1.31-alpha merged; Windows suite/MSI pass; Linux phone-render checks and debug 116 completion pending |
+| Desktop | `claude/social-v2-design` | 117 | Upstream 0.1.31-alpha merged; Windows/Mac debug 117 published; final Linux CI after portable path-fixture follow-up running |
 | Mobile | `claude/social-v2` | 108 | Upstream 0.6.2-beta merged; Android/iOS CI and debug 108 published; installed acceptance pending |
 
 ## Sync completion follow-up (2026-10-21)
@@ -14,9 +14,18 @@ test); subsequent native isolation/navigation focused checks passed. Linux run 3
 no longer crashed in native lifecycle tests, but two phone navigation fitting checks still failed;
 the hosted runner then shut down (exit 143). Its Windows MSI and changelog jobs passed.
 Final local phone-scale/native follow-up passes 28/28 with inspected 411/360 dp PNGs.
-The fresh Windows MSI and changelog jobs pass (39598087116); its full Linux suite is running.
-Desktop debug 116 additionally required replacing old macOS TorrServer package checks with
-universal Nuvio engine/arm64 checks; corrected run 39599213572 at `c94dc316c` is running.
+Linux 39598087116 passes those four navigation checks and native lifecycle tests, then exposes
+a setup-render observer crossing threads. Setup/Advanced Setup now use a render-thread virtual
+dispatcher and close native buffers; final local follow-up passes 3/3, with Welcome/Home renders
+inspected. CI 39601058782 completes all 3,874 tests (three GUI-dependent skips), with only three
+Windows path fixtures failing on Linux. These now use host-native File paths; Windows follow-up
+passes 17/17 including the real registry round trip. Final full CI 39605019493 at `19ef03c94`
+is running. Compilation exits before tests to release compiler memory for native rendering.
+Desktop debug 116's Windows/Mac packages and mounted Mac launch checks pass (39599213572).
+Publication gets GitHub 403 because its explicit target changes workflows relative to Dev.
+The publisher now checks pre-created tags against the build SHA and omits that redundant target;
+Debug 117 at `b758afaf8` is published by 39602019489 with Windows x64 MSI and macOS arm64
+DMG, both with GitHub SHA-256 digests. Debug 116 remains an unpublished tag.
 TV/web source is unchanged; its Node suite passes 184/184. Global changelog validates and
 matches between the two Kotlin repos (still four events, no Social V2 event yet).
 Current release readiness and full change list: `Docs/SOCIAL-V2-RELEASE-INVENTORY.md`.

@@ -79,11 +79,28 @@ the test fixture now isolates all native calls, and that crash no longer occurs.
 Linux's remaining two phone-navigation fitting failures used desktop's 1.08 font
 scale in phone scenes; a2bb9db54 uses phone font scale 1 with unchanged assertions.
 Routine CI also skips promotional frame generation through the existing filters.
-Fresh Linux CI 39598087116 is running. Debug 116's first fresh run found the old
+Linux CI 39598087116 passes the navigation/native tests, then finds a setup render
+using SnapshotStateObserver from two threads. Setup/Advanced Setup now use their
+render-thread virtual dispatcher and close image buffers; final local follow-up
+passes **3/3**, with Welcome/Home Hero PNGs inspected. Full CI 39601058782 at
+ba091b759 separates compilation from testing so compiler memory exits before Skia renders.
+It completes all **3,874 tests**, with three existing headless GUI skips; navigation,
+native lifecycle, Setup and Advanced Setup pass. Its only three failures use Windows
+path fixtures on Linux. Fixtures now construct host-native File paths without changing
+the shipped code or assertions; focused Windows checks pass **17/17**, including the
+private registry round trip (Gradle exit 0). Final full CI 39605019493 at 19ef03c94 is running.
+Debug 116's first fresh run found the old
 macOS TorrServer source/package requirement; 05bb85efb replaces it with real Nuvio
 engine resource, architecture and dependency-path checks. The universal engine's
-arm64 slice is verified directly with lipo (c94dc316c). Corrected debug build
-39599213572 is running. YAML and all ten Bash steps parse.
+arm64 slice is verified directly with lipo (c94dc316c). Build 39599213572 passes
+both packages and mounted Mac architecture/dependency/launch checks. Publication
+gets 403 because Actions cannot target workflow-changing commits relative to Dev
+([GitHub permission rule](https://docs.github.com/en/rest/releases/releases#create-a-release)).
+The publisher now verifies an existing tag against the build SHA and omits the
+redundant target_commitish. Debug **117 at b758afaf8 is published** by 39602019489,
+with nonempty Windows x64 MSI and macOS arm64 DMG and their GitHub SHA-256 digests;
+116 is an unpublished tag. YAML and all ten Bash steps parse. The canonical agent
+guide records how to pre-create an exact debug tag after workflow-changing syncs.
 Local desktop Gradle can use an older native DLL; only a clean CI/debug MSI proves
 new C++ integration. Installed Android/iOS/Windows language/player, PiP, media server,
 AutoSync and party acceptance remains pending. Final release notes/artwork are the
