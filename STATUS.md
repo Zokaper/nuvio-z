@@ -1,10 +1,74 @@
-Last updated: 2026-10-20
+Last updated: 2026-10-21
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 115 | Language + What's New; 580 baseline + 131 offer checks pass locally; Linux native CI blocker |
-| Mobile | `claude/social-v2` | 107 | Social V2; language + What's New port still pending |
+| Desktop | `claude/social-v2-design` | 115 | Upstream 0.1.31-alpha merged; Windows suite/MSI pass; Linux phone-render checks and debug 116 completion pending |
+| Mobile | `claude/social-v2` | 108 | Upstream 0.6.2-beta merged; Android/iOS CI and debug 108 published; installed acceptance pending |
+
+## Sync completion follow-up (2026-10-21)
+
+Maintainer confirms no additional installed-build testing. Mobile CI, iOS build and debug 108
+publication passed at `e5d618e81`. Desktop local full run passed 3,874 tests (one existing ignored
+test); subsequent native isolation/navigation focused checks passed. Linux run 39440410030
+no longer crashed in native lifecycle tests, but two phone navigation fitting checks still failed;
+the hosted runner then shut down (exit 143). Its Windows MSI and changelog jobs passed.
+Final local phone-scale/native follow-up passes 28/28 with inspected 411/360 dp PNGs.
+The fresh Windows MSI and changelog jobs pass (39598087116); its full Linux suite is running.
+Desktop debug 116 additionally required replacing old macOS TorrServer package checks with
+universal Nuvio engine/arm64 checks; corrected run 39599213572 at `c94dc316c` is running.
+TV/web source is unchanged; its Node suite passes 184/184. Global changelog validates and
+matches between the two Kotlin repos (still four events, no Social V2 event yet).
+Current release readiness and full change list: `Docs/SOCIAL-V2-RELEASE-INVENTORY.md`.
+Earlier in-progress entries are historical and do not override this checkpoint.
+
+## Historical checkpoint: upstream integration (2026-10-20)
+
+Both named tags are merged into the active Social V2 branches: mobile **0.6.2-beta**
+(`1cfae0fe7`, merge `8dff1c90a`) and desktop **0.1.31-alpha** (`e808a584e`, merge
+`74415dd0b`). Decisions/new inherited capabilities: `Docs/UPSTREAM-SYNC-2026-10-20.md`.
+Regenerated patch surface: `Docs/PATCH-SURFACE-2026-10-20.md` (363 mobile / 282 desktop;
+zero behind the named tags). Shared changes moved by cherry-pick; no backend deployment.
+
+Post-sync mobile Android full compilation and **3,828 host tests** pass, zero
+failures/errors/skips; all nine mobile pure groups pass **1,090** checks. New inherited
+autosync/server stores are account-scoped and autosync memory resets on account wipe.
+Swift media-cache/executor/lifecycle regression passes in iOS CI; full iOS compile is running.
+Desktop compiles and its full suite is running, including the real download fault harness.
+The old Linux native frame-copy construction blocker is fixed by installing runtime plugins;
+the following Linux bridge build exposed missing mpv/WebKit/GTK development packages, now
+added to CI. Windows CI/debug MSI is needed to prove new C++ (local cached DLL is older).
+
+Language/What's New mobile port and Advanced Setup Language are complete. Pre-sync evidence:
+Android full compile + 575 focused host checks; desktop 111 focused checks and inspected
+360/420/1280 dp Language panels; standalone language/setup/What's New 183 checks.
+Maintainer reports **no additional installed-build testing**. Keep hardware acceptance pending.
+Keep Z Watch Together; duplicate official Party UI stays gated pending optional preference.
+Keep mobile-only shuffle. iOS PiP, Android AutoSync/buffer/cache, media servers and stream
+information arrive by inheritance. Final maintainer notes, artwork and release event remain open.
+Earlier dated checkpoints below describe the work before this integration and are superseded.
+
+## Mobile language/What's New port and Advanced Setup (2026-10-20)
+
+Maintainer changed the order: finish the mobile port before resuming upstream sync.
+The first upstream attempt was aborted so the port could land first. Named upstream tags
+were then merged; the integration section above supersedes the earlier pending entries.
+Mobile now carries the four shared desktop changes (language plan, storage/player/settings/wizard,
+approved What's New cards and centered offer). Mobile shuffle sync and phone alerts are preserved;
+desktop actuals/render harnesses were excluded. Advanced Setup adds a Language category with three
+short pages, using the same settings sections and no image preview. The pure model decides controls.
+Focused pure language/setup/What's New checks pass **183/183**. Pre-sync Android compile and
+focused host selection passed **575/575**; desktop Language/Advanced Setup passed **111/111**.
+The full pure runner passed its first 284-test group, then failed on pre-existing group-2 dependencies
+(`DownloadItem`/`DownloadStatus` and `downloadSizeFigure` omitted from that compile); not a port result.
+iOS compiler/installed builds and final maintainer notes/artwork remain pending.
+
+## Upstream sync started (2026-10-20)
+
+Targets: mobile `upstream/0.6.2-beta` (263 upstream commits), desktop
+`upstream/0.1.31-alpha` (434). Preserve active Social V2 branches and existing
+release/debug metadata. Maintainer reports **no additional installed-build testing**
+since the language/What's New handoff. Previous acceptance limits remain open.
 
 ## Social V2 release inventory and artwork choices (2026-10-20)
 
@@ -17,7 +81,7 @@ Dismiss/Mark all read and friend-profile Start party/Recommend are not wired. Ma
 artwork choices, mobile language port, Advanced Setup Language and release gates remain pending.
 Social ledger S12 corrected to the implemented Unread/Read grouping. Documentation-only audit.
 
-## Language settings rebuild + What's New rework (2026-10-20, in progress, desktop only so far)
+## Language settings rebuild + What's New rework (historical desktop checkpoint, superseded above)
 
 **Handoff: `Nuvio Z/HANDOFF-language-and-whats-new.md`** (plan: `Nuvio Z/PLAN-language-and-whats-new.md`).
 Folded into the Social V2 release. All code is on desktop `claude/social-v2-design`; **mobile

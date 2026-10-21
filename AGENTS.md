@@ -12,9 +12,10 @@ completed, verified, deferred, or blocked.
 - Android debug application ID: `com.nuvio.app.z.debug`
 - Kotlin namespace remains `com.nuvio.app`.
 - The project forked from NuvioMobile commit
-  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71` and is synced to upstream source base `0.5.4-beta`
-  (`9bb601f04`), integrated into the RC after the 2026-09-28 sync. The debug version
-  files retain `0.4.13-z1` until the final stable release metadata bump.
+  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71` and its active Social V2 branch is synced to upstream source base `0.6.2-beta`
+  (`1cfae0fe7`), merged into Social V2 on 2026-10-20 (verification in
+  `Docs/UPSTREAM-SYNC-2026-10-20.md`). The debug version
+  files retain `0.5.4-z3` until the final stable release metadata bump.
 - `upstream` must continue to point to
   `https://github.com/NuvioMedia/NuvioMobile.git`.
 - The private personal fork should use the `origin` remote.
