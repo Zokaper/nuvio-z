@@ -1,4 +1,4 @@
-# Social V2 upstream sync ? 2026-10-20
+# Social V2 upstream sync - 2026-10-20 (verification continued 2026-10-21)
 
 This sync follows the completed mobile language/What's New port and Advanced Setup
 Language pages. It does not publish the Social V2 stable release. Maintainer reports
@@ -45,7 +45,7 @@ Old TorrServer-specific fixes are inapplicable after its upstream removal.
 | Settings layout/language | Keep approved Z hub and language sections; expose new upstream controls through the appropriate existing pages. Buffer controls use a new Z-owned adapter rather than restoring the old monolithic playback page. |
 | Download queue | Keep Z's device-wide queue and profile views; desktop's upstream completion badge observes real Z-store transitions and resets when changing profile. |
 | Stream loading UI/native opening spinner | Keep the named Z loading-band decision, including native facts/manual escape; retain upstream buffering indicator and guard the absent opening canvas. |
-| Release identity/configuration | Existing marketing versions, serials, identifiers, backend separation and optional credentials remain. Debug counters are separate from release metadata. |
+| Release identity/configuration | Existing marketing versions, serials, identifiers, backend separation, the Z updater channels and optional credentials remain. The newly inherited standalone desktop UpdateChannelSettings page is inapplicable to Z's existing updater architecture and remains removed. Debug counters are separate from release metadata. |
 
 Upstream player/settings conflict work extracts adapters at existing seams instead of
 reorganizing upstream source. `Docs/PATCH-SURFACE.md` records the resulting surface.
@@ -57,15 +57,48 @@ language/Advanced Setup **111/111**; standalone language/setup/What's New **183/
 Actual 360/420/1280 dp Advanced Setup renders were inspected. Earlier desktop
 language/What's New verification remains **580/580**, with live interaction checks.
 
-Post-sync compile, complete host/desktop suites, pure suites and iOS/native CI are
-in progress. Do not treat this paragraph as a passing result. The first integration
+Post-sync Android full compilation and the complete host suite pass **3,828/3,828**,
+with zero failures/errors/skips (`build/upstream-mobile-verification-4.log`). All nine
+standalone mobile groups pass **1,090/1,090** (`build/upstream-mobile-pure-4.log`).
+All nine desktop pure groups pass **1,080/1,080**. The full local desktop suite
+passes **3,874 tests**, zero failures and one existing ignored test, with promotional
+frame capture disabled through its existing filters; real UI render tests remain enabled.
+Android CI (39433923399), iOS framework/Xcode/Swift lifecycle CI (39433923450),
+and mobile debug 108 publication (39433924208) pass at `e5d618e81`.
+Clean Windows MSI also passes at `1d62ae692` (run 39440410030).
+The first integration
 compile found and corrected shared server serialization, runtime API and settings
 signature mismatches; the desktop catalog also had a duplicate realtime dependency.
 
 The prior Linux CI `frame_copy_test` failure occurred while creating the real
 GStreamer player, before Kotlin tests. CI now installs runtime base plugins and
-checks `playbin`/`appsink` availability. Confirmation awaits the new Linux run.
+checks `playbin`/`appsink` availability. The next run passed frame copying, then exposed missing development packages for
+the newly inherited Linux mpv/WebKit/GTK bridge. Those dependencies are now installed
+in CI too. The inherited bridge then exposed synthetic lifecycle handles reaching JNI;
+the test fixture now isolates all native calls, and that crash no longer occurs.
+Linux's remaining two phone-navigation fitting failures used desktop's 1.08 font
+scale in phone scenes; a2bb9db54 uses phone font scale 1 with unchanged assertions.
+Routine CI also skips promotional frame generation through the existing filters.
+Fresh Linux CI 39598087116 is running. Debug 116's first fresh run found the old
+macOS TorrServer source/package requirement; 05bb85efb replaces it with real Nuvio
+engine resource, architecture and dependency-path checks. The universal engine's
+arm64 slice is verified directly with lipo (c94dc316c). Corrected debug build
+39599213572 is running. YAML and all ten Bash steps parse.
 Local desktop Gradle can use an older native DLL; only a clean CI/debug MSI proves
 new C++ integration. Installed Android/iOS/Windows language/player, PiP, media server,
 AutoSync and party acceptance remains pending. Final release notes/artwork are the
 maintainer's work; no fixture changelog was promoted to product release copy.
+
+Desktop full-suite integration corrections: registry now classifies the inherited
+server_credentials store and the existing Social V2 popup ledger/tray stores (account
+ledger/credential wipe; device tray preferences survive). Inherited DesktopCache JAR
+handles are closed (V7; real Windows regression 2/2). The short-placeholder threshold
+guard and realistic-duration fixture from mobile `a8dde1fbd` had not reached desktop;
+they are now surgically carried into its divergent next-episode implementation. The
+native opening-band policy removes the absent spinner lookup instead of weakening
+the HTML/JS element contract test. Focused follow-up passed **335 tests** before
+the complete passing run above. A later local native-isolation/navigation selection
+also passed; the final phone-scale/native-lifecycle follow-up passes **28/28**, zero
+failures/errors/skips (`build/upstream-final-nav-native.log`). Inspected 411/360 dp
+PNGs retain full labels on the phone and demote them at the smaller width.
+The unchanged TV/web port passes **184/184** Node checks on 2026-10-21.
