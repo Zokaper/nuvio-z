@@ -93,7 +93,14 @@ no assertions failing before another runner shutdown on entering Social renders.
 Social's PNG Image/Data buffers now close explicitly; CI pins stable Ubuntu 24.04
 and forks a fresh JVM every 25 test classes. Social rendering passes **7/7** locally;
 the exact extracted CI init script confirms forkEvery=25 and the 17 startup/install
-checks pass (exit 0). Full CI **39609270820** at cd4bf21ed is running with every test enabled.
+checks pass (exit 0). Final full CI
+[39609270820](https://github.com/Zokaper/NuvioZDesktop/actions/runs/39609270820) at
+`cd4bf21ed` is **green**: **3,871 passed, 0 failed, 3 existing headless GUI skips**
+(3,874 total). Test execution finishes in 16m52s; Linux native compilation/frame-copy,
+Windows MSI and global changelog jobs also pass. Evidence:
+desktop `build/upstream-linux-final-green.log`. The three skips are the two real-window
+wheel/touchpad tests and window-insets test. Only promotional frame captures are filtered;
+production UI renders and the real download-fault harness remain enabled.
 Debug 116's first fresh run found the old
 macOS TorrServer source/package requirement; 05bb85efb replaces it with real Nuvio
 engine resource, architecture and dependency-path checks. The universal engine's

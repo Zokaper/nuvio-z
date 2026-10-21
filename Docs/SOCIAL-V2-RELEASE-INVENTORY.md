@@ -14,7 +14,7 @@ this upstream sync performs no backend deployment.
 | --- | --- |
 | Upstream integration | Mobile 0.6.2-beta and desktop 0.1.31-alpha merged; zero behind those named tags. Preserve Z Watch Together; upstream Party UI stays gated. |
 | Mobile automation/builds | Android 3,828 host checks and all 1,090 pure checks pass; Android/iOS CI and debug 108 publication pass. |
-| Desktop automation/builds | Full local suite: 3,874 tests, zero failures, one existing ignored test. Native/navigation follow-up 28/28; setup render follow-up 3/3. Windows/Mac packages and Mac launch check pass; debug 117 is published. Final Linux CI is running; see STATUS for its outcome. |
+| Desktop automation/builds | Final full Linux CI 39609270820 passes: 3,871 passed, zero failures, three existing headless GUI skips (3,874 total); native Linux checks, Windows MSI and changelog jobs pass. All 1,080 pure checks and local full suite also pass. Windows/Mac packages and Mac launch check pass; debug 117 is published. |
 | Product acceptance | Maintainer confirms no additional device testing on 2026-10-21. Retest language migration/picks, upgrade review, Social/Inbox/recommendations, Android push, desktop tray/startup and cross-device Watch Together. iOS Home/lock/return acceptance remains open. |
 | Release content | Maintainer's final notes and chosen artwork are pending. Bundle approved images and the real global Social V2 event with review_settings, then validate both changelogs. |
 | Stable publication | Final version/serial bump, release checks and explicit stable publication remain pending. Current debug versions retain the old marketing base; the release must name the newly synced vanilla bases. |
