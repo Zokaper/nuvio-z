@@ -76,11 +76,14 @@ data class TitleLanguagePlan(
  * subtitle choice applies** only in the two cases the origin cannot answer.
  *
  * - Group: the title's original language against [LanguagePreferences.myLanguage]. Unknown (no TMDB
- *   language, a cold Continue Watching launch) -> the language of the audio that plays, which is the
- *   file's default track because no audio target is set; unknown too -> [TitleGroup.OWN].
+ *   language, a cold Continue Watching launch) -> the language of the audio that plays; unknown too
+ *   -> [TitleGroup.OWN].
  * - Audio: own titles in my language (then the fallback). Other titles in the original language then
- *   mine, or mine then the original, per [LanguagePreferences.otherAudio]. Unknown origin: the file's
- *   default track, so a foreign title is never switched to a dub on a guess.
+ *   mine, or mine then the original, per [LanguagePreferences.otherAudio]. Unknown origin: my language
+ *   then the fallback, as for my own titles, and the file's default only when neither is in the file.
+ *   This was the file's default until 2026-10-23 (the maintainer's call): a dubbed release whose default
+ *   track is the dub played a Russian dub of an English film, which is worse than the rarer case of a
+ *   foreign title opening in my language when its origin could not be looked up.
  * - Subtitles: the group's [SubtitleKind] - except an other-language title that wanted its original
  *   audio and is playing mine because the release has no original track. That one "plays like a title
  *   in my language", as the settings page says.
@@ -109,8 +112,7 @@ fun resolveTitleLanguagePlan(
     // `device` only means something in the primary slot - upstream's resolvers drop a secondary
     // sentinel - so the second place gets the resolved code.
     val (preferredAudio, secondaryAudio) = when {
-        original == null -> AudioLanguageOption.DEFAULT to null
-        group == TitleGroup.OWN -> preferences.myLanguage to fallback
+        original == null || group == TitleGroup.OWN -> preferences.myLanguage to fallback
         preferences.otherAudio == OtherLanguageAudio.ORIGINAL -> original to mine
         else -> preferences.myLanguage to original
     }

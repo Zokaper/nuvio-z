@@ -62,14 +62,21 @@ class TitleLanguagePlanTest {
         assertNull(p.secondarySubtitle)
     }
 
+    /** 2026-10-23: a Russian-default release of an English film played the dub when TMDB was unreachable. */
     @Test
-    fun unknownOriginLeavesTheFileDefaultAudioAndGroupsByWhatPlays() {
-        val before = plan(original = null, playing = null)
-        assertEquals(AudioLanguageOption.DEFAULT, before.preferredAudio)
+    fun unknownOriginAsksForMyLanguageAndGroupsByWhatPlays() {
+        val before = plan(maintainer.copy(fallbackLanguage = "ar"), original = null, playing = null)
+        assertEquals("en", before.preferredAudio)
+        assertEquals("ar", before.secondaryAudio)
         assertEquals(TitleGroup.OWN, before.group)
 
+        val english = plan(original = null, playing = "eng")
+        assertEquals(TitleGroup.OWN, english.group)
+        assertEquals(SubtitleKind.FORCED, english.subtitleKind)
+
+        // No English track in the file, so its default plays and the title reads as another language's.
         val korean = plan(original = null, playing = "kor")
-        assertEquals(AudioLanguageOption.DEFAULT, korean.preferredAudio)
+        assertEquals("en", korean.preferredAudio)
         assertEquals(TitleGroup.OTHER, korean.group)
         assertEquals(SubtitleKind.FULL, korean.subtitleKind)
     }
