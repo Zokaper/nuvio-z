@@ -163,12 +163,18 @@ internal object SocialPush {
         ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
     }.getOrDefault(false)
 
+    private const val RecommendedTarget = "recommended"
+
     /** From `MainActivity`: a tapped Social notification opens its place. */
     fun handleIntent(intent: Intent?) {
         val target = intent?.getStringExtra(TargetExtra) ?: return
         intent.removeExtra(TargetExtra)
         SocialNavigation.open(
-            if (target == "friend_requests") SocialNavigationTarget.FriendRequests else SocialNavigationTarget.Inbox,
+            when (target) {
+                "friend_requests" -> SocialNavigationTarget.FriendRequests
+                RecommendedTarget -> SocialNavigationTarget.Recommended
+                else -> SocialNavigationTarget.Inbox
+            },
         )
     }
 
@@ -196,7 +202,8 @@ internal object SocialPush {
             key.hashCode(),
             Intent(context, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                .putExtra(TargetExtra, data["target"] ?: "inbox"),
+                // A recommendation waits on its own page (2026-10-22); the server still names the Inbox.
+                .putExtra(TargetExtra, if (data["kind"] == "recommendation") RecommendedTarget else data["target"] ?: "inbox"),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val body = data["body"].orEmpty()
