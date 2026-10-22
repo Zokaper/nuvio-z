@@ -3,8 +3,8 @@ Last updated: 2026-10-22
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 118 (dispatched 2026-10-22) | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
-| Mobile | `claude/social-v2` | 109 (dispatched 2026-10-22) | Same QA pass, cherry-picked; retest on 109 |
+| Desktop | `claude/social-v2-design` | 119 | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
+| Mobile | `claude/social-v2` | 110 | Same QA pass, cherry-picked; retest on 109 |
 
 ## Social V2 QA pass (2026-10-22)
 
@@ -29,6 +29,15 @@ desktop<->phone retest pending on the new builds) and asked for these changes, a
   (`PlatformSettingsExtensions`, one line in upstream-owned `AdvancedSettingsPage.kt`).
 - **Sample stills:** Breaking Bad season 1 instead of the finale; Narcos (English show with Spanish)
   and Squid Game for the language moments.
+
+**Round 2 (debug 119 desktop / 110 mobile):** lobby shows outstanding invites as dashed INVITED
+tiles; Language page 1 asks three questions; Startup & tray registers on every desktop (macOS has
+the tray; Start with Windows hidden off Windows - round 1 had dropped the close setting on macOS).
+**Open bug, guarded not proven:** a Watch Together host's HTML opening overlay stayed over playing
+video when the phone joined (debug 118 log: first frame + surface promoted, nothing else). Likely a
+throw in `applyPartyControls`/`render()` skipping the overlay update; both are now isolated and the
+overlay always follows the app, and page errors log as `PlayerPage`. Retest WT; read `PlayerPage`.
+"Review new settings" is untestable until the release's What's New event exists.
 
 Evidence: desktop focused packages (social, setup, settings, What's New, tray, watch party)
 919/919; mobile Android compile + the same packages 828/828. Full suites not rerun.
