@@ -265,4 +265,38 @@ class AdvancedSetupModelTest {
         assertFalse(AdvancedSetupPanel.PlayerTouch in advancedSetupPanels(AdvancedSetupCategory.Player, external))
         assertFalse(AdvancedSetupCategory.Subtitles in advancedSetupCategories(external))
     }
+
+    // --- reviews: what What's New and the "New settings available" offer open (2026-10-22) ----------
+
+    @Test
+    fun aReviewIsTheChangedAreasWholeInHubOrder() {
+        assertEquals(listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Startup), advancedSetupAreasChangedSince(10, currentRevision = 11))
+        assertEquals(
+            listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Downloads, AdvancedSetupCategory.Startup),
+            advancedSetupAreasChangedSince(9, currentRevision = 11),
+        )
+        assertEquals(emptyList(), advancedSetupAreasChangedSince(11, currentRevision = 11))
+    }
+
+    @Test
+    fun aScopedTourWalksOnlyItsAreasEveryPanel() {
+        val tour = advancedSetupTour(android, listOf(AdvancedSetupCategory.Language))
+        assertEquals(
+            listOf(AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles),
+            tour.map { it.panel },
+        )
+        assertEquals(AdvancedSetupPanel.OwnLanguageTitles, nextAdvancedSetupTourStop(AdvancedSetupPanel.Languages, android, listOf(AdvancedSetupCategory.Language))?.panel)
+        assertNull(nextAdvancedSetupTourStop(AdvancedSetupPanel.OtherLanguageTitles, android, listOf(AdvancedSetupCategory.Language)))
+    }
+
+    @Test
+    fun startupAndTrayExistsOnlyWhereTheDesktopAppRegisteredIt() {
+        assertFalse(AdvancedSetupCategory.Startup in advancedSetupCategories(desktop))
+        assertTrue(AdvancedSetupCategory.Startup in advancedSetupCategories(desktop.copy(startupAvailable = true)))
+        assertFalse(AdvancedSetupCategory.Startup in advancedSetupCategories(android))
+        // So a review that names it simply skips it elsewhere.
+        val review = listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Startup)
+        assertEquals(setOf(AdvancedSetupCategory.Language), advancedSetupTour(android, review).map { it.category }.toSet())
+        assertEquals(review, advancedSetupTour(desktop.copy(startupAvailable = true), review).map { it.category }.distinct())
+    }
 }

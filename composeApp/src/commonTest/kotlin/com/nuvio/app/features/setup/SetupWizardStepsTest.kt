@@ -93,7 +93,7 @@ class SetupWizardStepsTest {
     @Test
     fun anUpgradeFromTenAsksOnlyLanguage() {
         val plan = SetupWizardPlan(run = SetupWizardRun.Upgrade, fromRevision = 10)
-        assertEquals(listOf(SetupStep.Language), setupWizardSteps(plan))
+        assertEquals(listOf(SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan))
         assertEquals(SetupWizardRun.Upgrade, setupWizardRun(10, deviceRevision = 10, isPhone = false))
     }
 
@@ -126,7 +126,7 @@ class SetupWizardStepsTest {
                     run = SetupWizardRun.Upgrade,
                     fromRevision = revision,
                 )
-                assertEquals(listOf(SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language), setupWizardSteps(plan), "rev $revision phone $phone")
+                assertEquals(listOf(SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan), "rev $revision phone $phone")
             }
         }
     }
@@ -143,8 +143,8 @@ class SetupWizardStepsTest {
     @Test
     fun anUpgradeToManualOnDesktopIsOneStep() {
         val plan = SetupWizardPlan(downloadModeName = "MANUAL", isPhone = false, run = SetupWizardRun.Upgrade, fromRevision = 9)
-        assertEquals(listOf(SetupStep.DownloadMode, SetupStep.Language), setupWizardSteps(plan))
-        assertTrue(isFinalSetupStep(SetupStep.Language, plan))
+        assertEquals(listOf(SetupStep.DownloadMode, SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan))
+        assertTrue(isFinalSetupStep(SetupStep.LanguageOtherTitles, plan))
     }
 
     @Test
@@ -211,7 +211,7 @@ class SetupWizardStepsTest {
     @Test
     fun anArrivingUpgradeGreetsFirst() {
         val plan = SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9, arrival = true)
-        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language), setupWizardSteps(plan))
+        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan))
     }
 
     @Test
@@ -346,6 +346,8 @@ class SetupWizardStepsTest {
                 SetupStep.DownloadMode,
                 SetupStep.DownloadSetup,
                 SetupStep.Language,
+                SetupStep.LanguageOwnTitles,
+                SetupStep.LanguageOtherTitles,
             ),
             setupWizardSteps(plan),
         )
@@ -589,7 +591,7 @@ class SetupWizardStepsTest {
             SetupStep.entries - deviceOnly,
             setupWizardSteps(full.copy(offerDeviceNavigation = true, offerDevicePlayer = true)),
         )
-        assertEquals(15, SetupStep.entries.size)
+        assertEquals(17, SetupStep.entries.size)
     }
 
     @Test
@@ -637,7 +639,8 @@ class SetupWizardStepsTest {
         val plan = SetupWizardPlan(playbackModeName = "CLASSIC")
         val steps = setupWizardSteps(plan)
         assertTrue(steps.contains(SetupStep.Sources))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
     }
 
@@ -646,7 +649,8 @@ class SetupWizardStepsTest {
         val plan = SetupWizardPlan(playbackModeName = "STREAMLINED")
         val steps = setupWizardSteps(plan)
         assertTrue(steps.contains(SetupStep.Sources))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
     }
 
@@ -655,7 +659,8 @@ class SetupWizardStepsTest {
         val plan = SetupWizardPlan(playbackModeName = "INSTANT")
         val steps = setupWizardSteps(plan)
         assertTrue(steps.contains(SetupStep.Sources))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
     }
 
@@ -715,7 +720,8 @@ class SetupWizardStepsTest {
         assertEquals(SetupStep.DownloadMode, nextSetupStep(SetupStep.PlaybackSetup, plan))
         assertEquals(SetupStep.DownloadSetup, nextSetupStep(SetupStep.DownloadMode, plan))
         assertEquals(SetupStep.Language, nextSetupStep(SetupStep.DownloadSetup, plan))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
         assertEquals(SetupStep.SocialIdentity, nextSetupStep(SetupStep.SocialOptIn, plan))
         assertEquals(SetupStep.Look, nextSetupStep(SetupStep.SocialIdentity, plan))
@@ -734,7 +740,8 @@ class SetupWizardStepsTest {
         assertEquals(SetupStep.Look, previousSetupStep(SetupStep.Theme, plan))
         assertEquals(SetupStep.SocialIdentity, previousSetupStep(SetupStep.Look, plan))
         assertEquals(SetupStep.SocialOptIn, previousSetupStep(SetupStep.SocialIdentity, plan))
-        assertEquals(SetupStep.Language, previousSetupStep(SetupStep.Sources, plan))
+        assertEquals(SetupStep.LanguageOtherTitles, previousSetupStep(SetupStep.Sources, plan))
+        assertEquals(SetupStep.Language, previousSetupStep(SetupStep.LanguageOwnTitles, plan))
         assertEquals(SetupStep.DownloadSetup, previousSetupStep(SetupStep.Language, plan))
         assertEquals(SetupStep.DownloadMode, previousSetupStep(SetupStep.DownloadSetup, plan))
         assertEquals(SetupStep.PlaybackSetup, previousSetupStep(SetupStep.DownloadMode, plan))
@@ -814,19 +821,21 @@ class SetupWizardStepsTest {
         assertEquals(4, setupStepPosition(SetupStep.DownloadMode, full))
         assertEquals(5, setupStepPosition(SetupStep.DownloadSetup, full))
         assertEquals(6, setupStepPosition(SetupStep.Language, full))
-        assertEquals(7, setupStepPosition(SetupStep.Sources, full))
-        assertEquals(8, setupStepPosition(SetupStep.SocialOptIn, full))
-        assertEquals(9, setupStepPosition(SetupStep.SocialIdentity, full))
-        assertEquals(10, setupStepPosition(SetupStep.Look, full))
-        assertEquals(11, setupStepPosition(SetupStep.Theme, full))
-        assertEquals(12, setupStepPosition(SetupStep.Done, full))
+        assertEquals(7, setupStepPosition(SetupStep.LanguageOwnTitles, full))
+        assertEquals(8, setupStepPosition(SetupStep.LanguageOtherTitles, full))
+        assertEquals(9, setupStepPosition(SetupStep.Sources, full))
+        assertEquals(10, setupStepPosition(SetupStep.SocialOptIn, full))
+        assertEquals(11, setupStepPosition(SetupStep.SocialIdentity, full))
+        assertEquals(12, setupStepPosition(SetupStep.Look, full))
+        assertEquals(13, setupStepPosition(SetupStep.Theme, full))
+        assertEquals(14, setupStepPosition(SetupStep.Done, full))
 
         // Classic, social off, Manual on desktop: PlaybackSetup, SocialIdentity and DownloadSetup
-        // dropped. 12 - 3 = 9 steps.
+        // dropped. 14 - 3 = 11 steps.
         val lean = SetupWizardPlan(playbackModeName = "CLASSIC", socialEnabled = false, downloadModeName = "MANUAL", isPhone = false)
-        assertEquals(9, setupWizardSteps(lean).size)
-        assertEquals(5, setupStepPosition(SetupStep.Sources, lean))
-        assertEquals(9, setupStepPosition(SetupStep.Done, lean))
+        assertEquals(11, setupWizardSteps(lean).size)
+        assertEquals(7, setupStepPosition(SetupStep.Sources, lean))
+        assertEquals(11, setupStepPosition(SetupStep.Done, lean))
     }
 
     @Test

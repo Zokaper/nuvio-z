@@ -57,6 +57,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Groups
@@ -188,6 +189,9 @@ import kotlin.math.abs
  *   hub. It is the same panels, not a second flow.
  * - Always dismissible: ✕, system back from the hub, or Done on the last panel. Its only side
  *   effects are the settings themselves and the "opened" flag behind the Settings badge.
+ * - **A review** ([review], 2026-10-22) is what What's New and the "New settings available" offer
+ *   open: the areas a release changed, each whole, one after another - then it closes. Back from its
+ *   first panel still reaches the hub, so nothing else is out of reach.
  *
  * ## Layout
  *
@@ -203,6 +207,8 @@ import kotlin.math.abs
 fun AdvancedSetupScreen(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Open straight onto these areas and close after the last of them (`advancedSetupAreasChangedSince`). */
+    review: List<AdvancedSetupCategory>? = null,
 ) {
     val scope = rememberCoroutineScope()
     val live = rememberAdvancedSetupLive()
@@ -217,8 +223,11 @@ fun AdvancedSetupScreen(
     // Opening the hub is what clears Settings' "New" badge, for this profile on this device.
     LaunchedEffect(Unit) { AdvancedSetupBadge.markOpened(ProfileRepository.activeProfileId) }
 
-    var panelName by rememberSaveable { mutableStateOf<String?>(null) }
-    var touring by rememberSaveable { mutableStateOf(false) }
+    var panelName by rememberSaveable { mutableStateOf(review?.let { advancedSetupTour(facts, it).firstOrNull()?.panel?.name }) }
+    var touring by rememberSaveable { mutableStateOf(review != null && panelName != null) }
+    // While reviewing, the tour is only these areas, and its end closes the screen instead of showing the hub.
+    var reviewing by rememberSaveable { mutableStateOf(review != null && panelName != null) }
+    val tourAreas = if (reviewing) review else null
     // "Set up in Settings": the real page, drawn over the hub (which stays exactly where it was).
     var nestedSettingsName by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmLeaveParty by remember { mutableStateOf(false) }
@@ -231,10 +240,11 @@ fun AdvancedSetupScreen(
     LaunchedEffect(facts, panel) {
         val current = panel ?: return@LaunchedEffect
         if (advancedSetupControls(current, facts).isEmpty()) {
-            val next = if (touring) nextAdvancedSetupTourStop(current, facts)?.panel else nextAdvancedSetupPanel(current, facts)
+            val next = if (touring) nextAdvancedSetupTourStop(current, facts, tourAreas)?.panel else nextAdvancedSetupPanel(current, facts)
             if (next == null) {
                 if (current.category !in reviewed) reviewed.add(current.category)
                 touring = false
+                if (reviewing) onClose()
             }
             panelName = next?.name
         }
@@ -246,23 +256,29 @@ fun AdvancedSetupScreen(
 
     fun openCategory(category: AdvancedSetupCategory) {
         touring = false
+        reviewing = false
         panelName = advancedSetupPanels(category, facts).firstOrNull()?.name
     }
 
     fun startTour() {
         val first = advancedSetupTour(facts).firstOrNull() ?: return
         touring = true
+        reviewing = false
         panelName = first.panel.name
     }
 
     fun advance() {
         val current = panel ?: return
         val next = if (touring) {
-            nextAdvancedSetupTourStop(current, facts)?.panel
+            nextAdvancedSetupTourStop(current, facts, tourAreas)?.panel
         } else {
             nextAdvancedSetupPanel(current, facts)
         }
         if (next == null || next.category != current.category) markReviewed(current.category)
+        if (next == null && reviewing) {
+            onClose()
+            return
+        }
         if (next == null) touring = false
         panelName = next?.name
     }
@@ -270,11 +286,14 @@ fun AdvancedSetupScreen(
     fun back() {
         val current = panel ?: return
         val previous = if (touring) {
-            previousAdvancedSetupTourStop(current, facts)?.panel
+            previousAdvancedSetupTourStop(current, facts, tourAreas)?.panel
         } else {
             previousAdvancedSetupPanel(current, facts)
         }
-        if (previous == null) touring = false
+        if (previous == null) {
+            touring = false
+            reviewing = false
+        }
         panelName = previous?.name
     }
 
@@ -334,7 +353,8 @@ fun AdvancedSetupScreen(
                     val held = lastPanelShown(panel)
                     val current = panel ?: held
                     if (current != null) {
-                        val position = if (touring) {
+                        // A review counts within each area ("Language · 2 of 3"), as opening that area would.
+                        val position = if (touring && !reviewing) {
                             val tour = advancedSetupTour(facts)
                             (tour.indexOfFirst { it.panel == current } + 1).coerceAtLeast(1) to tour.size
                         } else {
@@ -342,7 +362,7 @@ fun AdvancedSetupScreen(
                             (panels.indexOf(current) + 1).coerceAtLeast(1) to panels.size
                         }
                         val isLast = if (touring) {
-                            nextAdvancedSetupTourStop(current, facts) == null
+                            nextAdvancedSetupTourStop(current, facts, tourAreas) == null
                         } else {
                             nextAdvancedSetupPanel(current, facts) == null
                         }
@@ -350,7 +370,7 @@ fun AdvancedSetupScreen(
                             panel = current,
                             facts = facts,
                             values = values,
-                            touring = touring,
+                            touring = touring && !reviewing,
                             position = position,
                             isLast = isLast,
                             wideDesktop = wideDesktop,
@@ -503,6 +523,7 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
             downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
             hasTrackingCredentials = TraktAuthRepository.hasRequiredCredentials() || SimklAuthRepository.hasRequiredCredentials(),
             inAppTrailers = AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP,
+            startupAvailable = AdvancedSetupExtensions.startupAndTray != null,
         )
     }
     val facts = platformFacts.copy(
@@ -1022,6 +1043,7 @@ internal fun advancedCategorySummary(
         AdvancedSetupCategory.Social -> listOf(if (values.socialEnabled) on else off)
         AdvancedSetupCategory.Metadata -> if (values.tmdbEnabled) listOf(on, languageName(values.tmdbLanguage)) else listOf(off)
         AdvancedSetupCategory.Tracking -> listOf(stringResource(Res.string.advanced_setup_tracking_summary))
+        AdvancedSetupCategory.Startup -> listOfNotNull(AdvancedSetupExtensions.startupAndTray?.summary?.invoke())
     }
     return parts.filter { it.isNotBlank() }.joinToString(" · ")
 }
@@ -1039,6 +1061,7 @@ private val AdvancedSetupGroup.labelRes: StringResource
         AdvancedSetupGroup.Look -> Res.string.advanced_setup_group_look
         AdvancedSetupGroup.Screens -> Res.string.advanced_setup_group_screens
         AdvancedSetupGroup.SocialAndServices -> Res.string.advanced_setup_group_social
+        AdvancedSetupGroup.ThisDevice -> Res.string.advanced_setup_group_this_pc
     }
 
 internal val AdvancedSetupCategory.titleRes: StringResource
@@ -1058,6 +1081,7 @@ internal val AdvancedSetupCategory.titleRes: StringResource
         AdvancedSetupCategory.Social -> Res.string.advanced_setup_category_social
         AdvancedSetupCategory.Metadata -> Res.string.advanced_setup_category_metadata
         AdvancedSetupCategory.Tracking -> Res.string.advanced_setup_category_tracking
+        AdvancedSetupCategory.Startup -> Res.string.advanced_setup_category_startup
     }
 
 private val AdvancedSetupCategory.icon: ImageVector
@@ -1077,6 +1101,7 @@ private val AdvancedSetupCategory.icon: ImageVector
         AdvancedSetupCategory.Social -> Icons.Rounded.Groups
         AdvancedSetupCategory.Metadata -> Icons.Rounded.Tune
         AdvancedSetupCategory.Tracking -> Icons.Rounded.Sync
+        AdvancedSetupCategory.Startup -> Icons.Rounded.PowerSettingsNew
     }
 
 // --- one panel ---------------------------------------------------------------------------
@@ -1355,6 +1380,7 @@ private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this)
     AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> 200.dp
     AdvancedSetupPanel.EnhancedMetadata -> 360.dp
     AdvancedSetupPanel.TrackingServices -> 160.dp
+    AdvancedSetupPanel.StartupTray -> 200.dp
 }.let { if (desktop) it * DesktopSpecimenScale else it }
 
 /** The renderer this device's player will draw subtitles with (`SubtitleRenderGeometry.kt`). */
@@ -1493,6 +1519,7 @@ internal fun AdvancedPanelPreview(
         )
         AdvancedSetupPanel.EnhancedMetadata -> SpecimenMetadata(enriched = values.tmdbEnabled, desktop = desktop || facts.isDesktop)
         AdvancedSetupPanel.TrackingServices -> SpecimenTracking(scale = scale)
+        AdvancedSetupPanel.StartupTray -> AdvancedSetupExtensions.startupAndTray?.preview?.invoke(desktop)
     }
 }
 
@@ -2254,6 +2281,7 @@ private fun AdvancedControl(
             action = stringResource(Res.string.advanced_setup_open_integrations),
             onClick = { onOpenSettings(SettingsPage.TraktAuthentication) },
         )
+        AdvancedSetupControl.StartupAndTray -> AdvancedSetupExtensions.startupAndTray?.controls?.invoke()
     }
 }
 
@@ -2453,6 +2481,7 @@ internal val AdvancedSetupPanel.titleRes: StringResource
         AdvancedSetupPanel.SocialIdentity -> Res.string.setup_social_identity_title
         AdvancedSetupPanel.EnhancedMetadata -> Res.string.advanced_setup_category_metadata
         AdvancedSetupPanel.TrackingServices -> Res.string.advanced_setup_category_tracking
+        AdvancedSetupPanel.StartupTray -> Res.string.advanced_setup_category_startup
     }
 
 internal fun AdvancedSetupPanel.subtitleRes(facts: AdvancedSetupFacts): StringResource = when (this) {
@@ -2495,4 +2524,5 @@ internal fun AdvancedSetupPanel.subtitleRes(facts: AdvancedSetupFacts): StringRe
     AdvancedSetupPanel.SocialIdentity -> Res.string.setup_social_identity_subtitle
     AdvancedSetupPanel.EnhancedMetadata -> Res.string.advanced_setup_panel_metadata_subtitle
     AdvancedSetupPanel.TrackingServices -> Res.string.advanced_setup_panel_tracking_subtitle
+    AdvancedSetupPanel.StartupTray -> Res.string.advanced_setup_panel_startup_subtitle
 }

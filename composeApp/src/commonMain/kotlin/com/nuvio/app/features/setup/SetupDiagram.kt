@@ -24,8 +24,6 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Subtitles
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -148,9 +146,6 @@ fun SetupDiagram(
                 endIcon = Icons.Rounded.Download,
             )
 
-            // What comes out of a film, in the two forms the language step asks about.
-            SetupStep.Language -> DiagramLanguage()
-
             // An addon on the left filling catalog rows on the right.
             SetupStep.Sources -> DiagramAddonFeed()
 
@@ -172,6 +167,9 @@ fun SetupDiagram(
             SetupStep.Theme,
             SetupStep.DeviceNavigation,
             SetupStep.DevicePlayer,
+            SetupStep.Language,
+            SetupStep.LanguageOwnTitles,
+            SetupStep.LanguageOtherTitles,
             -> Unit
         }
     }
@@ -489,39 +487,6 @@ private fun DiagramSocial() {
             DiagramBlock(width = 44.dp, height = 26.dp)
             DiagramBlock(width = 44.dp, height = 26.dp, alpha = 0.65f)
             DiagramBlock(width = 44.dp, height = 26.dp, alpha = 0.35f)
-        }
-    }
-}
-
-/**
- * Sound on one side of the picture, subtitles on the other.
- *
- * The step sets two preferences that do their work in two different places - which release
- * gets chosen, and which tracks play inside it - and neither has a surface to preview. So the
- * band shows what the answer is *about*: one film, audio coming out of it, text under it.
- *
- * Same primitives, same sizes and the same two-row shape as [DiagramSocial], which is what
- * keeps the flow from reading as a set of unrelated drawings. Nothing here is a string
- * resource, for the reason given on [DiagramAddonFeed].
- */
-@Composable
-private fun DiagramLanguage() {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DiagramCircle(icon = Icons.Rounded.VolumeUp, size = 48.dp)
-            DiagramBlock(width = 62.dp, height = 44.dp, alpha = 1f)
-            DiagramCircle(icon = Icons.Rounded.Subtitles, size = 48.dp)
-        }
-        // A caption line, centred and uneven the way a line of dialogue is.
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DiagramBlock(width = 56.dp, height = 10.dp)
-            DiagramBlock(width = 32.dp, height = 10.dp, alpha = 0.65f)
         }
     }
 }

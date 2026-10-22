@@ -3404,6 +3404,7 @@
     <string name="advanced_setup_group_look">LOOK</string>
     <string name="advanced_setup_group_screens">SCREENS</string>
     <string name="advanced_setup_group_social">SOCIAL &amp; SERVICES</string>
+    <string name="advanced_setup_group_this_pc">THIS PC</string>
     <string name="advanced_setup_category_playback_mode">Playback mode &amp; sources</string>
     <string name="advanced_setup_category_player">Player</string>
     <string name="advanced_setup_category_skipping">Skipping &amp; next episode</string>
@@ -3418,6 +3419,7 @@
     <string name="advanced_setup_category_social">Social</string>
     <string name="advanced_setup_category_metadata">Enhanced metadata</string>
     <string name="advanced_setup_category_tracking">Tracking</string>
+    <string name="advanced_setup_category_startup">Startup &amp; tray</string>
     <string name="advanced_setup_progress">%1$s · %2$d of %3$d</string>
     <string name="advanced_setup_tour_progress">Full tour · %1$d of %2$d</string>
     <string name="advanced_setup_all_categories">All areas</string>
@@ -3507,6 +3509,10 @@
     <string name="advanced_setup_panel_social_subtitle">Friends, activity and watching together.</string>
     <string name="advanced_setup_panel_metadata_subtitle">On by default. No account or key needed.</string>
     <string name="advanced_setup_panel_tracking_subtitle">Sync your watch history with Trakt or Simkl.</string>
+    <string name="advanced_setup_panel_startup_subtitle">What closing the window does, and whether Nuvio Z starts with Windows.</string>
+    <string name="advanced_setup_startup_summary_tray">Closes to tray</string>
+    <string name="advanced_setup_startup_summary_quit">Closes fully</string>
+    <string name="advanced_setup_startup_summary_starts">Starts with Windows</string>
     <string name="advanced_preview_while_loading">While loading</string>
     <string name="advanced_preview_when_paused">When paused</string>
     <string name="advanced_preview_warning_sample">Violence · Language</string>
@@ -3773,6 +3779,7 @@
     <string name="social_watching_empty">Nobody's watching right now. When a friend presses play, you'll see it here.</string>
     <string name="social_see_all">See all</string>
     <string name="social_recommended_to_you">Recommended to you</string>
+    <string name="social_recommended_also_from">Also from %1$s</string>
     <string name="social_recommended_empty">Nothing waiting. When a friend recommends something, it shows up here.</string>
     <string name="social_rec_remove_body">It leaves Recommended to you. %1$s won't be told.</string>
     <string name="social_keep">Keep</string>
@@ -3832,9 +3839,9 @@
     <string name="social_background">In the background</string>
     <string name="social_close_window">Closing the window</string>
     <string name="social_hide_to_tray">Hide to tray</string>
-    <string name="social_quit_nuvio">Quit Nuvio</string>
-    <string name="social_start_windows">Start with Windows</string>
-    <string name="social_start_windows_desc">Opens in the tray when you sign in, so pop-ups reach you without opening Nuvio</string>
+    <string name="social_quit_nuvio">Quit Nuvio Z</string>
+    <string name="social_start_windows">Start with Windows (Recommended)</string>
+    <string name="social_start_windows_desc">Starts in the tray when you sign in, so you get notifications from friends and Nuvio Z opens much faster</string>
     <string name="social_start_windows_unavailable">Available in the installed app</string>
     <string name="social_notifications">Notifications</string>
     <string name="social_notifications_switch">Social notifications</string>

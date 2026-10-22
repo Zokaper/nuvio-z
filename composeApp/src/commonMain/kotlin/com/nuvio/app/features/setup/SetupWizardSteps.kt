@@ -125,7 +125,7 @@ fun shouldShowSetupWizard(
 fun setupStepOfferedOnUpgradeFrom(step: SetupStep): Int? = when (step) {
     SetupStep.DownloadMode, SetupStep.DownloadSetup -> 10
     // Revision 11 (2026-10-20): the language settings were rebuilt (`LanguageSettingsSections`).
-    SetupStep.Language -> 11
+    SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles -> 11
     else -> null
 }
 
@@ -211,6 +211,16 @@ enum class SetupStep {
      * sentinel, so "Audio language matching: Require" was asked, stored, synced, and inert.
      */
     Language,
+
+    /**
+     * Subtitles for titles made in the user's language (2026-10-22). The Language step was all three
+     * Advanced Setup Language panels on one page; it is now those panels, one step each, with their
+     * previews - the same bodies Advanced Setup draws.
+     */
+    LanguageOwnTitles,
+
+    /** Audio and subtitles for titles made in any other language. See [LanguageOwnTitles]. */
+    LanguageOtherTitles,
 
     /** Addons. Optional, and the only step that can fail. */
     Sources,

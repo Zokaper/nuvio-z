@@ -659,10 +659,10 @@ fun SetupWizardScreen(
                 onBack = ::back,
                 onAdvance = ::advance,
                 advance = advanceState,
-                customSpecimen = if (specimen == SetupSpecimen.Device) {
-                    { DeviceStepPreview(step = step, live = deviceLive, desktop = true) }
-                } else {
-                    null
+                customSpecimen = when (specimen) {
+                    SetupSpecimen.Device -> { { DeviceStepPreview(step = step, live = deviceLive, desktop = true) } }
+                    SetupSpecimen.Language -> { { step.languagePanel?.let { AdvancedLanguagePreview(panel = it, desktop = true) } } }
+                    else -> null
                 },
             ) {
                 SetupStepBody(
@@ -723,14 +723,18 @@ fun SetupWizardScreen(
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            if (specimen == SetupSpecimen.Device) Box(
+            if (specimen == SetupSpecimen.Device || specimen == SetupSpecimen.Language) Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(bandHeight + insets.calculateTopPadding())
                     .background(tokens.colors.background)
                     .padding(top = insets.calculateTopPadding()),
             ) {
-                DeviceStepPreview(step = step, live = deviceLive, desktop = false)
+                if (specimen == SetupSpecimen.Device) {
+                    DeviceStepPreview(step = step, live = deviceLive, desktop = false)
+                } else {
+                    step.languagePanel?.let { AdvancedLanguagePreview(panel = it, desktop = false) }
+                }
             } else SetupSpecimenBand(
                 specimen = specimen,
                 step = step,
@@ -1149,7 +1153,6 @@ private val SetupStep.specimen: SetupSpecimen
         SetupStep.PlaybackSetup,
         SetupStep.DownloadMode,
         SetupStep.DownloadSetup,
-        SetupStep.Language,
         SetupStep.Sources,
         SetupStep.SocialOptIn,
         SetupStep.SocialIdentity,
@@ -1157,6 +1160,16 @@ private val SetupStep.specimen: SetupSpecimen
         SetupStep.Done,
         -> SetupSpecimen.Diagram
         SetupStep.DeviceNavigation, SetupStep.DevicePlayer -> SetupSpecimen.Device
+        SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles -> SetupSpecimen.Language
+    }
+
+/** The Advanced Setup Language panel a wizard Language step is (2026-10-22): same body, same preview. */
+internal val SetupStep.languagePanel: AdvancedSetupPanel?
+    get() = when (this) {
+        SetupStep.Language -> AdvancedSetupPanel.Languages
+        SetupStep.LanguageOwnTitles -> AdvancedSetupPanel.OwnLanguageTitles
+        SetupStep.LanguageOtherTitles -> AdvancedSetupPanel.OtherLanguageTitles
+        else -> null
     }
 
 /**
@@ -1630,6 +1643,13 @@ internal fun SetupStepBody(
                     preferredSubtitleLanguage = preferredSubtitleLanguage,
                 )
 
+                SetupStep.LanguageOwnTitles -> AdvancedLanguageBody(panel = AdvancedSetupPanel.OwnLanguageTitles, isTablet = false)
+
+                SetupStep.LanguageOtherTitles -> {
+                    AdvancedLanguageBody(panel = AdvancedSetupPanel.OtherLanguageTitles, isTablet = false)
+                    SetupFootnote(stringResource(Res.string.zlang_wizard_footnote))
+                }
+
                 SetupStep.Sources -> SetupSourcesBody(
                     state = sources,
                     existingSourceName = existingSourceName,
@@ -1810,13 +1830,10 @@ private fun SetupLanguageBody(
     @Suppress("UNUSED_PARAMETER") preferredAudioLanguage: String,
     @Suppress("UNUSED_PARAMETER") preferredSubtitleLanguage: String,
 ) {
-    // Z (2026-10-20): the language settings, exactly as Settings → Playback draws them - one model,
-    // one surface (`LanguageSettingsSections`). No stills: the maintainer kept the plain layout here too.
+    // Z (2026-10-22): the first of three Language steps, each Advanced Setup's panel - same body, same
+    // preview - instead of every section on one page under a diagram that explained nothing.
     SetupParagraph(stringResource(Res.string.setup_language_body))
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        com.nuvio.app.features.settings.LanguageSettingsSections(isTablet = false)
-    }
-    SetupFootnote(stringResource(Res.string.zlang_wizard_footnote))
+    AdvancedLanguageBody(panel = AdvancedSetupPanel.Languages, isTablet = false)
 }
 
 /** A label and the current answer, sized to its content like [SetupChoiceGroup]'s chips. */
@@ -2322,6 +2339,8 @@ private val SetupStep.titleRes
         SetupStep.DownloadMode -> Res.string.download_mode_title
         SetupStep.DownloadSetup -> Res.string.download_setup_title
         SetupStep.Language -> Res.string.setup_language_title
+        SetupStep.LanguageOwnTitles -> Res.string.zlang_own_titles
+        SetupStep.LanguageOtherTitles -> Res.string.zlang_titles_other
         SetupStep.Sources -> Res.string.setup_sources_title
         SetupStep.SocialOptIn -> Res.string.setup_social_title
         SetupStep.SocialIdentity -> Res.string.setup_social_identity_title
@@ -2378,6 +2397,8 @@ private val SetupStep.subtitleRes
         SetupStep.DownloadMode -> Res.string.download_mode_subtitle
         SetupStep.DownloadSetup -> Res.string.download_setup_subtitle_device
         SetupStep.Language -> Res.string.setup_language_subtitle
+        SetupStep.LanguageOwnTitles -> Res.string.advanced_setup_panel_own_titles_subtitle
+        SetupStep.LanguageOtherTitles -> Res.string.advanced_setup_panel_other_titles_subtitle
         SetupStep.Sources -> Res.string.setup_sources_subtitle
         SetupStep.SocialOptIn -> Res.string.setup_social_subtitle
         SetupStep.SocialIdentity -> Res.string.setup_social_identity_subtitle

@@ -22,12 +22,18 @@ import kotlinx.coroutines.flow.receiveAsFlow
  * picker, it waits for them (`AppGate`).
  */
 object AdvancedSetupLauncher {
-    private val requestChannel = Channel<Unit>(Channel.CONFLATED)
+    private val requestChannel = Channel<List<AdvancedSetupCategory>?>(Channel.CONFLATED)
 
-    internal val requests: Flow<Unit> = requestChannel.receiveAsFlow()
+    /** Null opens the hub; a list is a review of those areas (see `AdvancedSetupScreen`'s `review`). */
+    internal val requests: Flow<List<AdvancedSetupCategory>?> = requestChannel.receiveAsFlow()
 
     fun open() {
-        requestChannel.trySend(Unit)
+        requestChannel.trySend(null)
+    }
+
+    /** What's New and the "New settings available" offer: straight onto [areas], closing after them. */
+    fun review(areas: List<AdvancedSetupCategory>) {
+        requestChannel.trySend(areas)
     }
 }
 

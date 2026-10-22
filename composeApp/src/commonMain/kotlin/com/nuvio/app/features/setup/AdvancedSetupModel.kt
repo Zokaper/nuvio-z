@@ -15,7 +15,7 @@ package com.nuvio.app.features.setup
  * **The hub is the structure, the tour a convenience over it.** "Take the full tour" walks the same
  * panels in hub order; it is not a second flow.
  */
-enum class AdvancedSetupGroup { Playback, Downloads, Look, Screens, SocialAndServices }
+enum class AdvancedSetupGroup { Playback, Downloads, Look, Screens, SocialAndServices, ThisDevice }
 
 enum class AdvancedSetupCategory(val group: AdvancedSetupGroup) {
     PlaybackMode(AdvancedSetupGroup.Playback),
@@ -33,6 +33,9 @@ enum class AdvancedSetupCategory(val group: AdvancedSetupGroup) {
     Social(AdvancedSetupGroup.SocialAndServices),
     Metadata(AdvancedSetupGroup.SocialAndServices),
     Tracking(AdvancedSetupGroup.SocialAndServices),
+
+    /** Windows only (2026-10-22): what closing the window does, and starting with Windows. */
+    Startup(AdvancedSetupGroup.ThisDevice),
 }
 
 /** One screen of a category, in the order the category shows them. */
@@ -66,6 +69,7 @@ enum class AdvancedSetupPanel(val category: AdvancedSetupCategory) {
     SocialIdentity(AdvancedSetupCategory.Social),
     EnhancedMetadata(AdvancedSetupCategory.Metadata),
     TrackingServices(AdvancedSetupCategory.Tracking),
+    StartupTray(AdvancedSetupCategory.Startup),
 }
 
 /**
@@ -150,6 +154,8 @@ enum class AdvancedSetupControl {
     TmdbLanguage,
     MdbListRatingsLink,
     TrackingLink,
+    /** Closing the window and Start with Windows, drawn by the desktop app (`AdvancedSetupExtensions`). */
+    StartupAndTray,
 }
 
 /** The most controls a panel may carry - the setup wizard's rule, so nothing scrolls on a phone. */
@@ -186,6 +192,8 @@ data class AdvancedSetupFacts(
      * surface at all - Settings hides the hover-trailer switches there for the same reason.
      */
     val inAppTrailers: Boolean = false,
+    /** The desktop app registered its Startup & tray controls: an installed Windows build. */
+    val startupAvailable: Boolean = false,
 ) {
     val isMobile: Boolean get() = isAndroid || isIos
 }
@@ -279,6 +287,7 @@ fun advancedSetupControls(panel: AdvancedSetupPanel, facts: AdvancedSetupFacts):
         AdvancedSetupPanel.SocialIdentity ->
             if (facts.socialAvailable && facts.socialEnabled && facts.offerSocialIdentity) listOf(AdvancedSetupControl.SocialHandle) else emptyList()
         AdvancedSetupPanel.EnhancedMetadata -> listOf(AdvancedSetupControl.TmdbEnrichment, AdvancedSetupControl.TmdbLanguage, AdvancedSetupControl.MdbListRatingsLink)
+        AdvancedSetupPanel.StartupTray -> if (facts.startupAvailable) listOf(AdvancedSetupControl.StartupAndTray) else emptyList()
         AdvancedSetupPanel.TrackingServices ->
             if (facts.hasTrackingCredentials) listOf(AdvancedSetupControl.TrackingLink) else emptyList()
     }
@@ -302,11 +311,37 @@ fun advancedSetupCategories(facts: AdvancedSetupFacts): List<AdvancedSetupCatego
 /** One stop on the full tour. */
 data class AdvancedSetupStop(val category: AdvancedSetupCategory, val panel: AdvancedSetupPanel)
 
-/** Every panel of every listed category, in hub order: "Take the full tour". */
-fun advancedSetupTour(facts: AdvancedSetupFacts): List<AdvancedSetupStop> =
-    advancedSetupCategories(facts).flatMap { category ->
+/**
+ * Every panel of every listed category, in hub order: "Take the full tour". With [areas], only those
+ * categories, each one whole - a review of what a release changed (see [advancedSetupAreasChangedSince]).
+ */
+fun advancedSetupTour(facts: AdvancedSetupFacts, areas: List<AdvancedSetupCategory>? = null): List<AdvancedSetupStop> =
+    advancedSetupCategories(facts).filter { areas == null || it in areas }.flatMap { category ->
         advancedSetupPanels(category, facts).map { AdvancedSetupStop(category, it) }
     }
+
+/**
+ * The Advanced Setup areas a setup revision changed. What's New's "Review new settings" and the "New
+ * settings available" offer open these, each area whole, rather than a wizard of their own
+ * (maintainer, 2026-10-22: "it should just trigger the relevant Advanced Setup page"). A new home
+ * screen setting, say, brings the user the whole Home area - unchanged neighbours included.
+ *
+ * An area with no panels on this platform drops out of the tour by itself, so a desktop-only area can
+ * be listed here for every platform.
+ */
+fun advancedSetupAreasChangedIn(revision: Int): List<AdvancedSetupCategory> = when (revision) {
+    10 -> listOf(AdvancedSetupCategory.Downloads)
+    // Startup & tray arrived with Language; it has panels only on Windows, so elsewhere it drops out.
+    11 -> listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Startup)
+    else -> emptyList()
+}
+
+/** Every area changed after [completedRevision] up to [currentRevision], in hub order, each once. */
+fun advancedSetupAreasChangedSince(
+    completedRevision: Int,
+    currentRevision: Int = SETUP_WIZARD_REVISION,
+): List<AdvancedSetupCategory> =
+    ((completedRevision + 1)..currentRevision).flatMap(::advancedSetupAreasChangedIn).distinct().sortedBy { it.ordinal }
 
 /**
  * The panel after [current] within its own category, or null at the category's end (which returns
@@ -330,16 +365,24 @@ fun previousAdvancedSetupPanel(current: AdvancedSetupPanel, facts: AdvancedSetup
 }
 
 /** The tour stop after [current], or null when the tour is over (back to the hub). Heals forward. */
-fun nextAdvancedSetupTourStop(current: AdvancedSetupPanel, facts: AdvancedSetupFacts): AdvancedSetupStop? {
-    val tour = advancedSetupTour(facts)
+fun nextAdvancedSetupTourStop(
+    current: AdvancedSetupPanel,
+    facts: AdvancedSetupFacts,
+    areas: List<AdvancedSetupCategory>? = null,
+): AdvancedSetupStop? {
+    val tour = advancedSetupTour(facts, areas)
     val index = tour.indexOfFirst { it.panel == current }
     if (index < 0) return tour.firstOrNull { it.panel.ordinal > current.ordinal }
     return tour.getOrNull(index + 1)
 }
 
 /** The tour stop before [current], or null on the first stop. */
-fun previousAdvancedSetupTourStop(current: AdvancedSetupPanel, facts: AdvancedSetupFacts): AdvancedSetupStop? {
-    val tour = advancedSetupTour(facts)
+fun previousAdvancedSetupTourStop(
+    current: AdvancedSetupPanel,
+    facts: AdvancedSetupFacts,
+    areas: List<AdvancedSetupCategory>? = null,
+): AdvancedSetupStop? {
+    val tour = advancedSetupTour(facts, areas)
     val index = tour.indexOfFirst { it.panel == current }
     if (index < 0) return tour.lastOrNull { it.panel.ordinal < current.ordinal }
     return tour.getOrNull(index - 1)

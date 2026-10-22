@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.social_recommended_also_from
 import nuvio.composeapp.generated.resources.social_recommended_count
 import nuvio.composeapp.generated.resources.social_recommended_empty
 import nuvio.composeapp.generated.resources.social_recommended_to_you
@@ -76,9 +78,7 @@ internal fun SocialRecommendedPage(
             if (titles.isEmpty()) item(key = "empty") { SocialNotice(stringResource(Res.string.social_recommended_empty)) }
             titles.forEach { rec ->
                 item(key = rec.contentId) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RecommendedRow(rec, { onOpenContent(rec.contentType, rec.contentId, rec.title) }, { confirmDismiss = rec })
-                    }
+                    RecommendedCard(rec, Modifier.fillMaxWidth(), { onOpenContent(rec.contentType, rec.contentId, rec.title) }, { confirmDismiss = rec })
                 }
             }
         }
@@ -126,32 +126,42 @@ internal fun SocialRecommendedButton(count: Int, hasNew: Boolean, wide: Boolean,
     }
 }
 
-/** One row per title - the art at the side, the title, then what each friend said, on two lines. */
+/** One card per title (picked 2026-10-22): the art leads, full width, with the title on it; notes are speech bubbles under it. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecommendedRow(rec: RecommendedTitle, onOpen: () -> Unit, onDismiss: () -> Unit) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+private fun RecommendedCard(rec: RecommendedTitle, modifier: Modifier, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    Column(
+        modifier.clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .combinedClickable(onClick = onOpen, onLongClick = onDismiss, role = Role.Button)
-            .padding(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .combinedClickable(onClick = onOpen, onLongClick = onDismiss, role = Role.Button),
     ) {
-        Box(Modifier.width(128.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             SocialArtwork(rec.artwork(), rec.title, Modifier.matchParentSize())
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(rec.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(rec.facts(), style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                SocialFaces(rec.people, 18.dp)
-                Text(rec.whoLine(), style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))))
+            Column(Modifier.align(Alignment.BottomStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(rec.title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(rec.facts(), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-    }
-    rec.from.filter { it.note != null }.take(2).forEach { from ->
-        NoteBubble(from, Modifier.padding(start = 18.dp))
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val notes = rec.from.filter { it.note != null }.take(2)
+            if (notes.isEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SocialFaces(rec.people, 22.dp)
+                    Text(rec.whoLine(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                notes.forEach { from -> NoteBubble(from, Modifier, faceSize = 26.dp) }
+                val quiet = rec.from.filter { it.note == null }
+                if (quiet.isNotEmpty()) {
+                    Text(
+                        stringResource(Res.string.social_recommended_also_from, socialPeopleLabel(quiet.map { it.person })),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 

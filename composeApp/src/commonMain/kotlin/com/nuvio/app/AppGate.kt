@@ -71,6 +71,9 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.ProfileSelectionScreen
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
 import com.nuvio.app.features.setup.AdvancedSetupLauncher
+import com.nuvio.app.features.setup.advancedSetupAreasChangedSince
+import com.nuvio.app.features.setup.advancedSetupAreasChangedIn
+import com.nuvio.app.features.setup.AdvancedSetupCategory
 import com.nuvio.app.features.setup.AdvancedSetupScreen
 import com.nuvio.app.features.setup.DeviceSetupStorage
 import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
@@ -300,8 +303,6 @@ internal fun AppGate(
     // Z: the "New settings available" offer and what it opens. `whatsNewDecided` holds the offer back
     // until the post-update What's New has been decided, so it never flashes up before that screen.
     var whatsNewDecided by remember { mutableStateOf(false) }
-    var upgradeWizardRequested by remember { mutableStateOf(false) }
-    var reviewSettingsFromRevision by remember { mutableStateOf<Int?>(null) }
     // Device-local, so no repository flow re-evaluates the gate when the wizard writes it: the
     // gating wizard's onFinished re-reads it instead.
     var deviceSetupRevision by remember { mutableStateOf(DeviceSetupStorage.loadRevision()) }
@@ -315,6 +316,8 @@ internal fun AppGate(
     // wizard's Done page or What's New. A request made while something gates the app (the wizard,
     // the profile picker) waits for it: the hub opens only over the mounted app, see below.
     var advancedSetupRequested by remember { mutableStateOf(false) }
+    // The areas a review opens onto; null for the hub itself.
+    var advancedSetupReview by remember { mutableStateOf<List<AdvancedSetupCategory>?>(null) }
     // null while loading, empty when it could not be fetched. Either way the shipped events
     // still render - this screen has to work offline and on builds where the in-app updater is
     // disabled.
@@ -466,7 +469,10 @@ internal fun AppGate(
     // desktop, `AppGateOverlay`'s on iOS (never the `bypassAppGate` one, which returns above).
     LaunchedEffect(ownsAppRuntime) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        AdvancedSetupLauncher.requests.collect { advancedSetupRequested = true }
+        AdvancedSetupLauncher.requests.collect { areas ->
+            advancedSetupReview = areas
+            advancedSetupRequested = true
+        }
     }
 
     LaunchedEffect(nativeProfileSwitcherController, appGateController, renderMainContent) {
@@ -975,7 +981,7 @@ internal fun AppGate(
                     acknowledgeWhatsNew()
                     when (action) {
                         ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
-                        ChangelogAction.REVIEW_SETTINGS -> reviewSettingsFromRevision = SETUP_WIZARD_REVISION - 1
+                        ChangelogAction.REVIEW_SETTINGS -> AdvancedSetupLauncher.review(advancedSetupAreasChangedIn(SETUP_WIZARD_REVISION))
                     }
                 },
             )
@@ -990,7 +996,7 @@ internal fun AppGate(
                     showWhatsNewOnDemand = false
                     when (action) {
                         ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
-                        ChangelogAction.REVIEW_SETTINGS -> reviewSettingsFromRevision = SETUP_WIZARD_REVISION - 1
+                        ChangelogAction.REVIEW_SETTINGS -> AdvancedSetupLauncher.review(advancedSetupAreasChangedIn(SETUP_WIZARD_REVISION))
                     }
                 },
             )
@@ -999,40 +1005,21 @@ internal fun AppGate(
         // Z: "New settings available" (see `NewSettingsOffer`), once What's New is out of the way.
         if (
             upgradeOffered && whatsNewDecided && gateScreen == AppGateScreen.Main.name &&
-            !showWhatsNew && !showWhatsNewOnDemand && !showSetupWizardOnDemand &&
-            !upgradeWizardRequested && reviewSettingsFromRevision == null && !isAdvancedSetupActive
+            !showWhatsNew && !showWhatsNewOnDemand && !showSetupWizardOnDemand && !isAdvancedSetupActive
         ) {
             NewSettingsOffer(
-                onYes = { upgradeWizardRequested = true },
+                // The areas this profile owes, in Advanced Setup (2026-10-22) - not a wizard of their own.
+                // Answering is opening them: the revision is written now, as leaving early always did.
+                onYes = {
+                    val owed = advancedSetupAreasChangedSince(gatePlayerSettings.setupWizardCompletedRevision ?: 0)
+                    PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+                    AdvancedSetupLauncher.review(owed)
+                },
                 onNo = { PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION) },
                 onBackToWhatsNew = {
                     if (whatsNewEvents.isNotEmpty() || whatsNewDebug != null) showWhatsNew = true else showWhatsNewOnDemand = true
                 },
             )
-        }
-
-        // Z: the offer's Yes (the steps this profile owes) and What's New's "Review new settings" (the
-        // current revision's steps, whatever is owed). Leaving early still answers the offer.
-        if ((upgradeWizardRequested || reviewSettingsFromRevision != null) && gateScreen == AppGateScreen.Main.name) {
-            val reviewFrom = reviewSettingsFromRevision
-            key(reviewFrom, upgradeWizardRequested) {
-                SetupWizardScreen(
-                    onFinished = {
-                        upgradeWizardRequested = false
-                        reviewSettingsFromRevision = null
-                    },
-                    dismissible = true,
-                    onDismiss = {
-                        PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
-                        upgradeWizardRequested = false
-                        reviewSettingsFromRevision = null
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    run = SetupWizardRun.Upgrade,
-                    reviewFromRevision = reviewFrom,
-                    onOpenAdvancedSetup = AdvancedSetupLauncher::open,
-                )
-            }
         }
 
         // Opened from Settings rather than gating the app: it covers MainAppContent instead of
@@ -1056,10 +1043,16 @@ internal fun AppGate(
 
         // Last, so it sits above What's New: its action card opens the hub as it closes.
         if (isAdvancedSetupActive) {
-            AdvancedSetupScreen(
-                onClose = { advancedSetupRequested = false },
-                modifier = Modifier.fillMaxSize(),
-            )
+            key(advancedSetupReview) {
+                AdvancedSetupScreen(
+                    onClose = {
+                        advancedSetupRequested = false
+                        advancedSetupReview = null
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    review = advancedSetupReview,
+                )
+            }
         }
     }
 }
