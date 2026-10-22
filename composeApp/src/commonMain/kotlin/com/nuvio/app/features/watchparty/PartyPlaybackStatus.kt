@@ -37,6 +37,8 @@ enum class PartyStatusKind {
     WaitingForHostStart,
     CatchingUp,
     IncomingJoinRequest,
+    /** The host's connection is gone and this viewer's is fine. */
+    HostOffline,
     Reconnecting,
     Offline,
     PausedBy,
@@ -143,6 +145,9 @@ data class PartyPlaybackStatusInputs(
     val panelOpen: Boolean = false,
     /** How long realtime has been Connecting or Degraded, 0 when not. */
     val realtimeUnhealthyMs: Long = 0L,
+    /** The durable snapshot has the host disconnected. Their broadcasts stopped with them, which is what
+     *  makes this viewer's own realtime read unhealthy - so this outranks [realtimeUnhealthyMs]. */
+    val hostOffline: Boolean = false,
     val capability: PartySyncCapability = PartySyncCapability.FullSync,
     /** The actor of the last accepted `pause` still in force, when it was not this viewer. */
     val pausedBy: PartyStatusPerson? = null,
@@ -298,6 +303,11 @@ fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLi
     // 12 outranks 11 when both are true: offline is the stronger and more useful statement.
     if (inParty && capability == PartySyncCapability.OfflineLocalPlayback) {
         return PartyStatusLine(PartyStatusKind.Offline, "Connection lost · playing on your own", tone = PartyStatusTone.Error)
+    }
+    // 11a (2026-10-23). A killed host read as "Reconnecting to the party…" on the guest for the minute
+    // the server took to hand the party over: the guest blamed its own connection for the host's.
+    if (inParty && !isHost && hostOffline) {
+        return PartyStatusLine(PartyStatusKind.HostOffline, "$hostName lost connection · waiting for them", hostPeople, tone = PartyStatusTone.Warning)
     }
     // 11.
     if (inParty && realtimeUnhealthyMs > PartyStatusReconnectVisibleMs) {

@@ -64,6 +64,9 @@ class PartyPlaybackStatusTest {
             assertEquals(PartyStatusAction.Decline, it.secondaryAction)
         }
         assertEquals("Reconnecting to the party…", projectPartyPlaybackStatus(guest.copy(realtimeUnhealthyMs = 3_001))!!.text)
+        // 2026-10-23: the host's dropped socket is named as theirs, not reported as this guest's.
+        assertEquals(PartyStatusKind.HostOffline, kind(guest.copy(realtimeUnhealthyMs = 10_000, hostOffline = true)))
+        assertNull(projectPartyPlaybackStatus(host.copy(hostOffline = true)))
         assertEquals(
             "Connection lost · playing on your own",
             projectPartyPlaybackStatus(guest.copy(capability = PartySyncCapability.OfflineLocalPlayback))!!.text,
@@ -126,6 +129,7 @@ class PartyPlaybackStatusTest {
             barrierHoldMs = 5_000,
             incomingRequester = debug,
             realtimeUnhealthyMs = 10_000,
+            hostOffline = true,
             capability = PartySyncCapability.OfflineLocalPlayback,
             pausedBy = seraph,
             outgoingRequestTarget = debug,
@@ -142,6 +146,7 @@ class PartyPlaybackStatusTest {
             { it.copy(barrierHoldMs = 0) },
             { it.copy(incomingRequester = null) },
             { it.copy(capability = PartySyncCapability.FullSync) },
+            { it.copy(hostOffline = false) },
             { it.copy(realtimeUnhealthyMs = 0) },
             { it.copy(pausedBy = null) },
             { it.copy(outgoingRequestTarget = null) },
@@ -161,6 +166,7 @@ class PartyPlaybackStatusTest {
             PartyStatusKind.CatchingUp,
             PartyStatusKind.IncomingJoinRequest,
             PartyStatusKind.Offline,
+            PartyStatusKind.HostOffline,
             PartyStatusKind.Reconnecting,
             PartyStatusKind.PausedBy,
             PartyStatusKind.OutgoingJoinRequest,

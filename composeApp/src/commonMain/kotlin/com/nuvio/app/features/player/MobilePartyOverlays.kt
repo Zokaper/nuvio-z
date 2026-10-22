@@ -150,7 +150,7 @@ internal fun partyStatusGlyph(kind: String): PartyStatusGlyph = when (kind) {
     "SourceActivity", "MatchingSource", "CatchingUp", "SwitchingEpisode" -> PartyStatusGlyph.Sync
     "HostChoosingSource", "WaitingForSources", "WaitingForBuffering", "WaitingForAway",
     "EveryoneWaitingOnYou", "HostBuffering", "WaitingForHostStart" -> PartyStatusGlyph.Waiting
-    "Reconnecting", "Offline" -> PartyStatusGlyph.Offline
+    "Reconnecting", "Offline", "HostOffline" -> PartyStatusGlyph.Offline
     "PausedBy" -> PartyStatusGlyph.Paused
     "IncomingJoinRequest", "OutgoingJoinRequest" -> PartyStatusGlyph.JoinRequest
     "SourceNotFound", "VersionTooShort" -> PartyStatusGlyph.Problem

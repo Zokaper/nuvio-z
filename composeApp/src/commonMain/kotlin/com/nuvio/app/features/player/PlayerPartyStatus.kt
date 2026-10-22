@@ -209,6 +209,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 incomingRequester = incomingRequester,
                 panelOpen = panelOpen,
                 realtimeUnhealthyMs = if (realtimeUnhealthy && realtimeUnhealthySinceMs > 0L) nowMs - realtimeUnhealthySinceMs else 0L,
+                hostOffline = party.members.firstOrNull { it.profileId == party.hostProfileId }?.connected == false,
                 capability = partyUi.health.capability(),
                 pausedBy = pausedBy,
                 outgoingRequestTarget = outgoingTarget,
