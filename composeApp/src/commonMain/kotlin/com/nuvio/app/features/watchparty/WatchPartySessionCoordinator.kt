@@ -42,6 +42,7 @@ private sealed interface PartySessionIntent {
     data class Register(val context: ActivePlaybackContext, val sessionId: String, val deviceId: String) : PartySessionIntent
     data class Unregister(val attachmentId: String) : PartySessionIntent
     data class Lobby(val partyId: String) : PartySessionIntent
+    data class LobbyLeft(val partyId: String) : PartySessionIntent
     data class Readiness(
         val state: SourceResolutionState,
         val durationMs: Long?,
@@ -77,6 +78,8 @@ object WatchPartySessionCoordinator {
     private var presenceSessionId: String? = null
     private var presenceDeviceId: String? = null
     private var lastPublishedReadiness: PublishedPartyReadiness? = null
+    /** The party whose lobby is on screen. Its report may be waiting - see [lobbyLocationWaitsForPlayer]. */
+    private var shownLobbyPartyId: String? = null
     private val _promotionFailures = MutableSharedFlow<PartyPromotionFailure>(extraBufferCapacity = 4)
 
     /** Refusals from [promoteCurrentPlayback], so a surface can say what happened. */
@@ -113,6 +116,7 @@ object WatchPartySessionCoordinator {
         enqueue(PartySessionIntent.Register(context, sessionId, deviceId))
     fun unregisterPlayback(attachmentId: String) = enqueue(PartySessionIntent.Unregister(attachmentId))
     fun enterLobby(partyId: String) = enqueue(PartySessionIntent.Lobby(partyId))
+    fun leaveLobby(partyId: String) = enqueue(PartySessionIntent.LobbyLeft(partyId))
     fun reportReadiness(
         state: SourceResolutionState,
         durationMs: Long? = null,
@@ -159,18 +163,18 @@ object WatchPartySessionCoordinator {
                     presenceSessionId = null
                     presenceDeviceId = null
                     gateway.updatePlaybackTelemetry(null)
+                    shownLobbyPartyId?.let { publishLobbyLocation(it) }
                 }
             }
             is PartySessionIntent.Lobby -> {
-                val live = liveParty()?.id
-                if (live != intent.partyId) {
-                    promotionLog.i { "lobby location skipped party=${intent.partyId.take(8)} live=${live?.take(8)}" }
+                shownLobbyPartyId = intent.partyId
+                if (lobbyLocationWaitsForPlayer(_state.value, intent.partyId)) {
+                    promotionLog.i { "lobby location waits for the player to detach party=${intent.partyId.take(8)}" }
                     return
                 }
-                _state.value = reducePartySession(_state.value, PartySessionEvent.LobbyEntered(intent.partyId))
-                val published = gateway.publishLocation(WatchPartyClientLocation.lobby)
-                promotionLog.i { "lobby location party=${intent.partyId.take(8)} ok=${published.isSuccess} error=${published.exceptionOrNull()?.message}" }
+                publishLobbyLocation(intent.partyId)
             }
+            is PartySessionIntent.LobbyLeft -> if (shownLobbyPartyId == intent.partyId) shownLobbyPartyId = null
             is PartySessionIntent.Readiness -> {
                 // ⚠ An ended party gets no readiness. A report queued by work that was already in
                 // flight when the party ended would otherwise be a write to a party this member has
@@ -301,6 +305,17 @@ object WatchPartySessionCoordinator {
             PartySessionIntent.ContinueAfterEnd -> _state.value = PartySessionState(playback = _state.value.playback)
             is PartySessionIntent.Snapshot -> observeSnapshot(intent.value)
         }
+    }
+
+    private suspend fun publishLobbyLocation(partyId: String) {
+        val live = liveParty()?.id
+        if (live != partyId) {
+            promotionLog.i { "lobby location skipped party=${partyId.take(8)} live=${live?.take(8)}" }
+            return
+        }
+        _state.value = reducePartySession(_state.value, PartySessionEvent.LobbyEntered(partyId))
+        val published = gateway.publishLocation(WatchPartyClientLocation.lobby)
+        promotionLog.i { "lobby location party=${partyId.take(8)} ok=${published.isSuccess} error=${published.exceptionOrNull()?.message}" }
     }
 
     private suspend fun adoptPartyBuiltFromThisPlayback(live: WatchPartyState) {

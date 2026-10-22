@@ -171,4 +171,20 @@ class WatchPartySessionStateTest {
         assertTrue(hostOnly.mayControl("host"))
         assertTrue(hostOnly.copy(controlMode = WatchPartyControlMode.collaborative).mayControl("guest"))
     }
+
+    /** 2026-10-23: the departing player's position ticks re-registered it over the lobby report. */
+    @Test fun aLobbyOverItsPartysDepartingPlayerWaitsForItToDetach() {
+        val watching=reducePartySession(PartySessionState(),PartySessionEvent.PlayerAttached(playback,generation))
+        assertTrue(lobbyLocationWaitsForPlayer(watching,"party"))
+        val detached=reducePartySession(watching,PartySessionEvent.PlayerAttachmentLost("attachment"))
+        assertFalse(lobbyLocationWaitsForPlayer(detached,"party"))
+    }
+
+    @Test fun aLobbyOverOtherPlaybackReportsAtOnce() {
+        val ownPlayer=reducePartySession(PartySessionState(),PartySessionEvent.PlayerAttached(playback,null))
+        assertFalse(lobbyLocationWaitsForPlayer(ownPlayer,"party"))
+        val otherParty=reducePartySession(PartySessionState(),PartySessionEvent.PlayerAttached(playback,generation))
+        assertFalse(lobbyLocationWaitsForPlayer(otherParty,"another-party"))
+        assertFalse(lobbyLocationWaitsForPlayer(PartySessionState(),"party"))
+    }
 }

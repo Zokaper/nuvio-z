@@ -89,13 +89,17 @@ internal fun WatchPartyLobbyDestination(
     // Say where this member is (2026-10-22). `enterLobby` had no caller since it was written, so a guest
     // who backed out of the player kept its last status - "Ready", "Playing" - for everyone else for
     // as long as it sat here. The lobby leaves composition under the player and recomposes when it is
-    // back on top, so this runs on every return; the player's own attach says "player" again.
+    // back on top, so this runs on every return; the player's own attach says "player" again. Leaving
+    // is reported too: a report still waiting on the departing player (`lobbyLocationWaitsForPlayer`)
+    // must not fire if the back gesture is cancelled and the player stays.
     val livePartyId = state.party?.id
-    LaunchedEffect(livePartyId) {
-        val id = livePartyId ?: return@LaunchedEffect
-        val ours = route.partyId == null || route.partyId == id
-        watchPartyLobbyDestinationLog.i { "location lobby party=${id.take(8)} ours=$ours" }
-        if (ours) WatchPartySessionCoordinator.enterLobby(id)
+    DisposableEffect(livePartyId) {
+        val ours = livePartyId?.takeIf { route.partyId == null || route.partyId == it }
+        if (livePartyId != null) {
+            watchPartyLobbyDestinationLog.i { "location lobby party=${livePartyId.take(8)} ours=${ours != null}" }
+        }
+        ours?.let(WatchPartySessionCoordinator::enterLobby)
+        onDispose { ours?.let(WatchPartySessionCoordinator::leaveLobby) }
     }
 
     // A system back (Escape on desktop) comes here instead of popping the route. Registered for as
