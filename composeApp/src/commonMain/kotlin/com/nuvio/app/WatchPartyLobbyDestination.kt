@@ -86,6 +86,18 @@ internal fun WatchPartyLobbyDestination(
         return closed
     }
 
+    // Say where this member is (2026-10-22). `enterLobby` had no caller since it was written, so a guest
+    // who backed out of the player kept its last status - "Ready", "Playing" - for everyone else for
+    // as long as it sat here. The lobby leaves composition under the player and recomposes when it is
+    // back on top, so this runs on every return; the player's own attach says "player" again.
+    val livePartyId = state.party?.id
+    LaunchedEffect(livePartyId) {
+        val id = livePartyId ?: return@LaunchedEffect
+        val ours = route.partyId == null || route.partyId == id
+        watchPartyLobbyDestinationLog.i { "location lobby party=${id.take(8)} ours=$ours" }
+        if (ours) WatchPartySessionCoordinator.enterLobby(id)
+    }
+
     // A system back (Escape on desktop) comes here instead of popping the route. Registered for as
     // long as the lobby is composed; `dispatchNavigationBack` fails closed in the gap before it is.
     val latestState by rememberUpdatedState(state)

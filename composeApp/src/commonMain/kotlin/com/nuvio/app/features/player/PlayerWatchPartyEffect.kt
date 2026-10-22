@@ -69,6 +69,7 @@ import com.nuvio.app.features.watchparty.partyBarrierPlan
 import com.nuvio.app.features.watchparty.partyFallbackDriftCorrection
 import com.nuvio.app.features.watchparty.partyMembersAwaitingSource
 import com.nuvio.app.features.watchparty.partyMembersPresent
+import com.nuvio.app.features.watchparty.partyMembersWatching
 import com.nuvio.app.features.watchparty.partyMembersStartingUp
 import com.nuvio.app.features.watchparty.partyStartPlaybackRelease
 import com.nuvio.app.features.watchparty.partyStartReleaseResumes
@@ -76,6 +77,8 @@ import com.nuvio.app.features.watchparty.partyPlaybackGate
 import com.nuvio.app.features.watchparty.resolvePartyStartupHold
 import com.nuvio.app.features.watchparty.partyGenerationKey
 import com.nuvio.app.features.watchparty.partySeekPlan
+import com.nuvio.app.features.watchparty.WatchPartySeekReadyWaitMs
+import com.nuvio.app.features.watchparty.watchPartySeekRecoveryLeadMs
 import com.nuvio.app.features.watchparty.partyReadinessNeedsReconcile
 import com.nuvio.app.features.watchparty.pendingPartySeek
 import com.nuvio.app.features.watchparty.shortId
@@ -1045,7 +1048,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             val party = WatchPartyRepository.uiState.value.party
             val holding = WatchPartySync.refreshStallWatch(
                 startingUp = party?.let { partyMembersStartingUp(it, WatchPartyRepository.uiState.value.activeProfileId) }.orEmpty(),
-                present = party?.let(::partyMembersPresent),
+                present = party?.let(::partyMembersWatching),
             )
             if (holding != reactedTo) {
                 if (reactToStalledGuests(holding)) reactedTo = holding
@@ -1388,6 +1391,30 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
  * single `delay` computed once would land on the instant the clock believed in when the wait
  * started rather than the one it believes in when the wait ends.
  */
+/**
+ * What this device's last corrective seek took to become playable. Process-wide rather than per
+ * player, so a guest who leaves for the lobby and comes back starts with what it learned.
+ */
+private object PartySeekReloadEstimate {
+    var lastMs: Long? = null
+}
+
+/**
+ * Waits until the player has stopped loading, up to [capMs]; false when it never did. The first
+ * look is a moment after the seek, because a polled snapshot can still say "not loading" from before it.
+ */
+private suspend fun PlayerScreenRuntime.awaitPartyPlayerReady(capMs: Long): Boolean {
+    val deadline = currentEpochMs() + capMs
+    delay(WatchPartySeekReadyFirstLookMs)
+    while (playbackSnapshot.isLoading) {
+        if (currentEpochMs() >= deadline) return false
+        delay(50L)
+    }
+    return true
+}
+
+private const val WatchPartySeekReadyFirstLookMs = 250L
+
 private suspend fun awaitPartyInstant(atPartyMs: Long) {
     while (true) {
         val remaining = atPartyMs - WatchPartySync.partyNowMs()
@@ -1581,7 +1608,9 @@ private suspend fun PlayerScreenRuntime.followPartyTick(tick: PartyTick, tracker
                 // Scheduled, like a host's seek: park on where the party *will* be and start when
                 // it gets there. Nothing has to predict the reload cost, so being wrong about it
                 // costs a slightly longer hold instead of the standing error a fixed lead left.
-                val plan = partySeekPlan(tick, partyNow)
+                // Parked as far ahead as this device's last reload actually took (2026-10-22).
+                val lead = watchPartySeekRecoveryLeadMs(PartySeekReloadEstimate.lastMs)
+                val plan = partySeekPlan(tick, partyNow, recoveryLeadMs = lead)
                 partyBarrierAtMs = plan.resumeAtPartyMs
                 applyPartySpeed(tick.playbackSpeed)
                 // Held for the party's own reasons, so the host is not told this client is stalling.
@@ -1589,7 +1618,16 @@ private suspend fun PlayerScreenRuntime.followPartyTick(tick: PartyTick, tracker
                 try {
                     controller.pause()
                     val target = partyPositionInThisFile(plan.seekToMs, durationMs)
+                    val issuedAtMs = currentEpochMs()
                     if (target != null) seekPartyToExact(target, reason = "drift")
+                    // Ready first, then the instant. Resuming on the instant alone resumed into a
+                    // rebuffer whenever the reload outlasted the lead, and that rebuffer read as a
+                    // starve, which handed the leftover gap to the slow nudge. Measured here, while
+                    // the instant has not been waited out, so the estimate is the reload and not the lead.
+                    val ready = awaitPartyPlayerReady(WatchPartySeekReadyWaitMs)
+                    val reloadMs = currentEpochMs() - issuedAtMs
+                    if (ready) PartySeekReloadEstimate.lastMs = reloadMs
+                    partyLog.i { "seek reload ready=$ready reloadMs=$reloadMs leadMs=$lead" }
                     awaitPartyInstant(plan.resumeAtPartyMs)
                 } finally {
                     partyHoldingForBarrier = false

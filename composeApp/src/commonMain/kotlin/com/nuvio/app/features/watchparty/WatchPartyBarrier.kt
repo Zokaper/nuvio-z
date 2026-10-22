@@ -83,6 +83,34 @@ const val WatchPartyPausedAlignToleranceMs = 100L
  */
 const val WatchPartySeekRecoveryLeadMs = 1_500L
 
+/**
+ * Slack on top of a measured reload, and the most a corrective seek will ever park ahead.
+ *
+ * 2026-10-22, phone rejoining a playing party: the 1.5s hold above ran out while the stream was still
+ * loading (about 3.5s on that phone), the guest resumed into a rebuffer, came back ~2s behind - and,
+ * because that rebuffer counted as a starve, [WatchPartyStarveRecoverySeekSuppressionMs] left it to
+ * the nudge, ~20s of visible desync. The guest now waits for its own player to be ready before
+ * resuming, and remembers what the reload cost so its next seek parks far enough ahead.
+ */
+const val WatchPartySeekReloadMarginMs = 300L
+const val WatchPartySeekMaxRecoveryLeadMs = 6_000L
+
+/** How long a guest's corrective seek waits for the player to finish loading before resuming anyway. */
+const val WatchPartySeekReadyWaitMs = 8_000L
+
+/**
+ * The lead for a guest's next corrective seek: what the last one was measured to cost to reload,
+ * plus [WatchPartySeekReloadMarginMs], never below [WatchPartySeekRecoveryLeadMs] nor above
+ * [WatchPartySeekMaxRecoveryLeadMs]. Null - nothing measured yet - is the fixed lead.
+ */
+fun watchPartySeekRecoveryLeadMs(observedReloadMs: Long?): Long =
+    if (observedReloadMs == null || observedReloadMs <= 0L) {
+        WatchPartySeekRecoveryLeadMs
+    } else {
+        (observedReloadMs + WatchPartySeekReloadMarginMs)
+            .coerceIn(WatchPartySeekRecoveryLeadMs, WatchPartySeekMaxRecoveryLeadMs)
+    }
+
 /** Commands remembered for de-duplication. A two hour party issues a few hundred at most. */
 const val WatchPartyCommandLogSize = 64
 
@@ -704,6 +732,19 @@ fun partyMembersPresent(party: WatchPartyState): Set<String> =
     party.members.filter {
         it.connected && it.readyState != SourceResolutionState.left && it.readyState != SourceResolutionState.disconnected
     }.map { it.profileId }.toSet()
+
+/**
+ * The members a host's stall watch may hold the party for: [partyMembersPresent], less anyone who
+ * has gone back to the lobby (2026-10-22). Backing out stops a guest's player, which reads as a
+ * stall, and the lobby kept that hold alive until [WatchPartyStallHoldMaxMs] - "Waiting for debug to
+ * buffer" for thirty seconds over a guest who had simply left the film. Dropping them here drops
+ * their window and any standing hold at once (`retainOnly`); coming back is a fresh start-up.
+ */
+fun partyMembersWatching(party: WatchPartyState): Set<String> =
+    partyMembersPresent(party) - party.members
+        .filter { it.clientLocation == WatchPartyClientLocation.lobby }
+        .map { it.profileId }
+        .toSet()
 
 private val PartyStartingUpStates = setOf(
     SourceResolutionState.joined,

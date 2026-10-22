@@ -162,9 +162,14 @@ object WatchPartySessionCoordinator {
                 }
             }
             is PartySessionIntent.Lobby -> {
-                if (liveParty()?.id != intent.partyId) return
+                val live = liveParty()?.id
+                if (live != intent.partyId) {
+                    promotionLog.i { "lobby location skipped party=${intent.partyId.take(8)} live=${live?.take(8)}" }
+                    return
+                }
                 _state.value = reducePartySession(_state.value, PartySessionEvent.LobbyEntered(intent.partyId))
-                gateway.publishLocation(WatchPartyClientLocation.lobby)
+                val published = gateway.publishLocation(WatchPartyClientLocation.lobby)
+                promotionLog.i { "lobby location party=${intent.partyId.take(8)} ok=${published.isSuccess} error=${published.exceptionOrNull()?.message}" }
             }
             is PartySessionIntent.Readiness -> {
                 // ⚠ An ended party gets no readiness. A report queued by work that was already in
