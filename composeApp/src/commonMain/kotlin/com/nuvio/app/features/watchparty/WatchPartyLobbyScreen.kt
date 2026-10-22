@@ -2121,6 +2121,11 @@ private fun PartyParticipants(
                     status = presentation.members.getValue(member.profileId),
                 )
             }
+            // Friends invited and not yet in (2026-10-22): a dashed tile each, so the room shows who
+            // is coming. Declined invites leave the row - the picker says Declined for the cooldown.
+            inviteRows.filter { it.button in PartyInvitedButtons }.forEach { row ->
+                PartyInvitedTile(row, onCancel = { onCancelInvite(row.key) })
+            }
             if (invitableFriends.isNotEmpty() && party.members.size < WatchPartyMaxParticipants) {
                 PartyInviteTile(onClick = { picking = true })
             }
@@ -2228,6 +2233,61 @@ private fun PartyParticipantTile(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+private val PartyInvitedButtons = setOf(PartyInviteButton.Sending, PartyInviteButton.Sent, PartyInviteButton.Cancelling)
+
+/** A friend with an invite out: the participant tile's shape, a dashed outline, and INVITED. */
+@Composable
+private fun PartyInvitedTile(row: PartyInviteRow, onCancel: () -> Unit) {
+    // Brighter than the Invite tile's solid outline: a dash loses half its ink to the gaps.
+    val outline = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val shape = RoundedCornerShape(NuvioTokens.Radius.xl)
+    Box(
+        Modifier.width(PartyTileWidth)
+            .drawBehind {
+                val stroke = 1.5.dp.toPx()
+                val radius = NuvioTokens.Radius.xl.toPx()
+                drawRoundRect(
+                    color = outline,
+                    topLeft = androidx.compose.ui.geometry.Offset(stroke / 2, stroke / 2),
+                    size = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = stroke,
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx())),
+                    ),
+                )
+            }
+            .clip(shape),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(Modifier.alpha(0.6f)) { PartyAvatar(name = row.name, avatarUrl = row.avatarUrl, colorHex = row.colorHex, size = 46.dp) }
+            Text(
+                row.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+            )
+            PartyStatusPill(PartyReadyTone.Lobby, if (row.button == PartyInviteButton.Sending) "Sending" else "Invited")
+        }
+        // Withdraw it while it waits, as the picker's ✕ does.
+        if (row.button == PartyInviteButton.Sent) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(8.dp).size(24.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    .clickable(onClickLabel = "Cancel invite", onClick = onCancel),
+                contentAlignment = Alignment.Center,
+            ) { Text("✕", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }

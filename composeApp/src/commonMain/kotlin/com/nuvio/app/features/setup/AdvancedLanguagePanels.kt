@@ -3,6 +3,7 @@ package com.nuvio.app.features.setup
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,6 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +35,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -41,26 +46,38 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.language.AudioLanguageOption
+import com.nuvio.app.core.language.LanguagePreferences
 import com.nuvio.app.core.language.OtherLanguageAudio
 import com.nuvio.app.core.language.SubtitleKind
+import com.nuvio.app.core.language.normalizeLanguageCode
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.language.LanguagePreferencesRepository
+import com.nuvio.app.features.player.AvailableLanguageOptions
 import com.nuvio.app.features.player.languageLabelForCode
 import com.nuvio.app.features.settings.ChoiceRow
-import com.nuvio.app.features.settings.LanguageSettingsSection
-import com.nuvio.app.features.settings.LanguageSettingsSections
+import com.nuvio.app.features.settings.LanguageSelectionDialog
+import com.nuvio.app.features.settings.LanguageSelectionOption
 import com.nuvio.app.features.settings.SubtitleScene
 import com.nuvio.app.features.settings.myLanguageName
 import com.nuvio.app.features.settings.otherScene
 import com.nuvio.app.features.settings.ownScene
 import kotlinx.coroutines.delay
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.settings_playback_option_device_language
+import nuvio.composeapp.generated.resources.settings_playback_option_none
 import nuvio.composeapp.generated.resources.zlang_audio
 import nuvio.composeapp.generated.resources.zlang_audio_footer
 import nuvio.composeapp.generated.resources.zlang_audio_mine_body
 import nuvio.composeapp.generated.resources.zlang_audio_original
 import nuvio.composeapp.generated.resources.zlang_audio_original_body
+import nuvio.composeapp.generated.resources.zlang_fallback_help
+import nuvio.composeapp.generated.resources.zlang_fallback_language
+import nuvio.composeapp.generated.resources.zlang_my_language
+import nuvio.composeapp.generated.resources.zlang_my_language_help
 import nuvio.composeapp.generated.resources.zlang_no_subtitle
+import nuvio.composeapp.generated.resources.zlang_same_as_my_language
+import nuvio.composeapp.generated.resources.zlang_same_as_my_language_value
 import nuvio.composeapp.generated.resources.zlang_sub_forced
 import nuvio.composeapp.generated.resources.zlang_sub_forced_body
 import nuvio.composeapp.generated.resources.zlang_sub_full
@@ -69,6 +86,8 @@ import nuvio.composeapp.generated.resources.zlang_sub_off
 import nuvio.composeapp.generated.resources.zlang_sub_off_body
 import nuvio.composeapp.generated.resources.zlang_sub_sdh
 import nuvio.composeapp.generated.resources.zlang_sub_sdh_body
+import nuvio.composeapp.generated.resources.zlang_subtitle_language
+import nuvio.composeapp.generated.resources.zlang_subtitle_language_help
 import nuvio.composeapp.generated.resources.zlang_subtitles
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -250,7 +269,7 @@ internal fun AdvancedLanguageBody(panel: AdvancedSetupPanel, isTablet: Boolean) 
     val preferences by LanguagePreferencesRepository.uiState.collectAsStateWithLifecycle()
     val mine = myLanguageName(preferences)
     when (panel) {
-        AdvancedSetupPanel.Languages -> LanguageSettingsSections(isTablet = isTablet, section = LanguageSettingsSection.Languages, showTitle = false)
+        AdvancedSetupPanel.Languages -> LanguageQuestions(preferences, mine)
         AdvancedSetupPanel.OwnLanguageTitles -> SubtitleQuestion(preferences.ownSubtitles) { kind ->
             LanguagePreferencesRepository.update { it.copy(ownSubtitles = kind) }
         }
@@ -259,6 +278,91 @@ internal fun AdvancedLanguageBody(panel: AdvancedSetupPanel, isTablet: Boolean) 
             SubtitleQuestion(preferences.otherSubtitles) { kind -> LanguagePreferencesRepository.update { it.copy(otherSubtitles = kind) } }
         }
         else -> Unit
+    }
+}
+
+/**
+ * The three language answers as questions, like every other panel (2026-10-22): the settings-list
+ * rows read as a list to scan rather than three things to answer. Same dialogs as Settings.
+ */
+@Composable
+private fun LanguageQuestions(preferences: LanguagePreferences, mine: String) {
+    var dialog by remember { mutableStateOf<LanguageQuestion?>(null) }
+    val device = stringResource(Res.string.settings_playback_option_device_language)
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        AnswerQuestion(
+            title = stringResource(Res.string.zlang_my_language),
+            value = if (normalizeLanguageCode(preferences.myLanguage) == AudioLanguageOption.DEVICE) "$device ($mine)" else mine,
+            help = stringResource(Res.string.zlang_my_language_help),
+            onClick = { dialog = LanguageQuestion.Mine },
+        )
+        AnswerQuestion(
+            title = stringResource(Res.string.zlang_fallback_language),
+            value = preferences.fallbackLanguage?.let { languageLabelForCode(it) } ?: stringResource(Res.string.settings_playback_option_none),
+            help = stringResource(Res.string.zlang_fallback_help, mine),
+            onClick = { dialog = LanguageQuestion.Fallback },
+        )
+        AnswerQuestion(
+            title = stringResource(Res.string.zlang_subtitle_language),
+            value = preferences.subtitleLanguage?.let { languageLabelForCode(it) } ?: stringResource(Res.string.zlang_same_as_my_language_value, mine),
+            help = stringResource(Res.string.zlang_subtitle_language_help),
+            onClick = { dialog = LanguageQuestion.Subtitles },
+        )
+    }
+    val languages = AvailableLanguageOptions.map { LanguageSelectionOption(it.code, stringResource(it.labelRes)) }
+    when (dialog) {
+        LanguageQuestion.Mine -> LanguageSelectionDialog(
+            title = stringResource(Res.string.zlang_my_language),
+            options = listOf(LanguageSelectionOption(AudioLanguageOption.DEVICE, device)) + languages,
+            selectedValue = preferences.myLanguage,
+            onSelect = { value ->
+                LanguagePreferencesRepository.update { it.copy(myLanguage = value ?: AudioLanguageOption.DEVICE) }
+                dialog = null
+            },
+            onDismiss = { dialog = null },
+        )
+        LanguageQuestion.Fallback -> LanguageSelectionDialog(
+            title = stringResource(Res.string.zlang_fallback_language),
+            options = listOf(LanguageSelectionOption(null, stringResource(Res.string.settings_playback_option_none))) + languages,
+            selectedValue = preferences.fallbackLanguage,
+            onSelect = { value ->
+                LanguagePreferencesRepository.update { it.copy(fallbackLanguage = value) }
+                dialog = null
+            },
+            onDismiss = { dialog = null },
+        )
+        LanguageQuestion.Subtitles -> LanguageSelectionDialog(
+            title = stringResource(Res.string.zlang_subtitle_language),
+            options = listOf(LanguageSelectionOption(null, stringResource(Res.string.zlang_same_as_my_language))) + languages,
+            selectedValue = preferences.subtitleLanguage,
+            onSelect = { value ->
+                LanguagePreferencesRepository.update { it.copy(subtitleLanguage = value) }
+                dialog = null
+            },
+            onDismiss = { dialog = null },
+        )
+        null -> Unit
+    }
+}
+
+private enum class LanguageQuestion { Mine, Fallback, Subtitles }
+
+/** A question, its answer as a full-width box that opens the choices, and one line on what it is for. */
+@Composable
+private fun AnswerQuestion(title: String, value: String, help: String, onClick: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(tokens.colors.surfaceCard)
+                .clickable(role = Role.Button, onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(value, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = tokens.colors.textMuted)
+        }
+        Detail(help)
     }
 }
 

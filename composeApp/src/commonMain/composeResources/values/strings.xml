@@ -3509,7 +3509,7 @@
     <string name="advanced_setup_panel_social_subtitle">Friends, activity and watching together.</string>
     <string name="advanced_setup_panel_metadata_subtitle">On by default. No account or key needed.</string>
     <string name="advanced_setup_panel_tracking_subtitle">Sync your watch history with Trakt or Simkl.</string>
-    <string name="advanced_setup_panel_startup_subtitle">What closing the window does, and whether Nuvio Z starts with Windows.</string>
+    <string name="advanced_setup_panel_startup_subtitle">What closing the window does, and how Nuvio Z starts.</string>
     <string name="advanced_setup_startup_summary_tray">Closes to tray</string>
     <string name="advanced_setup_startup_summary_quit">Closes fully</string>
     <string name="advanced_setup_startup_summary_starts">Starts with Windows</string>
@@ -3889,6 +3889,9 @@
     <string name="zlang_fallback_language">Fallback language</string>
     <string name="zlang_fallback_none">None · used when nothing is available in %1$s</string>
     <string name="zlang_subtitle_language">Subtitle language</string>
+    <string name="zlang_my_language_help">Audio and subtitles are picked in this language first.</string>
+    <string name="zlang_fallback_help">Used when a title has nothing in %1$s.</string>
+    <string name="zlang_subtitle_language_help">Only if you want subtitles in a different language from the audio.</string>
     <string name="zlang_same_as_my_language">Same as my language</string>
     <string name="zlang_same_as_my_language_value">Same as my language (%1$s)</string>
     <string name="zlang_titles_in">Titles in %1$s</string>
