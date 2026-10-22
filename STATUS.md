@@ -3,7 +3,7 @@ Last updated: 2026-10-22
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 119 | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
+| Desktop | `claude/social-v2-design` | 120 | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
 | Mobile | `claude/social-v2` | 110 | Same QA pass, cherry-picked; retest on 109 |
 
 ## Social V2 QA pass (2026-10-22)
@@ -33,10 +33,13 @@ desktop<->phone retest pending on the new builds) and asked for these changes, a
 **Round 2 (debug 119 desktop / 110 mobile):** lobby shows outstanding invites as dashed INVITED
 tiles; Language page 1 asks three questions; Startup & tray registers on every desktop (macOS has
 the tray; Start with Windows hidden off Windows - round 1 had dropped the close setting on macOS).
-**Open bug, guarded not proven:** a Watch Together host's HTML opening overlay stayed over playing
-video when the phone joined (debug 118 log: first frame + surface promoted, nothing else). Likely a
-throw in `applyPartyControls`/`render()` skipping the overlay update; both are now isolated and the
-overlay always follows the app, and page errors log as `PlayerPage`. Retest WT; read `PlayerPage`.
+**Fixed in desktop debug 120 (root cause found):** since debug 117 every desktop player sat on its
+opening overlay over playing video with nothing clickable. The 0.1.31-alpha merge left two load-time
+errors in the controls page, so controls.js never sent `controlsReady`: upstream party.js and
+controls.js both declared top-level `partyPanel` (SyntaxError; ours is now `watchPartyPanel`), and
+upstream `applyTheme` calls `setColors` on Z's opening-indicator stub. Found by loading controls.html
+in headless Edge; new tests in `NativePlayerControlsPageTest`. The round-2 overlay guard and
+`PlayerPage` logging stay. Mobile unaffected (no player page).
 "Review new settings" is untestable until the release's What's New event exists.
 
 Evidence: desktop focused packages (social, setup, settings, What's New, tray, watch party)
