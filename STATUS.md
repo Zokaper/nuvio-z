@@ -1,10 +1,37 @@
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 120 | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
 | Mobile | `claude/social-v2` | 110 | Same QA pass, cherry-picked; retest on 109 |
+
+## Watch Together lobby / rejoin / leftover-party fixes (2026-10-22 to 10-23)
+
+From the maintainer's desktop-host + phone-guest runs (phone logcat + server reads).
+**2026-10-22** (desktop `cf5a74edd`, mobile `def329b08`, backend `048547c` deployed): a guest's
+corrective seek waits for its player to be ready (rejoin lands in sync, confirmed by the maintainer);
+the lobby calls `enterLobby` (it never had a caller); the host's stall watch skips lobby guests
+(`partyMembersWatching`); a fresh start leaves any party the server still lists; server removes
+members silent for 2 min and the reaper is scheduled every minute.
+**2026-10-23:** the maintainer retested debug 123: the backed-out phone read **Playing** on the host and
+**Ready** on itself. The phone log showed the lobby report succeeding at 00:06:42.6. The player was
+still in its exit transition, and its `registerPlayback` effect (keyed on `positionMs`) re-registered on
+the next tick. `LobbyEntered` had moved the phase off ActivePlayer, so that tick counted as a new
+attach and published "player" over the lobby report. The server held "player" from then on.
+Fix: `lobbyLocationWaitsForPlayer` — while the party's own player is attached, the lobby's report waits and
+is sent from `Unregister` when that player detaches. The lobby is now a `DisposableEffect`
+(`leaveLobby` on dispose, so a cancelled back gesture sends nothing). A lobby over unrelated
+playback still reports at once.
+**Language, same run:** the joining phone played a Russian dub of The Prestige (Russian default track,
+English "Original" 9th). Cause: **local builds have no `TMDB_API_KEY`** (CI secrets only), so every TMDB
+call 401'd and the title's origin was unknown. The old rule was "unknown origin -> file default track".
+The maintainer chose **unknown origin -> my language, then the fallback** (`resolveTitleLanguagePlan`); the
+group is still decided by what plays. Z-FEATURES C25 and `PLAN-language-and-whats-new.md` updated.
+Evidence: mobile host tests (watchparty, core.language, player) 843/843, APK installed on the phone;
+desktop same packages 784/784, local MSI **125** (124 superseded, never installed). Mobile `8331de024`,
+`ee0203c17`; desktop `077542740`, `f93de7775`, `1d716972c`. **Not yet retested on devices:** lobby
+status, the language fallback, kill-and-reopen leaves the party, dead host hands over.
 
 ## Social V2 QA pass (2026-10-22)
 
