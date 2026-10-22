@@ -57,7 +57,7 @@ private sealed interface PartySessionIntent {
     data object Restore : PartySessionIntent
     data class Installed(val snapshot: WatchPartyState) : PartySessionIntent
     data object Leave : PartySessionIntent
-    data object AppClosed : PartySessionIntent
+    data class AppClosed(val onDone: () -> Unit) : PartySessionIntent
     data object AppOpened : PartySessionIntent
     data object End : PartySessionIntent
     data class PartyEnded(val viewerWasHost: Boolean) : PartySessionIntent
@@ -151,7 +151,7 @@ object WatchPartySessionCoordinator {
      * a swiped app's process cached, so nothing else ended it: the process went on heartbeating the
      * party as Away from the background while the laptop waited on it.
      */
-    fun appClosed() = enqueue(PartySessionIntent.AppClosed)
+    fun appClosed(onDone: () -> Unit = {}) = enqueue(PartySessionIntent.AppClosed(onDone))
 
     /**
      * The app's screen opened afresh - a launch, not a rotation or a restore. The process may have
@@ -317,7 +317,10 @@ object WatchPartySessionCoordinator {
             PartySessionIntent.Leave -> gateway.leaveParty().onSuccess {
                 _state.value = reducePartySession(_state.value, PartySessionEvent.Left())
             }
-            PartySessionIntent.AppClosed -> leaveHeldParty("app closed")
+            is PartySessionIntent.AppClosed -> {
+                leaveHeldParty("app closed")
+                intent.onDone()
+            }
             PartySessionIntent.AppOpened -> {
                 leaveHeldParty("app reopened")
                 gateway.leaveLeftoverParty()

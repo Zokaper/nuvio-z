@@ -165,6 +165,7 @@ open class MainActivity : AppCompatActivity() {
         EpisodeReleaseNotificationPlatform.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.bindActivity(this)
         if (savedInstanceState == null) com.nuvio.app.features.watchparty.WatchPartySessionCoordinator.appOpened() // Z
+        com.nuvio.app.features.watchparty.WatchPartyTaskRemovalService.install(applicationContext) // Z
         handleIncomingAppIntent(intent)
 
         setContent {

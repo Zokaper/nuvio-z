@@ -189,6 +189,12 @@
             android:foregroundServiceType="mediaPlayback"
             android:stopWithTask="false" />
 
+        <!-- Z: leaves the Watch Together party when the app is swiped away; WatchPartyTaskRemovalService.kt. -->
+        <service
+            android:name="com.nuvio.app.features.watchparty.WatchPartyTaskRemovalService"
+            android:exported="false"
+            android:stopWithTask="false" />
+
         <!-- Social system notifications (FCM data messages); SocialPush.android.kt. -->
         <service
             android:name="com.nuvio.app.features.social.SocialPushService"
