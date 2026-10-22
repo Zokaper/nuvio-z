@@ -30,8 +30,24 @@ The maintainer chose **unknown origin -> my language, then the fallback** (`reso
 group is still decided by what plays. Z-FEATURES C25 and `PLAN-language-and-whats-new.md` updated.
 Evidence: mobile host tests (watchparty, core.language, player) 843/843, APK installed on the phone;
 desktop same packages 784/784, local MSI **125** (124 superseded, never installed). Mobile `8331de024`,
-`ee0203c17`; desktop `077542740`, `f93de7775`, `1d716972c`. **Not yet retested on devices:** lobby
-status, the language fallback, kill-and-reopen leaves the party, dead host hands over.
+`ee0203c17`; desktop `077542740`, `f93de7775`, `1d716972c`. Maintainer retest on 125: lobby status,
+language fallback and reopen-with-no-party **pass**.
+**Then (same day):**
+- **Swipe-away left the phone Away on the host.** Samsung keeps a swiped app's process cached, so it kept
+  heartbeating the party, and the reopen ran in the same process (the once-per-process check never fired).
+  `MainActivity` now sends `appClosed` on a finishing, non-rotation destroy: leave, and a host hands over.
+  A fresh `onCreate` sends `appOpened`: leave anything held, and re-run the server leftover check.
+  Mobile `e570f68f6`, desktop `f0a4af8b9` (shared part only; desktop has no Android hooks).
+- **Pop-up click raises the desktop window** over another app: always-on-top blip + `SetForegroundWindow`
+  (JNA, `DesktopWindowForeground`). Desktop `7c1c3dd67`.
+- **Friends starting to watch notify by default** (maintainer's call). App `SocialFriendPrefs` default on
+  (mobile `8f6b0d354`, desktop `7a52d34d4`). Backend `202610230001_friend_watching_default_on` is
+  **committed but NOT deployed, awaiting the maintainer's OK**. The local pgTAP suite passes 516/516.
+- Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
+  has no forced track.
+Evidence: mobile social + watch party host tests 607/607 (APK installed); desktop watch party + tray +
+language 485/485 and social 197/197; local MSI **126**. **Not yet retested:** swipe-away, dead host,
+pop-up raise, notify default (needs the deploy).
 
 ## Social V2 QA pass (2026-10-22)
 
