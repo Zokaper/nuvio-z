@@ -164,6 +164,7 @@ open class MainActivity : AppCompatActivity() {
         PlatformLocalAccountDataCleaner.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.bindActivity(this)
+        if (savedInstanceState == null) com.nuvio.app.features.watchparty.WatchPartySessionCoordinator.appOpened() // Z
         handleIncomingAppIntent(intent)
 
         setContent {
@@ -197,6 +198,7 @@ open class MainActivity : AppCompatActivity() {
             runCatching { unregisterReceiver(receiver) }
             pipRemoteActionReceiver = null
         }
+        if (isFinishing && !isChangingConfigurations) com.nuvio.app.features.watchparty.WatchPartySessionCoordinator.appClosed() // Z
         super.onDestroy()
     }
 

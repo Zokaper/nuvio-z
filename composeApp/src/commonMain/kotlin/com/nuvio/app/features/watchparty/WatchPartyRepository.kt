@@ -363,6 +363,19 @@ object WatchPartyRepository {
      * it occupied, so it was never reaped, and the Watch Together button reopened it as if new.
      * A party opened in *this* run before the answer arrives is left alone.
      */
+    /**
+     * The same check for a reopen in a process that outlived its last screen (2026-10-23). The
+     * once-per-process guard is reset: every profile is due again, and the active one is checked now
+     * because no profile switch is coming to do it. A first launch has no profile yet and is left to
+     * the switch.
+     */
+    suspend fun leavePartyLeftOverOnReopen() {
+        coldStartCleanedProfiles.clear()
+        val profileId = _uiState.value.activeProfileId ?: return
+        coldStartCleanedProfiles.add(profileId)
+        leavePartyLeftOverFromAnEarlierRun(profileId)
+    }
+
     private suspend fun leavePartyLeftOverFromAnEarlierRun(profileId: String) {
         if (!ZSessionBridge.ensureSession(profileId)) return
         val leftover = runCatching {

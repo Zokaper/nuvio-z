@@ -35,6 +35,7 @@ private object RepositoryDurablePartyGateway : DurablePartyGateway {
     override suspend fun promotePlaybackPresence(sessionId: String) = WatchPartyRepository.promotePresence(sessionId)
     override suspend fun leaveParty() = WatchPartyRepository.leave()
     override suspend fun endParty() = WatchPartyRepository.end()
+    override suspend fun leaveLeftoverParty() = WatchPartyRepository.leavePartyLeftOverOnReopen()
     override fun updatePlaybackTelemetry(telemetry: PartyPlaybackTelemetry?) = WatchPartyRepository.updatePlaybackTelemetry(telemetry)
 }
 
@@ -56,6 +57,8 @@ private sealed interface PartySessionIntent {
     data object Restore : PartySessionIntent
     data class Installed(val snapshot: WatchPartyState) : PartySessionIntent
     data object Leave : PartySessionIntent
+    data object AppClosed : PartySessionIntent
+    data object AppOpened : PartySessionIntent
     data object End : PartySessionIntent
     data class PartyEnded(val viewerWasHost: Boolean) : PartySessionIntent
     data object ContinueAfterEnd : PartySessionIntent
@@ -140,6 +143,22 @@ object WatchPartySessionCoordinator {
         enqueue(PartySessionIntent.Installed(snapshot))
     }
     fun leave() = enqueue(PartySessionIntent.Leave)
+
+    /**
+     * The user closed the app's window - on Android, swiped it out of Recents (2026-10-23).
+     *
+     * A party belongs to the app run that joined it, and closing the app is leaving it. Samsung keeps
+     * a swiped app's process cached, so nothing else ended it: the process went on heartbeating the
+     * party as Away from the background while the laptop waited on it.
+     */
+    fun appClosed() = enqueue(PartySessionIntent.AppClosed)
+
+    /**
+     * The app's screen opened afresh - a launch, not a rotation or a restore. The process may have
+     * outlived its last screen (see [appClosed]), so anything still held, or still listed by the
+     * server, is from an earlier run and is left; the once-per-process check missed exactly this.
+     */
+    fun appOpened() = enqueue(PartySessionIntent.AppOpened)
     fun end() = enqueue(PartySessionIntent.End)
     fun partyEnded(viewerWasHost: Boolean) = enqueue(PartySessionIntent.PartyEnded(viewerWasHost))
     fun continueAfterPartyEnd() = enqueue(PartySessionIntent.ContinueAfterEnd)
@@ -298,6 +317,11 @@ object WatchPartySessionCoordinator {
             PartySessionIntent.Leave -> gateway.leaveParty().onSuccess {
                 _state.value = reducePartySession(_state.value, PartySessionEvent.Left())
             }
+            PartySessionIntent.AppClosed -> leaveHeldParty("app closed")
+            PartySessionIntent.AppOpened -> {
+                leaveHeldParty("app reopened")
+                gateway.leaveLeftoverParty()
+            }
             PartySessionIntent.End -> gateway.endParty().onSuccess {
                 _state.value = reducePartySession(_state.value, PartySessionEvent.Ended(viewerWasHost = true))
             }
@@ -305,6 +329,13 @@ object WatchPartySessionCoordinator {
             PartySessionIntent.ContinueAfterEnd -> _state.value = PartySessionState(playback = _state.value.playback)
             is PartySessionIntent.Snapshot -> observeSnapshot(intent.value)
         }
+    }
+
+    private suspend fun leaveHeldParty(reason: String) {
+        val party = liveParty() ?: return
+        val left = gateway.leaveParty()
+        promotionLog.i { "$reason - left party=${party.id.shortId()} ok=${left.isSuccess} error=${left.exceptionOrNull()?.message}" }
+        left.onSuccess { _state.value = reducePartySession(_state.value, PartySessionEvent.Left()) }
     }
 
     private suspend fun publishLobbyLocation(partyId: String) {
