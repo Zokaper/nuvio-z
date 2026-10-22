@@ -41,8 +41,22 @@ language fallback and reopen-with-no-party **pass**.
 - **Pop-up click raises the desktop window** over another app: always-on-top blip + `SetForegroundWindow`
   (JNA, `DesktopWindowForeground`). Desktop `7c1c3dd67`.
 - **Friends starting to watch notify by default** (maintainer's call). App `SocialFriendPrefs` default on
-  (mobile `8f6b0d354`, desktop `7a52d34d4`). Backend `202610230001_friend_watching_default_on` is
-  **committed but NOT deployed, awaiting the maintainer's OK**. The local pgTAP suite passes 516/516.
+  (mobile `8f6b0d354`, desktop `7a52d34d4`). Backend `202610230001_friend_watching_default_on`
+  (`8d125fd`) **deployed 2026-10-23 on the maintainer's OK**; verified live (column default true,
+  trigger walks friendships). The local pgTAP suite passes 516/516.
+- **Retest on 126:** swipe-away (from the player), reopen, and pop-up raise (outside the player) pass;
+  dead host hands over. Three follow-ups, built:
+  - **Lobby swipe-away was left only at the next launch.** With no service, Samsung killed the process
+    ("remove task") before any app code ran. `WatchPartyTaskRemovalService` now runs while a live party
+    is held: not foreground, and `onTaskRemoved` -> `appClosed(onDone)`. Mobile `ee40f5aab`.
+  - **A guest showed "Reconnecting…" while the host was dead.** New `HostOffline` status row
+    ("<host> lost connection · waiting for them"). Mobile `3d0cf840d`, desktop `967275320`.
+  - **A pop-up click during playback didn't raise the window.** It now raises it without navigating.
+    Desktop `b10cac316`.
+  - **Open question:** the server hands over a silent host after 60 s, but shows it Offline at 20 s.
+    The proposal is to hand over at 20 s (`party_transfer_stale_host`). Not done; needs a deploy.
+  Evidence: mobile watch party + player 810/810 (APK built, **not installed**: phone off USB);
+  desktop watch party + tray + social + player 969/969, local MSI **127**.
 - Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
   has no forced track.
 Evidence: mobile social + watch party host tests 607/607 (APK installed); desktop watch party + tray +
