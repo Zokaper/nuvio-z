@@ -7,6 +7,7 @@ import kotlin.test.assertTrue
 class SocialPopupLedgerTest {
     private val friend = SocialProfileSummary("f", "friend", "Friend")
     private val quiet = SocialProfileSummary("q", "quiet", "Quiet")
+    private val newFriend = SocialProfileSummary("n", "new", "New")
     private val now = parseSocialTimestampMs("2026-10-17T13:10:00Z")!!
 
     private fun request(id: String, at: String = "2026-10-17T13:05:00Z") = SocialNotification(
@@ -36,7 +37,7 @@ class SocialPopupLedgerTest {
         activeProfileId = profile,
         notifications = notifications,
         inbox = inbox,
-        friendPrefs = listOf(SocialFriendPrefs("f", notifyWhenWatching = true)),
+        friendPrefs = listOf(SocialFriendPrefs("f", hideActivity = true), SocialFriendPrefs("q", notifyWhenWatching = false)),
         isLoading = loading,
     )
 
@@ -61,14 +62,15 @@ class SocialPopupLedgerTest {
         assertTrue(store.ledger().take(state(listOf(request("a"))), now).isEmpty())
     }
 
-    @Test fun onlyFriendsWithNotifyOnPopWhenTheyStartWatching() {
+    /** On by default since 2026-10-23: only a friend turned off stays quiet. */
+    @Test fun friendsPopWhenTheyStartWatchingUnlessTurnedOff() {
         val store = Store()
         val ledger = store.ledger()
         ledger.take(state(), now)
-        val popped = ledger.take(state(inbox = listOf(watching("w1"), watching("w2", actor = quiet))), now)
-        assertEquals(listOf("inbox:w1"), popped.map { it.key })
-        assertEquals(SocialPopupKind.FriendWatching, popped.single().kind)
-        assertEquals("S1 E2", popped.single().meta)
+        val popped = ledger.take(state(inbox = listOf(watching("w1"), watching("w2", actor = quiet), watching("w3", actor = newFriend))), now)
+        assertEquals(listOf("inbox:w1", "inbox:w3"), popped.map { it.key })
+        assertEquals(SocialPopupKind.FriendWatching, popped.first().kind)
+        assertEquals("S1 E2", popped.first().meta)
     }
 
     @Test fun staleOrReplayedStateNeverPops() {

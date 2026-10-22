@@ -138,7 +138,8 @@ data class SentFriendRequest(
 data class SocialFriendPrefs(
     @SerialName("friend_profile_id") val friendProfileId: String,
     @SerialName("hide_activity") val hideActivity: Boolean = false,
-    @SerialName("notify_when_watching") val notifyWhenWatching: Boolean = false,
+    // On unless turned off (maintainer, 2026-10-23); the server sends only the rows that differ.
+    @SerialName("notify_when_watching") val notifyWhenWatching: Boolean = true,
 )
 
 /**

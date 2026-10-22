@@ -3828,7 +3828,7 @@
     <string name="social_alert_friend_requests">Friend requests</string>
     <string name="social_alert_parties">Party invites and join requests</string>
     <string name="social_alert_watching">Friends starting to watch</string>
-    <string name="social_alert_watching_desc">Only friends you turned on, from their profile</string>
+    <string name="social_alert_watching_desc">Every friend, unless you turned them off on their profile</string>
     <string name="social_alert_recs">Recommendations</string>
     <string name="social_alert_recs_desc">Titles friends recommend, and when they start one you recommended</string>
     <string name="social_popups">Pop-ups</string>
