@@ -3486,6 +3486,8 @@
     <string name="advanced_setup_panel_subtitle_look_subtitle">How subtitles look in Nuvio Z's player.</string>
     <string name="advanced_setup_panel_subtitle_placement">Weight and position</string>
     <string name="advanced_setup_panel_subtitle_placement_subtitle">Bolder text, and how high on the picture it sits.</string>
+    <string name="advanced_setup_panel_own_titles_subtitle">Films and shows made in your language.</string>
+    <string name="advanced_setup_panel_other_titles_subtitle">Films and shows made in any other language.</string>
     <string name="advanced_setup_panel_download_device">This device</string>
     <string name="advanced_setup_panel_download_device_subtitle">Download rules that belong to this device only.</string>
     <string name="advanced_setup_panel_navigation_android">The bar at the bottom of the screen.</string>
@@ -3771,6 +3773,7 @@
     <string name="social_watching_empty">Nobody's watching right now. When a friend presses play, you'll see it here.</string>
     <string name="social_see_all">See all</string>
     <string name="social_recommended_to_you">Recommended to you</string>
+    <string name="social_recommended_empty">Nothing waiting. When a friend recommends something, it shows up here.</string>
     <string name="social_rec_remove_body">It leaves Recommended to you. %1$s won't be told.</string>
     <string name="social_keep">Keep</string>
     <string name="social_recommended_by">Recommended to you by %1$s</string>
@@ -3846,6 +3849,10 @@
     <plurals name="social_party_count">
         <item quantity="one">%1$d party</item>
         <item quantity="other">%1$d parties</item>
+    </plurals>
+    <plurals name="social_recommended_count">
+        <item quantity="one">%1$d recommended</item>
+        <item quantity="other">%1$d recommended</item>
     </plurals>
     <plurals name="social_rec_who">
         <item quantity="one">%1$s recommends</item>

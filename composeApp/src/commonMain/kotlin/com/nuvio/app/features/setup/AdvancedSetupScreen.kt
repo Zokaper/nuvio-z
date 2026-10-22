@@ -141,7 +141,6 @@ import com.nuvio.app.features.downloads.AudioPreference
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.settings.DesktopNavigationLayout
-import com.nuvio.app.features.settings.LanguageSettingsSections
 import com.nuvio.app.features.settings.LanguageSettingsSection
 import com.nuvio.app.features.settings.LanguageSelectionDialog
 import com.nuvio.app.features.settings.LanguageSelectionOption
@@ -1174,7 +1173,7 @@ internal fun AdvancedSetupPanelFrame(
         }
     }
 
-    if (wideDesktop && panel.category != AdvancedSetupCategory.Language) {
+    if (wideDesktop) {
         SetupDesktopSplitFrame(
             topInset = insets.calculateTopPadding(),
             bottomInset = insets.calculateBottomPadding(),
@@ -1201,7 +1200,7 @@ internal fun AdvancedSetupPanelFrame(
                 .background(tokens.colors.background)
                 .padding(top = insets.calculateTopPadding()),
         ) {
-            if (panel.category != AdvancedSetupCategory.Language) preview(false)
+            preview(false)
         }
         Box(
             modifier = Modifier
@@ -1327,12 +1326,13 @@ private val AdvancedSetupPanel.previewKey: String
         AdvancedSetupPanel.PosterShape, AdvancedSetupPanel.PosterEffects -> "posters"
         AdvancedSetupPanel.HomeHero, AdvancedSetupPanel.HomeContinueWatching -> "home"
         AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> "social"
+        AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles -> "language-moments"
         else -> name
     }
 
 /** How tall a panel's preview band is on a phone (capped against the window by the caller). */
 private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this) {
-    AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles -> 0.dp
+    AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles -> 250.dp
     AdvancedSetupPanel.PlaybackModeChoice,
     AdvancedSetupPanel.PlaybackSourcePreferences,
     AdvancedSetupPanel.PlaybackSourceFormat,
@@ -1383,7 +1383,8 @@ internal fun AdvancedPanelPreview(
         AdvancedSpecimenBand(panel = panel, specimen = specimen, step = step, values = values, desktop = desktop, scale = scale)
     }
     when (panel) {
-        AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles -> Unit
+        AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles ->
+            AdvancedLanguagePreview(panel = panel, desktop = desktop)
         AdvancedSetupPanel.PlaybackModeChoice,
         AdvancedSetupPanel.PlaybackSourcePreferences,
         AdvancedSetupPanel.PlaybackSourceFormat,
@@ -1587,7 +1588,12 @@ internal fun AdvancedPanelBody(
         else -> null
     }
     if (languageSection != null) {
-        LanguageSettingsSections(isTablet = facts.isDesktop, section = languageSection)
+        val languagePanel = when (languageSection) {
+            LanguageSettingsSection.Languages -> AdvancedSetupPanel.Languages
+            LanguageSettingsSection.OwnTitles -> AdvancedSetupPanel.OwnLanguageTitles
+            LanguageSettingsSection.OtherTitles -> AdvancedSetupPanel.OtherLanguageTitles
+        }
+        AdvancedLanguageBody(panel = languagePanel, isTablet = facts.isDesktop)
         return
     }
     when (panel) {
@@ -1698,7 +1704,7 @@ private fun AdvancedControl(
         AdvancedSetupControl.OwnTitleSubtitles,
         AdvancedSetupControl.OtherTitleAudio,
         AdvancedSetupControl.OtherTitleSubtitles,
-        -> Unit // Drawn by the shared LanguageSettingsSections above.
+        -> Unit // Drawn by AdvancedLanguageBody above.
         AdvancedSetupControl.PlaybackModeCards,
         AdvancedSetupControl.QualityLimit,
         AdvancedSetupControl.LanguageMatching,
@@ -2450,7 +2456,9 @@ internal val AdvancedSetupPanel.titleRes: StringResource
     }
 
 internal fun AdvancedSetupPanel.subtitleRes(facts: AdvancedSetupFacts): StringResource = when (this) {
-    AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles -> Res.string.setup_language_subtitle
+    AdvancedSetupPanel.Languages -> Res.string.setup_language_subtitle
+    AdvancedSetupPanel.OwnLanguageTitles -> Res.string.advanced_setup_panel_own_titles_subtitle
+    AdvancedSetupPanel.OtherLanguageTitles -> Res.string.advanced_setup_panel_other_titles_subtitle
     AdvancedSetupPanel.PlaybackModeChoice -> Res.string.playback_mode_selector_subtitle
     AdvancedSetupPanel.PlaybackSourcePreferences ->
         if (playbackSetupVariant(facts.playbackModeName) == PlaybackSetupVariant.AutomaticBand) {

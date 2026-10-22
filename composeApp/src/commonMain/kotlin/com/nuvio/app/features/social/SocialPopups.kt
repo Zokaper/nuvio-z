@@ -128,7 +128,8 @@ internal fun SocialInboxEvent.toRecommendationPopup(): SocialPopup {
             poster = payload.poster,
             landscape = listOf(payload.background),
         ),
-        target = SocialNavigationTarget.Inbox,
+        // A recommendation waits on its own page; "started watching your pick" is ordinary Inbox history.
+        target = if (started) SocialNavigationTarget.Inbox else SocialNavigationTarget.Recommended,
     )
 }
 

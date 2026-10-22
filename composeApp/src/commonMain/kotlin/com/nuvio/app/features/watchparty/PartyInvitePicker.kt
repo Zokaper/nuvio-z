@@ -8,18 +8,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -42,7 +34,7 @@ import com.nuvio.app.features.player.nextPartyInviteCooldownEndMs
 import com.nuvio.app.features.social.SentPartyInvite
 import com.nuvio.app.features.social.SocialAvatar
 import com.nuvio.app.features.social.SocialPillButton
-import com.nuvio.app.features.social.SocialSheet
+import com.nuvio.app.features.social.SocialPickerFrame
 import com.nuvio.app.features.social.WatchingNowItem
 import kotlinx.coroutines.delay
 import nuvio.composeapp.generated.resources.Res
@@ -134,8 +126,10 @@ fun PartyInvitePicker(
             else -> chosen
         }
     }
-    val content: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    SocialPickerFrame(
+        wide = wide,
+        onDismiss = onDismiss,
+        header = {
             Text(stringResource(Res.string.social_party_invite_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             if (rows.size > 8) {
                 OutlinedTextField(
@@ -147,22 +141,19 @@ fun PartyInvitePicker(
                     shape = RoundedCornerShape(12.dp),
                 )
             }
-            // Its own scroll, so the Invite button stays in reach however many friends there are: in the dialog the
-            // list takes what the window leaves (a landscape phone is 411dp tall), in the sheet a fixed cap.
-            Column(
-                Modifier.fillMaxWidth()
-                    .then(if (wide) Modifier.weight(1f, fill = false) else Modifier.heightIn(max = 440.dp))
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                val live = shown.filter { it.watching != null }
-                val rest = shown.filter { it.watching == null }
-                if (live.isNotEmpty()) {
-                    PartyInviteSection(stringResource(Res.string.social_watching_now_label))
-                    live.forEach { row -> PartyInvitePickRow(row, row.key in chosen, canPick = row.key in chosen || chosen.size < slots, onToggle = { toggle(row) }, onCancel = { onCancel(row.key) }) }
-                    if (rest.isNotEmpty()) PartyInviteSection(stringResource(Res.string.social_party_invite_friends))
-                }
-                rest.forEach { row -> PartyInvitePickRow(row, row.key in chosen, canPick = row.key in chosen || chosen.size < slots, onToggle = { toggle(row) }, onCancel = { onCancel(row.key) }) }
+        },
+        // The frame scrolls this alone and caps it, so the Invite button stays in reach however many friends there are.
+        list = {
+            val live = shown.filter { it.watching != null }
+            val rest = shown.filter { it.watching == null }
+            if (live.isNotEmpty()) {
+                PartyInviteSection(stringResource(Res.string.social_watching_now_label))
+                live.forEach { row -> PartyInvitePickRow(row, row.key in chosen, canPick = row.key in chosen || chosen.size < slots, onToggle = { toggle(row) }, onCancel = { onCancel(row.key) }) }
+                if (rest.isNotEmpty()) PartyInviteSection(stringResource(Res.string.social_party_invite_friends))
             }
+            rest.forEach { row -> PartyInvitePickRow(row, row.key in chosen, canPick = row.key in chosen || chosen.size < slots, onToggle = { toggle(row) }, onCancel = { onCancel(row.key) }) }
+        },
+        footer = {
             SocialPillButton(
                 if (chosen.isEmpty()) stringResource(Res.string.social_party_invite_pick)
                 else pluralStringResource(Res.plurals.social_party_invite_send, chosen.size, chosen.size),
@@ -175,24 +166,8 @@ fun PartyInvitePicker(
                 compact = false,
                 enabled = chosen.isNotEmpty(),
             )
-        }
-    }
-    if (wide) {
-        // Not `SocialSheet`: its dialog scrolls as a whole, which put the button below a landscape phone's fold.
-        Dialog(onDismissRequest = onDismiss) {
-            Surface(
-                modifier = Modifier.widthIn(max = 480.dp),
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surface,
-            ) {
-                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                    Box(Modifier.padding(24.dp)) { content() }
-                }
-            }
-        }
-    } else {
-        SocialSheet(wide = false, onDismiss = onDismiss) { content() }
-    }
+        },
+    )
 }
 
 @Composable

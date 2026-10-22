@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -208,6 +210,7 @@ internal data class SocialFeedback(val message: String, val tone: SocialFeedback
 /** What sits over the tab: the inbox page, a friend's profile, or the join sheet for one session. */
 internal sealed interface SocialOverlay {
     data object Inbox : SocialOverlay
+    data object Recommended : SocialOverlay
     data object Settings : SocialOverlay
     data class Profile(val profileId: String) : SocialOverlay
     data class Join(val sessionKey: String) : SocialOverlay
@@ -511,6 +514,7 @@ internal fun SocialFeed(
                         tab = SocialTab.Friends
                     }
                     SocialNavigationTarget.Inbox -> overlay = SocialOverlay.Inbox
+                    SocialNavigationTarget.Recommended -> overlay = SocialOverlay.Recommended
                     is SocialNavigationTarget.WatchingSession -> overlay = SocialOverlay.Join(navigation.sessionKey)
                 }
                 actions.onNavigationConsumed(navigation)
@@ -539,7 +543,9 @@ internal fun SocialFeed(
                 SocialHeader(
                     me = state.me,
                     friendCount = state.friends.size,
-                    unread = state.unreadCount,
+                    unread = state.inboxUnreadCount,
+                    recommended = remember(state.inbox) { recommendedToYou(state.inbox).size },
+                    recommendedNew = state.unreadRecommendations > 0,
                     topInset = topInset,
                     underTopChrome = topChromePadding != null,
                     horizontal = horizontal,
@@ -548,6 +554,7 @@ internal fun SocialFeed(
                     showInbox = ready,
                     onInvite = { inviteOpen = true },
                     onInbox = { overlay = SocialOverlay.Inbox },
+                    onRecommended = { overlay = SocialOverlay.Recommended },
                     onSettings = { overlay = SocialOverlay.Settings },
                 )
                 when {
@@ -660,6 +667,14 @@ internal fun SocialFeed(
                     onMarkInboxRead = actions.onMarkInboxRead,
                     onOpenContent = actions.onOpenContent,
                 )
+                SocialOverlay.Recommended -> SocialRecommendedPage(
+                    state = state,
+                    wide = wide,
+                    topInset = topInset,
+                    onBack = { overlay = null },
+                    onMarkInboxRead = actions.onMarkInboxRead,
+                    onOpenContent = actions.onOpenContent,
+                )
                 is SocialOverlay.Profile -> {
                     val friend = state.friends.firstOrNull { it.profileId == current.profileId }
                     if (friend == null) {
@@ -748,6 +763,8 @@ private fun SocialHeader(
     me: SocialProfileSummary?,
     friendCount: Int,
     unread: Int,
+    recommended: Int,
+    recommendedNew: Boolean,
     topInset: Dp,
     underTopChrome: Boolean,
     horizontal: Dp,
@@ -756,6 +773,7 @@ private fun SocialHeader(
     showInbox: Boolean,
     onInvite: () -> Unit,
     onInbox: () -> Unit,
+    onRecommended: () -> Unit,
     onSettings: () -> Unit,
 ) {
     Row(
@@ -796,6 +814,7 @@ private fun SocialHeader(
             )
         }
         if (showInvite) SocialPillButton(stringResource(Res.string.social_invite_code), onInvite)
+        if (showInbox) SocialRecommendedButton(recommended, recommendedNew, wide, onRecommended)
         if (showInbox) SocialInboxButton(unread, onInbox)
         // Social settings live here, not only in the Settings tab (2026-10-16). Shown whenever the
         // tab itself is: the handle step and the off notice both still have privacy to set.
@@ -841,7 +860,7 @@ private fun SocialSettingsOverlay(wide: Boolean, topInset: Dp, onDismiss: () -> 
  * [content] gets the horizontal padding and the bottom padding it should use.
  */
 @Composable
-private fun SocialPageShell(
+internal fun SocialPageShell(
     title: String,
     wide: Boolean,
     topInset: Dp,
@@ -1216,7 +1235,7 @@ private fun SocialInboxPage(
 ) {
     // Derived notifications and stored events, one timeline. A kind this build does not know is skipped.
     // A finished party notice leaves after a day: see [SocialFinishedNoticeRetentionMs].
-    // A recommendation is on the shelf at the top (2026-10-19), never also a card under it.
+    // A recommendation lives on its own page (2026-10-22), never also a card here.
     val entries = state.notifications.filterNot { it.isRetired(nowMs) }.map { SocialInboxEntry.Notice(it) } +
         state.inbox.filter { it.kind in SocialInboxEvent.Known && it.kind != SocialInboxEvent.Recommendation }
             .map { SocialInboxEntry.Event(it) }
@@ -1224,15 +1243,13 @@ private fun SocialInboxPage(
     val readAtOpen = remember { timeline.filterNot { it.unread }.map { it.key }.toSet() }
     // Keyed on what is unread, so a message that arrives while the page is open is marked read too.
     val unreadNotices = state.notifications.filter { it.readAt == null }.map { it.id }.toSet()
-    val unreadEvents = state.inbox.filter { it.readAt == null }.map { it.id }.toSet()
+    // Recommendations are seen on their own page, so opening the Inbox leaves them unread.
+    val unreadEvents = state.inbox.filter { it.readAt == null && it.kind != SocialInboxEvent.Recommendation }.map { it.id }.toSet()
     LaunchedEffect(unreadNotices, unreadEvents) {
         if (unreadNotices.isNotEmpty()) onMarkRead(unreadNotices)
         if (unreadEvents.isNotEmpty()) onMarkInboxRead(unreadEvents)
     }
     val (fresh, earlier) = splitInboxUnreadRead(timeline, readAtOpen) { it.key }
-    // "Recommended to you" leads the Inbox (picked 2026-10-19 over the feed shelf, the Friends rail and a
-    // "For you" pill): it is what friends sent you, kept until you watch or remove it.
-    val recommended = remember(state.inbox) { recommendedToYou(state.inbox) }
     // A right-hand panel over the dashboard on wide layouts (2026-10-16), a full page on phones.
     SocialPageShell(title = stringResource(Res.string.social_inbox), wide = wide, topInset = topInset, onDismiss = onBack) { horizontal, bottom ->
         LazyColumn(
@@ -1240,9 +1257,6 @@ private fun SocialInboxPage(
             contentPadding = PaddingValues(start = horizontal, end = horizontal, bottom = bottom),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (recommended.isNotEmpty()) item(key = "recommended") {
-                SocialRecommendedShelf(titles = recommended, horizontalPadding = 0.dp, wide = false, onOpenContent = onOpenContent, modifier = Modifier.padding(bottom = 8.dp))
-            }
             val legacy = state.capabilities.partyContractVersion < 2
             if (legacy && (state.requests.isNotEmpty() || state.partyInvites.isNotEmpty())) {
                 item(key = "legacy-label") { SocialSectionLabel(stringResource(Res.string.social_unread), state.requests.size + state.partyInvites.size) }
@@ -1273,7 +1287,7 @@ private fun SocialInboxPage(
                     }
                 }
             }
-            if (!legacy && timeline.isEmpty() && recommended.isEmpty()) {
+            if (!legacy && timeline.isEmpty()) {
                 item(key = "empty") {
                     Text(
                         stringResource(Res.string.social_inbox_empty),
@@ -1559,6 +1573,59 @@ internal fun SocialSheet(wide: Boolean, onDismiss: () -> Unit, edgeToEdge: Boole
         }
     }
 }
+
+/**
+ * A friend picker's frame (Recommend, Watch Together invites; 2026-10-22). [header] and [footer] stay
+ * put and only [list] scrolls, capped at [SocialPickerListMax] - about seven friends - so a long list
+ * never pushes the action button away. The dialog also keeps [SocialPickerWindowMargin] clear of the
+ * window's edges, and the list gives up its height first when the window is short. Not [SocialSheet]
+ * on a desktop window: that dialog scrolls as a whole, which is what put Send below the window.
+ */
+@Composable
+internal fun SocialPickerFrame(
+    wide: Boolean,
+    onDismiss: () -> Unit,
+    header: @Composable ColumnScope.() -> Unit,
+    list: @Composable ColumnScope.() -> Unit,
+    footer: @Composable ColumnScope.() -> Unit,
+) {
+    val body: @Composable ColumnScope.() -> Unit = {
+        header()
+        Column(
+            Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = SocialPickerListMax)
+                .verticalScroll(rememberScrollState()),
+        ) { list() }
+        footer()
+    }
+    if (wide) {
+        Dialog(onDismissRequest = onDismiss) {
+            BoxWithConstraints(contentAlignment = Alignment.Center) {
+                Surface(
+                    modifier = Modifier.widthIn(max = 520.dp)
+                        .heightIn(max = (maxHeight - SocialPickerWindowMargin * 2).coerceAtLeast(240.dp)),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp), content = body)
+                    }
+                }
+            }
+        }
+    } else {
+        // The sheet scrolls as a whole on a short phone; the list still stops at the same cap inside it.
+        SocialSheet(wide = false, onDismiss = onDismiss) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                header()
+                Column(Modifier.fillMaxWidth().heightIn(max = SocialPickerListMax).verticalScroll(rememberScrollState())) { list() }
+                footer()
+            }
+        }
+    }
+}
+
+internal val SocialPickerListMax = 392.dp
+internal val SocialPickerWindowMargin = 48.dp
 
 /**
  * What a tap on a Watching Now card opens: the session, what joining will do, and the one action -
@@ -1847,7 +1914,7 @@ private fun SocialPanel(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SocialNotice(message: String, accent: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+internal fun SocialNotice(message: String, accent: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(NuvioTokens.Radius.compactCard),

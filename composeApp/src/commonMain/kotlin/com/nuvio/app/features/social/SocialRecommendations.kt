@@ -129,7 +129,7 @@ internal fun recommendedToYou(inbox: List<SocialInboxEvent>): List<RecommendedTi
 }
 
 @Composable
-private fun RecommendedTitle.whoLine(): String =
+internal fun RecommendedTitle.whoLine(): String =
     pluralStringResource(Res.plurals.social_rec_who, from.size, socialPeopleLabel(people))
 
 // --- the shelf (A+) -------------------------------------------------------------------------------
@@ -337,7 +337,13 @@ fun rememberCanRecommend(): Boolean {
 @Composable
 fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismiss: () -> Unit) {
     val state by SocialRepository.uiState.collectAsStateWithLifecycle()
-    val friends = remember(state.friends) { state.friends.sortedBy { it.displayName.ifBlank { it.handle }.lowercase() } }
+    SocialRecommendSheetContent(content, state.friends, wide, onDismiss)
+}
+
+/** The sheet for [allFriends]; split from [SocialRecommendSheet] so a render harness can supply the friends. */
+@Composable
+internal fun SocialRecommendSheetContent(content: SocialRecommendContent, allFriends: List<SocialProfileSummary>, wide: Boolean, onDismiss: () -> Unit) {
+    val friends = remember(allFriends) { allFriends.sortedBy { it.displayName.ifBlank { it.handle }.lowercase() } }
     var sentTo by remember(content.contentId) { mutableStateOf<Set<String>>(emptySet()) }
     var picked by remember(content.contentId) { mutableStateOf<Set<String>>(emptySet()) }
     var note by remember(content.contentId) { mutableStateOf("") }
@@ -354,8 +360,10 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
     val toggle: (SocialProfileSummary) -> Unit = { friend ->
         if (friend.profileId !in sentTo) picked = if (friend.profileId in picked) picked - friend.profileId else picked + friend.profileId
     }
-    SocialSheet(wide = wide, onDismiss = onDismiss) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    SocialPickerFrame(
+        wide = wide,
+        onDismiss = onDismiss,
+        header = {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(96.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))) {
                     SocialArtwork(
@@ -379,8 +387,10 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
                     shape = RoundedCornerShape(12.dp),
                 )
             }
+        },
+        list = {
             if (wide) {
-                Column { shown.forEach { friend -> RecommendFriendRow(friend, friend.profileId in picked, friend.profileId in sentTo) { toggle(friend) } } }
+                shown.forEach { friend -> RecommendFriendRow(friend, friend.profileId in picked, friend.profileId in sentTo) { toggle(friend) } }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     shown.chunked(4).forEach { row ->
@@ -393,6 +403,8 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
                     }
                 }
             }
+        },
+        footer = {
             OutlinedTextField(
                 value = note,
                 onValueChange = { if (it.length <= RecommendNoteLimit) note = it },
@@ -441,8 +453,8 @@ fun SocialRecommendSheet(content: SocialRecommendContent, wide: Boolean, onDismi
                 compact = false,
                 enabled = picked.isNotEmpty() && !sending,
             )
-        }
-    }
+        },
+    )
 }
 
 @Composable

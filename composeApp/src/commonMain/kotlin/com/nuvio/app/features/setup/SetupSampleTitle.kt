@@ -89,10 +89,15 @@ object SetupSampleTitle {
 
     /** `imdbId:season:episode` to its still's path on [tmdbStillBase]. See [episodeStillUrl]. */
     private val pinnedEpisodeStills: Map<String, String> = mapOf(
+        "tt0903747:1:1" to "/ydlY3iPfeOAvu8gVqrxPoMvzNCn.jpg",
         "tt0903747:1:2" to "/AbMoecO0ZZio0LcgeLxlzdyGs6X.jpg",
-        "tt0903747:5:14" to "/k80r5JYO4LLrPJbWDXmlg7IxRMI.jpg",
-        "tt0903747:5:15" to "/yxldDE4a2NZa9vrBWvTa9OAZpVc.jpg",
-        "tt0903747:5:16" to "/pA0YwyhvdDXP3BEGL2grrIhq8aM.jpg",
+        "tt0903747:1:3" to "/2kBeBlxGqBOdWlKwzAxiwkfU5on.jpg",
+        // The Language panels (2026-10-22): Narcos is made in English with a lot of Spanish in it,
+        // Squid Game is a title in another language.
+        "tt2707408:1:1" to "/yjzI0HIW6LCYdoT4XKJJ9Gse8ro.jpg",
+        "tt2707408:1:2" to "/sjgSYABo4ugRiONcGNPYZeMKOAs.jpg",
+        "tt10919420:1:1" to "/vMFJS9LIUUAmQ1thq4vJ7iHKwRz.jpg",
+        "tt10919420:1:2" to "/uacNwki3PqXEFk9Pal9Ng5NwwAI.jpg",
         "tt0108778:3:9" to "/nqWtfvNwkbhi6q5ZdPo9Ba1tcPW.jpg",
         "tt1475582:1:1" to "/u8xvgVzTQjAeRu68sI9JJHeQSuA.jpg",
     )
@@ -178,29 +183,30 @@ object SetupSampleTitle {
 
     /** Enough episodes to show a card style as a list rather than as a single specimen. */
     val episodes: List<SampleEpisode> = listOf(
+        // Season one, not the finale (2026-10-22): a specimen should never spoil the show it borrows.
         SampleEpisode(
-            seasonNumber = 5,
-            episodeNumber = 14,
-            title = "Ozymandias",
+            seasonNumber = 1,
+            episodeNumber = 1,
+            title = "Pilot",
+            runtime = "58 min",
+            overview = "A chemistry teacher's fiftieth birthday brings news that changes how he " +
+                "thinks about the time he has left.",
+        ),
+        SampleEpisode(
+            seasonNumber = 1,
+            episodeNumber = 2,
+            title = "Cat's in the Bag...",
             runtime = "48 min",
-            overview = "Everything Walt has built comes apart in a single afternoon in the " +
-                "desert, and there is no version of it he can talk his way out of.",
+            overview = "Walt and Jesse are left with a mess from their first cook and no good " +
+                "way to clean it up.",
         ),
         SampleEpisode(
-            seasonNumber = 5,
-            episodeNumber = 15,
-            title = "Granite State",
-            runtime = "53 min",
-            overview = "Exile turns out to be its own kind of sentence, served in a cabin " +
-                "with nothing to do but wait.",
-        ),
-        SampleEpisode(
-            seasonNumber = 5,
-            episodeNumber = 16,
-            title = "Felina",
-            runtime = "55 min",
-            overview = "One last drive back, with a short list and no intention of leaving " +
-                "any of it unfinished.",
+            seasonNumber = 1,
+            episodeNumber = 3,
+            title = "...And the Bag's in the River",
+            runtime = "48 min",
+            overview = "Walt has a decision to make about what comes next, and keeps putting " +
+                "it off.",
         ),
     )
 
@@ -214,7 +220,7 @@ object SetupSampleTitle {
     const val continueWatchingProgress: Float = 22f / 48f
 
     /** The caption on the in-progress Continue Watching card. */
-    const val continueWatchingCaption: String = "S5 E14 · Ozymandias"
+    const val continueWatchingCaption: String = "S1 E3 · ...And the Bag's in the River"
 
     /**
      * Names for the details specimen's cast row.
@@ -316,9 +322,9 @@ object SetupSampleTitle {
     val continueWatching: List<ContinueWatchingItem> = listOf(
         continueWatchingItem(
             item = rowItems[0],
-            season = 5,
-            episode = 14,
-            episodeTitle = "Ozymandias",
+            season = 1,
+            episode = 3,
+            episodeTitle = "...And the Bag's in the River",
             runtimeMinutes = 48,
             watchedMinutes = 22,
         ),

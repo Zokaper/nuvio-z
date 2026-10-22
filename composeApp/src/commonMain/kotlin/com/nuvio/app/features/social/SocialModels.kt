@@ -245,6 +245,12 @@ data class SocialUiState(
     } else requests.size + partyInvites.size) +
         inbox.count { it.readAt == null && it.kind in SocialInboxEvent.Known }
 
+    /** Recommendations nobody has looked at yet: the dot on the header's Recommended button. */
+    val unreadRecommendations: Int get() = inbox.count { it.readAt == null && it.kind == SocialInboxEvent.Recommendation }
+
+    /** The Inbox button's count: everything unread except recommendations, which have their own page. */
+    val inboxUnreadCount: Int get() = unreadCount - unreadRecommendations
+
     fun prefsFor(friendProfileId: String): SocialFriendPrefs =
         friendPrefs.firstOrNull { it.friendProfileId == friendProfileId } ?: SocialFriendPrefs(friendProfileId)
     val needsHandleSetup: Boolean get() = capabilities.socialEnabled && activeProfileId != null && me == null

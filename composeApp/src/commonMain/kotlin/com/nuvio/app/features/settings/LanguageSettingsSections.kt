@@ -101,12 +101,14 @@ internal fun LanguageSettingsSections(
     isTablet: Boolean,
     enabled: Boolean = true,
     section: LanguageSettingsSection? = null,
+    /** False under a header that already names the section (Advanced Setup's Language panel). */
+    showTitle: Boolean = true,
 ) {
     val preferences by LanguagePreferencesRepository.uiState.collectAsStateWithLifecycle()
     val myLanguageName = myLanguageName(preferences)
     var dialog by remember { mutableStateOf<LanguageDialog?>(null) }
 
-    if (section == null || section == LanguageSettingsSection.Languages) SettingsSection(title = stringResource(Res.string.settings_playback_section_language), isTablet = isTablet) {
+    val languageRows: @Composable () -> Unit = {
         SettingsGroup(isTablet = isTablet) {
             SettingsNavigationRow(
                 title = stringResource(Res.string.zlang_my_language),
@@ -137,6 +139,13 @@ internal fun LanguageSettingsSections(
                 isTablet = isTablet,
                 onClick = { dialog = LanguageDialog.Subtitles },
             )
+        }
+    }
+    if (section == null || section == LanguageSettingsSection.Languages) {
+        if (showTitle) {
+            SettingsSection(title = stringResource(Res.string.settings_playback_section_language), isTablet = isTablet) { languageRows() }
+        } else {
+            languageRows()
         }
     }
 
@@ -214,7 +223,7 @@ private fun languageOptions(): List<LanguageSelectionOption> =
 
 /** My language's name, with "Device language" resolved to the language it currently means. */
 @Composable
-private fun myLanguageName(preferences: LanguagePreferences): String {
+internal fun myLanguageName(preferences: LanguagePreferences): String {
     val code = if (normalizeLanguageCode(preferences.myLanguage) == AudioLanguageOption.DEVICE) {
         DeviceLanguagePreferences.preferredLanguageCodes().firstOrNull()
     } else {
@@ -227,10 +236,10 @@ private fun myLanguageName(preferences: LanguagePreferences): String {
 }
 
 /** Two moments of one scene, as column headers and what each [SubtitleKind] shows for them. */
-private class SubtitleScene(val first: String, val second: String, val lines: Map<SubtitleKind, Pair<String?, String?>>)
+internal class SubtitleScene(val first: String, val second: String, val lines: Map<SubtitleKind, Pair<String?, String?>>)
 
 @Composable
-private fun ownScene(myLanguageName: String): SubtitleScene {
+internal fun ownScene(myLanguageName: String): SubtitleScene {
     val first = stringResource(Res.string.zlang_example_own_first)
     val second = stringResource(Res.string.zlang_example_own_second)
     val sound = stringResource(Res.string.zlang_example_own_sound)
@@ -248,7 +257,7 @@ private fun ownScene(myLanguageName: String): SubtitleScene {
 }
 
 @Composable
-private fun otherScene(): SubtitleScene {
+internal fun otherScene(): SubtitleScene {
     val first = stringResource(Res.string.zlang_example_other_first)
     val second = stringResource(Res.string.zlang_example_other_second)
     val sound = stringResource(Res.string.zlang_example_other_sound)
@@ -380,7 +389,7 @@ private fun OtherAudioChoices(
 }
 
 @Composable
-private fun ChoiceRow(
+internal fun ChoiceRow(
     selected: Boolean,
     enabled: Boolean,
     title: String,
@@ -415,7 +424,7 @@ private fun ChoiceRow(
 }
 
 @Composable
-private fun RadioDot(selected: Boolean) {
+internal fun RadioDot(selected: Boolean) {
     val tokens = MaterialTheme.nuvio
     Box(
         Modifier.size(20.dp).clip(CircleShape)

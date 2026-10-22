@@ -12,6 +12,9 @@ sealed interface SocialNavigationTarget {
     /** The Inbox page: party invites and requests to join your playback wait there with their actions. */
     data object Inbox : SocialNavigationTarget
 
+    /** "Recommended to you", the page a recommendation lands on (2026-10-22). */
+    data object Recommended : SocialNavigationTarget
+
     /** One friend's session: its join sheet, which closes itself if the session has ended. */
     data class WatchingSession(val sessionKey: String) : SocialNavigationTarget
 }
