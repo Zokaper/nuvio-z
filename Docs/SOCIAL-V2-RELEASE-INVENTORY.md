@@ -15,7 +15,7 @@ this upstream sync performs no backend deployment.
 | Upstream integration | Mobile 0.6.2-beta and desktop 0.1.31-alpha merged; zero behind those named tags. Preserve Z Watch Together; upstream Party UI stays gated. |
 | Mobile automation/builds | Android 3,828 host checks and all 1,090 pure checks pass; Android/iOS CI and debug 108 publication pass. |
 | Desktop automation/builds | Final full Linux CI 39609270820 passes: 3,871 passed, zero failures, three existing headless GUI skips (3,874 total); native Linux checks, Windows MSI and changelog jobs pass. All 1,080 pure checks and local full suite also pass. Windows/Mac packages and Mac launch check pass; debug 117 is published. |
-| Product acceptance | Maintainer confirms no additional device testing on 2026-10-21. Retest language migration/picks, upgrade review, Social/Inbox/recommendations, Android push, desktop tray/startup and cross-device Watch Together. iOS Home/lock/return acceptance remains open. |
+| Product acceptance | 2026-10-22: maintainer tested desktop 117 + mobile 108 (checklist 1-9 pass); the QA pass in STATUS followed, retest on desktop 118 / mobile 109 incl. Watch Together. Earlier: maintainer confirmed no additional device testing on 2026-10-21. Retest language migration/picks, upgrade review, Social/Inbox/recommendations, Android push, desktop tray/startup and cross-device Watch Together. iOS Home/lock/return acceptance remains open. |
 | Release content | Maintainer's final notes and chosen artwork are pending. Bundle approved images and the real global Social V2 event with review_settings, then validate both changelogs. |
 | Stable publication | Final version/serial bump, release checks and explicit stable publication remain pending. Current debug versions retain the old marketing base; the release must name the newly synced vanilla bases. |
 
@@ -89,7 +89,8 @@ the standing mobile-only decision. Final release copy should name the new vanill
 - Wide layouts use a side panel; phones use a page.
 - Finished-party notices become quiet history and retire after a day. Ordinary stored events have retention;
   recommendations remain separately until watched or removed.
-- Recommended to you leads the Inbox without duplicate recommendation cards underneath.
+- Recommended to you is its own page (2026-10-22), opened from a header button with the count and a
+  dot while any are new; the Inbox no longer shows or counts recommendations.
 - Manual Mark all read and arbitrary per-item Inbox dismissal are not wired in the current UI.
   Removing recommendations is implemented.
 
@@ -138,6 +139,9 @@ the standing mobile-only decision. Final release copy should name the new vanill
   without navigating away. These desktop cards do not have inline action buttons.
 - Start with Windows opens straight to the tray for the last usable profile, never silently opening a PIN-protected profile.
   It is available to installed Windows builds.
+- The first-close prompt offers "Start Nuvio Z with Windows (Recommended)", ticked (2026-10-22). Closing behaviour and
+  Start with Windows live in Settings -> Advanced -> Startup and in Advanced Setup's THIS PC -> Startup & tray area,
+  which What's New's settings review includes.
 - Relaunching an installed channel restores its existing window and hands over links instead of opening a second session.
   Stable, Debug and vanilla remain separate channels.
 

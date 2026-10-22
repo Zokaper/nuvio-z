@@ -185,7 +185,9 @@ Advanced Setup, Device Setup and the cross-family import in Z-owned `features/se
   `IntegrationsSettingsPage.kt`: an optional Tracking row. `AppearanceSettingsPage.kt`: one guard on
   each of the two navigation rows (`zNavigationHasOwnPage`). `PosterCustomizationSettingsPage.kt`:
   one line making Custom Poster URL advanced. `AdvancedSettingsPage.kt`: `!isDesktop` guards on the
-  Android engine / libmpv / DV7 / tunneling rows (vanilla desktop has the same guards).
+  Android engine / libmpv / DV7 / tunneling rows (vanilla desktop has the same guards), and one hook
+  line in the Startup group (`PlatformSettingsExtensions.startupRows`, 2026-10-22: desktop's close
+  action and Start with Windows).
 - **Shell** - `AppGate.kt`: the hub overlay, the launcher collector, arrival / import / Review
   Setup state, What's New waiting for a gating wizard and its action card. `AppGateController.kt`:
   `requestAdvancedSetup()`. `MainAppContent.kt`: one collector for `ZSettingsNavigation` ("Set up in

@@ -1,10 +1,40 @@
-Last updated: 2026-10-21
+Last updated: 2026-10-22
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 117 | Upstream 0.1.31-alpha sync complete; full Linux CI and Windows MSI green; Windows/Mac debug 117 published; installed acceptance pending |
-| Mobile | `claude/social-v2` | 108 | Upstream 0.6.2-beta sync complete; Android/iOS CI green and debug 108 published; installed acceptance pending |
+| Desktop | `claude/social-v2-design` | 118 (dispatched 2026-10-22) | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
+| Mobile | `claude/social-v2` | 109 (dispatched 2026-10-22) | Same QA pass, cherry-picked; retest on 109 |
+
+## Social V2 QA pass (2026-10-22)
+
+The maintainer tested desktop debug 117 + mobile 108 (checklist steps 1-9 pass; Watch Together
+desktop<->phone retest pending on the new builds) and asked for these changes, all built:
+
+- **Pickers:** Recommend and Watch Together invite share `SocialPickerFrame` - header and button
+  fixed, friend list capped (~7 rows) and scrolling, dialog 48dp off the window edges.
+- **Recommended to you** left the Inbox: a thumbs-up header button (count, dot while any are new)
+  opens its own page in the big-card style (maintainer's pick). The Inbox badge and mark-read skip
+  recommendations; pop-ups and Android pushes (routed by `kind`) open the page. The server's
+  fallback push body still says "Open it in your Inbox" - changing it needs a backend deploy.
+- **Language:** Advanced Setup's three Language panels have a preview (two moments of a scene;
+  one alternating still on phones) and radio-list bodies. The first-run wizard's Language step is
+  now those three panels as steps (`LanguageOwnTitles`, `LanguageOtherTitles`; old diagram removed).
+- **Reviews:** What's New "Review new settings" and the "New settings available" offer open
+  Advanced Setup on `advancedSetupAreasChangedSince(...)`, each area whole, closing after the last.
+  The wizard Upgrade run is no longer opened by either.
+- **Windows startup:** the first-close prompt offers "Start Nuvio Z with Windows (Recommended)",
+  ticked; new THIS PC -> Startup & tray area in Advanced Setup (part of revision 11's review);
+  close action / Start with Windows moved from Social settings to Settings -> Advanced -> Startup
+  (`PlatformSettingsExtensions`, one line in upstream-owned `AdvancedSettingsPage.kt`).
+- **Sample stills:** Breaking Bad season 1 instead of the finale; Narcos (English show with Spanish)
+  and Squid Game for the language moments.
+
+Evidence: desktop focused packages (social, setup, settings, What's New, tray, watch party)
+919/919; mobile Android compile + the same packages 828/828. Full suites not rerun.
+Desktop `ddc31c078`, `ca7f07e53`, debug prep `2efeaa5a7`; mobile cherry-picks `4ff9e5f7b`,
+`4683dcf2c`, push routing + debug prep on top. Next: maintainer retest, then What's New copy and
+renders (maintainer writes the notes), then stable; TV port after that.
 
 ## Upstream sync complete (2026-10-21)
 
