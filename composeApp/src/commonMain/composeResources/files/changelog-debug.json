@@ -201,6 +201,10 @@
     {
       "build": 108,
       "text": "Social V2 verification: new language settings and Advanced Setup Language; updated to upstream Mobile 0.6.2-beta."
+    },
+    {
+      "build": 109,
+      "text": "Social V2 QA fixes: Recommend and Watch Together pickers keep their button on screen; Recommended to you is its own page behind a button in the Social header, and a recommendation notification opens it; Language setup pages get previews and the first-run setup uses them; Review new settings opens Advanced Setup."
     }
   ]
 }
