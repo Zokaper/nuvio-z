@@ -6,6 +6,18 @@ Last updated: 2026-10-23
 | Desktop | `claude/social-v2-design` | 120 | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
 | Mobile | `claude/social-v2` | 110 | Same QA pass, cherry-picked; retest on 109 |
 
+## Social V2 What's New: one hero picture (2026-10-23)
+
+The maintainer's call: **one hero picture per update**, with the details in a trailer for the Discord
+announcement. Every entry is text, with the New features / Improvements / Bug fixes headings back
+(fixes fold behind their count), and **no version line under the date** (the dialog subtitle has it).
+Events in `changelog.json` take an optional `"image"` (bare file name in `files/whatsnew/`). Hero =
+Social / Recommended / tray pop-ups cut by two diagonal slashes, from `promo/WhatsNewArtHarness`
+(PNGs in `Nuvio Z/promo/renders/whatsnew/`). Entry wording: benefit-first, the maintainer writes the
+final text. **Desktop only so far** (`bb93aba5a`, `522fbe957` on `claude/social-v2-design`; What's New
+tests 41/41). Next: maintainer approves the look -> port the three What's New files to mobile, ship
+`hero.jpg` (JPEG it), write the real Social V2 event with `review_settings` on Language.
+
 ## Watch Together lobby / rejoin / leftover-party fixes (2026-10-22 to 10-23)
 
 From the maintainer's desktop-host + phone-guest runs (phone logcat + server reads).
