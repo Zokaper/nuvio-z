@@ -57,14 +57,16 @@ language fallback and reopen-with-no-party **pass**.
     hands the role over at 60 s (`party_transfer_stale_host`). The maintainer chose to keep 60 s; do not re-propose 20 s.
   Evidence: mobile watch party + player 810/810 (APK installed 2026-10-23, debug `0.5.4-z3.110`);
   desktop watch party + tray + social + player 969/969, local MSI **127**.
-  **Retest on 127 + that APK: all three pass** (maintainer, 2026-10-23): lobby swipe-away drops the phone
-  at once, a killed host reads "<host> lost connection · waiting for them" on the phone, and a pop-up
-  click during playback raises the window and playback continues.
+  **Retest on 127 + that APK** (maintainer, 2026-10-23): lobby swipe-away and pop-up during playback
+  **pass**. **Dropped host FAILS:** the phone still said "Reconnecting", never "<host> lost connection".
+  Server side is fine: party `5e1a17a4`, host `d339` last seen 08:26:52Z, the phone became host before
+  08:28:24Z, and `party_heartbeat` marks a host silent for 20 s `connected=false` in the guest's snapshot.
+  Open: which surface showed it and for how long (the phone log was not captured; phone off USB).
 - Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
   has no forced track.
 Evidence: mobile social + watch party host tests 607/607 (APK installed); desktop watch party + tray +
-language 485/485 and social 197/197; local MSI **126**. Swipe-away, dead host and pop-up raise
-**pass** (126, then the follow-ups on 127). **Not yet retested:** notify default (deployed).
+language 485/485 and social 197/197; local MSI **126**. Swipe-away and pop-up raise
+**pass** (126, then the follow-ups on 127); dead-host wording still fails. **Not yet retested:** notify default (deployed).
 
 ## Social V2 QA pass (2026-10-22)
 
