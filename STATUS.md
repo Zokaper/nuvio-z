@@ -92,14 +92,27 @@ language fallback and reopen-with-no-party **pass**.
   says "Following the party every few seconds", which is true). Mobile `726a35cc7`, desktop `6748b8122`.
   Evidence: mobile watch party + player host tests 811 (0 failed, 6 skipped), APK installed on the phone
   2026-10-23 13:55 (still named `0.5.4-z3.110`); desktop watch party + player 752/752, local MSI **128**.
-  **Retest on 128 + that APK:** kill the host with the panel open, then wait out the handover.
-  **Found in the same log, not fixed:**
+  **Found in the same log, then fixed (maintainer: "fix both"):**
   - **The guest's drift nudge outlived the host.** Its last drift correction (13:38:50.99, driftMs=-5046)
-    set speed 0.9; no tick came to undo it, so the phone played at 0.9x for the whole minute. On handover,
-    it published `speed=0.9` as the party's speed. A temporary speed needs to reset when ticks stop.
-  - **Invite missed until the Social tab was opened.** At 13:36:44 the phone's social channel was refused
-    with `InvalidJWTToken: Token has expired 4212 seconds ago` (the process had been frozen in the
-    background). Same family as the realtime-token note in memory: no refresh before rejoin.
+    set speed 0.9. Corrections run only when a tick arrives, so nothing undid it, and the phone played at
+    0.9x for the whole minute. On handover the generation key changed (authority epoch); the old
+    generation's dispose cleared `partyNominalSpeedDuringCorrection` and left the engine at 0.9, so the new
+    host published `speed=0.9` as the party's speed. Fix: a watchdog in the guest loop puts the nominal rate
+    back once no tick has come for `WatchPartyTickStaleMs` (`partyOrphanedNudgeSpeed`, log line
+    `drift nudge orphaned`), and the generation dispose restores the rate before forgetting it.
+  - **Invite missed until the Social tab was opened.** The phone was in the foreground. The invite row was
+    created 13:37:16.8 (server), inside the phone's socket outage (heartbeat timeout 13:37:10.6,
+    reconnected 13:37:18.3), so its broadcast was lost. The channel re-subscribed, and nothing re-fetched:
+    the keep-alive fetches by hand only when the channel is *not* subscribed at its 60 s tick. (Earlier, at
+    13:36:44, the rejoin after unfreezing was refused with `Token has expired 4212 seconds ago`; it
+    recovered on its own.) Fix: `SocialChannelLiveness` in the keeper fetches by hand whenever the socket
+    and the channel are back after either was down (log `social channel back: refreshing by hand`).
+  Mobile `9190ff1de` (speed), `cef424a99` (social); desktop `82b16e0ad`, `8facc70f3`. Evidence: mobile
+  watch party + player + social host tests 978 (0 failed, 6 skipped), APK installed on the phone 14:34;
+  desktop watch party + player + social + tray 972/972, local MSI **129** (128 superseded).
+  **Retest on 129 + that APK:** the dropped-host wording above; the new host's speed reads 1x after the
+  handover (and the phone log has `drift nudge orphaned` about 4 s after the kill if a nudge was running);
+  an invite reaches the phone without opening the Social tab.
 - Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
   has no forced track.
 Evidence: mobile social + watch party host tests 607/607 (APK installed); desktop watch party + tray +
