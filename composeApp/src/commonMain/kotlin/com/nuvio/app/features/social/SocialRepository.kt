@@ -16,6 +16,7 @@ import com.nuvio.app.core.network.ZSupabaseProvider
 import com.nuvio.app.core.network.shouldReexchangeZSession
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.broadcastFlow
 import io.github.jan.supabase.realtime.channel
@@ -27,10 +28,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlin.concurrent.Volatile
@@ -655,7 +658,22 @@ object SocialRepository {
      * the new token to the socket), and if the channel is still not subscribed for any reason, fetches
      * the state by hand - so a dead socket delays a pop-up by minutes, never by hours.
      */
-    private suspend fun keepRealtime(profileId: String, channel: RealtimeChannel, owner: SocialOperation) {
+    private suspend fun keepRealtime(profileId: String, channel: RealtimeChannel, owner: SocialOperation) = coroutineScope {
+        // What was broadcast while the channel was down is gone: fetch by hand the moment it is back.
+        launch {
+            var liveness = SocialChannelLiveness()
+            combine(ZSupabaseProvider.client.realtime.status, channel.status) { socket, joined ->
+                (socket == Realtime.Status.CONNECTED) to (joined == RealtimeChannel.Status.SUBSCRIBED)
+            }.distinctUntilChanged().collect { (socketConnected, channelSubscribed) ->
+                val (next, cameBack) = liveness.observe(socketConnected, channelSubscribed)
+                liveness = next
+                if (cameBack) {
+                    checkAuthority(owner)
+                    realtimeLog.i { "social channel back: refreshing by hand" }
+                    runCatching { refresh(false) }.onFailure { if (it is CancellationException) throw it }
+                }
+            }
+        }
         while (true) {
             delay(SocialRealtimeKeepAliveMs)
             checkAuthority(owner)

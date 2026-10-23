@@ -23,3 +23,23 @@ internal fun socialNeedsRecovery(
     if (!state.capabilities.socialEnabled) return false
     return state.errorMessage != null || state.isOfflineCache || !realtimeOpen
 }
+
+/**
+ * Whether the open Social channel has just come back from being down, which is when to fetch by hand.
+ *
+ * A broadcast sent while the socket or the channel is down is gone, and the channel coming back does
+ * not replay it. On 2026-10-23 a Watch Together invite was created at 13:37:16.8, inside the phone's
+ * socket outage (heartbeat timeout 13:37:10.6, reconnected 13:37:18.3). The keep-alive's next tick
+ * found the channel subscribed again, so nothing fetched, and the invite only appeared when the Social
+ * tab was opened a minute later. The first time the channel goes live is not a return:
+ * `openRealtime` fetches after subscribing.
+ */
+internal data class SocialChannelLiveness(val everLive: Boolean = false, val missed: Boolean = false) {
+    /** The next state, and true when this observation is the channel coming back. */
+    fun observe(socketConnected: Boolean, channelSubscribed: Boolean): Pair<SocialChannelLiveness, Boolean> =
+        if (socketConnected && channelSubscribed) {
+            SocialChannelLiveness(everLive = true, missed = false) to missed
+        } else {
+            copy(missed = everLive) to false
+        }
+}
