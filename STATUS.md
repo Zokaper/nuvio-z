@@ -1,10 +1,251 @@
-Last updated: 2026-10-21
+Last updated: 2026-10-23
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 117 | Upstream 0.1.31-alpha sync complete; full Linux CI and Windows MSI green; Windows/Mac debug 117 published; installed acceptance pending |
-| Mobile | `claude/social-v2` | 108 | Upstream 0.6.2-beta sync complete; Android/iOS CI green and debug 108 published; installed acceptance pending |
+| Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
+| Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK only | Phase 1 ARM64/x86_64 build, 5 Rust + 5 emulator tests pass; real Galaxy/iPhone USB validation pending |
+
+## Android-to-iPhone USB experiment (2026-10-23)
+
+Authorized scope: a debug-only ARM64 Android harness for permission, raw USB mux and unpaired
+Lockdown device-info reads. No Apple login, signing, pairing or installation. Isolated worktree:
+`.codex-worktrees/android-ios-usb-phase1`; normal Android, desktop and iOS behavior stays unchanged.
+The maintainer confirms the existing desktop install / iPhone self-refresh flow works. No Android
+USB hardware result is reported yet; the available iPhone is approximately a 13/14, exact iOS TBD.
+Implemented `iosInstaller/android-probe/`: optional `:androidUsbProbe`, separate debug-only package
+`com.nuvio.app.z.usbprobe` (no release variant or Internet permission), USB permission/attachment UI,
+JNI descriptor adoption, direct rusbmux handshake and four unpaired GetValue queries. No production
+Android/desktop/iOS sources or installer lockfile changed. One upstream seam: opt-in module include
+in `settings.gradle.kts`; ledger C26 and PATCH-SURFACE record it.
+
+Released rusbmux 0.3.0 needed a documented vendor patch: accept an already-open nusb handle, disable
+Android-inapplicable discovery, prefer the active configuration, use idevice 0.1.68 (matching the
+installer), and define a deliberately unusable path for unused pairing code. No preflight/daemon/
+pairing path is called. `VENDOR.md` records the archive hash and exact changed files. nusb 0.2.8 is
+unmodified. Routing identity is a Phase 1 placeholder; it must not be used for Phase 2 pairing.
+
+**Verified locally on 2026-10-23:** ARM64 + x86_64 optimized Rust JNI libraries and the debug APK build;
+host Rust **5/5** (real idevice protocol against fake Lockdown peer, refusal and timeout included);
+Android API 34 x86_64 emulator **5/5**, zero failures/skips (JNI load, invalid/non-USB FD diagnostics,
+Java FD ownership, debug/no-network isolation, Activity startup). Lint **0 errors, 11 warnings**
+(test UI localization, target matching the app, backup declaration). APK signature and 16 KB ZIP/
+ELF segment alignment pass. Normal Gradle project graph excludes the module; opted-in module has
+no release variant. Screen and the self-test button were inspected on the emulator.
+
+The emulator tests caught a timeout constructed outside Tokio's runtime and poisoned busy state;
+both are corrected and the final five tests pass. This is **not physical USB evidence**: the AVD
+does not expose USB host hardware. Real Android permission grant/denial, nusb USB access/configuration,
+mux handshake, iPhone information reads, detach/reconnect and ARM64 runtime behavior remain untested.
+No real phone was attached to adb in this session. Do not declare Phase 1's USB criteria passed or
+start pairing/Phase 2 before reviewing the Galaxy/iPhone report.
+
+Test APK (7,566,563 bytes), copied to `Nuvio Z/release-artifacts/android-ios-usb-phase1/`:
+`Nuvio-Z-USB-Probe-phase1.apk`; SHA-256
+`84b03d7f474f0961fd1692176e8a0ef044e4a70f23f810f9fab9422b033fff0c`.
+Build/reproduction/device checklist: `iosInstaller/android-probe/README.md`. Local evidence:
+`build/usb-probe-research/{android-smoke,rust-tests,normal-projects,probe-tasks}.log`, emulator screen,
+and app build's lint / connected-test XML reports. No tag, release, production deployment or
+full installer integration is part of this experiment.
+
+## Regional My language switched subtitles off (2026-10-23, debug 112 / 131)
+
+The maintainer's first check on 111: Attack on Titan S1E1 (Japanese audio, one `eng` "[ASS]" track,
+on by default) played with **no subtitles**. Reproduced over adb with a live logcat (logd had pruned
+the first run): `subtitle_pick chosen=none applied=true pref=en-sa/null`. Profile 2 ("debug") had
+`my_language` **"en-sa"**, which the settings label shows as plain English. Upstream's subtitle matcher
+keeps a region whole except pt-BR / es-419 / Chinese, so "en-sa" matched no English track.
+Origin of "en-sa" is **unknown**: it was already in the legacy `preferred_audio_language_2` and the
+migration copied it. Not the phone's locale (en-GB), not the laptop (Java en-US; desktop has profile 1
+only, `en`); no picker can store it. Suspected but unproven: profile settings sync from a device with a
+Saudi region (iOS reports `en-SA` in AppleLanguages).
+**Fix (Z seam, no upstream file):** `pickerLanguage` in `TitleLanguagePlan.kt` drops the region from every
+language the plan hands the pickers and the legacy fields, keeping pt / es / zh variants. Mobile
+`8e37b9d70` + `250c0eac8`, desktop `df988fb7e` + `8fa059fd0` (cherry-picks). Verified on the phone with a
+local APK: same episode, `pref=en`, `chosen=track:0 applied=true`. Tests: mobile language + player +
+playback + settings + downloads host 1234 (0 failed, 6 skipped); desktop same packages 1247 with 3
+failures, all in the known-flaky `DesktopDownloadQueueE2ETest` (no language code in it; rerun alone
+pending at the time of writing). Debug **112** / **131** dispatched (`dc1844738` / `a57f62a9f`), carrying
+this and the What's New event.
+Side note: the mobile-data quality prompt ("asked once per network") came up again on the second run
+after the reinstall; not investigated.
+
+## Social V2: final check (2026-10-23)
+
+The maintainer's retest on local MSI 129 + the 14:34 APK: dropped-host wording, new host at 1x and
+invite delivery off the Social tab **pass** (the last "probably"). Debug **111** (mobile) and **130**
+(desktop; 121-129 were local only) were dispatched from `01affc905` / `471123c24` for a final pass on CI
+builds, which have the TMDB key. Still never retested: friend-watching notify default, the upgrade
+path from stable (language migration + New settings offer), Android push delivery, and iOS Watch
+Together after this week's fixes.
+**Scope settled:** generic Inbox dismissal / Mark all read are dropped (opening the Inbox already marks
+everything read); Start a party / Recommend from a friend's profile is not needed for this release.
+**Not a bug, no fix wanted:** after quitting the desktop mid-playback a friend's Watching Now card
+can linger until the server's 90 s heartbeat cutoff (the process ends before its clear is sent).
+**What's New: done.** The maintainer approved the draft with its stale claims fixed (recommendations
+have their own page, closed-app notifications are Android/Windows only, no "picks get it right"). It is
+`changelog.json` seq 5, byte-identical in both repos (mobile `485314733`, desktop `2db631116`), hero
+`social-v2-hero.jpg`, `review_settings` on Language, ships `unreleased`: mobile `0.6.2-z1` serial 130,
+desktop `0.1.31-alpha-z1` serial 134. Validate/compare clean; whatsnew tests mobile 40/40, desktop 41/41.
+Not in debug 111/130 (dispatched before it).
+**Remaining before stable:** the final check on 111/130, then the version/serial bump to those values
+(release dates set by the release commits), merge to `main`, publish on the maintainer's word.
+
+## Social V2 What's New: one hero picture (2026-10-23)
+
+The maintainer's call: **one hero picture per update**, with the details in a trailer for the Discord
+announcement. Every entry is text, with the New features / Improvements / Bug fixes headings back
+(fixes fold behind their count), and **no version line under the date** (the dialog subtitle has it).
+Events in `changelog.json` take an optional `"image"` (bare file name in `files/whatsnew/`). Hero =
+Social / Recommended / tray pop-ups cut by two diagonal slashes, from `promo/WhatsNewArtHarness`
+(PNGs in `Nuvio Z/promo/renders/whatsnew/`). Entry wording: benefit-first, the maintainer writes the
+final text. **Approved and on both repos:** the hero is the top of the dialog (edge to edge, fading into
+it, title centred under it); New features heading amber; entries at full strength. Shipped asset
+`files/whatsnew/social-v2-hero.jpg`; `check-changelog.py` knows `review_settings` and checks pictures
+exist. Mobile `e7e931782`, desktop `bb93aba5a`..`5e1f9299b`; What's New files identical across repos;
+whatsnew tests mobile 40/40, desktop 41/41; `:androidApp` compiles. **Next:** the maintainer's final
+text -> the real Social V2 event in `changelog.json` (both repos, byte-identical) with
+`"image": "social-v2-hero.jpg"` and `review_settings` on Language.
+
+## Watch Together lobby / rejoin / leftover-party fixes (2026-10-22 to 10-23)
+
+From the maintainer's desktop-host + phone-guest runs (phone logcat + server reads).
+**2026-10-22** (desktop `cf5a74edd`, mobile `def329b08`, backend `048547c` deployed): a guest's
+corrective seek waits for its player to be ready (rejoin lands in sync, confirmed by the maintainer);
+the lobby calls `enterLobby` (it never had a caller); the host's stall watch skips lobby guests
+(`partyMembersWatching`); a fresh start leaves any party the server still lists; server removes
+members silent for 2 min and the reaper is scheduled every minute.
+**2026-10-23:** the maintainer retested debug 123: the backed-out phone read **Playing** on the host and
+**Ready** on itself. The phone log showed the lobby report succeeding at 00:06:42.6. The player was
+still in its exit transition, and its `registerPlayback` effect (keyed on `positionMs`) re-registered on
+the next tick. `LobbyEntered` had moved the phase off ActivePlayer, so that tick counted as a new
+attach and published "player" over the lobby report. The server held "player" from then on.
+Fix: `lobbyLocationWaitsForPlayer` — while the party's own player is attached, the lobby's report waits and
+is sent from `Unregister` when that player detaches. The lobby is now a `DisposableEffect`
+(`leaveLobby` on dispose, so a cancelled back gesture sends nothing). A lobby over unrelated
+playback still reports at once.
+**Language, same run:** the joining phone played a Russian dub of The Prestige (Russian default track,
+English "Original" 9th). Cause: **local builds have no `TMDB_API_KEY`** (CI secrets only), so every TMDB
+call 401'd and the title's origin was unknown. The old rule was "unknown origin -> file default track".
+The maintainer chose **unknown origin -> my language, then the fallback** (`resolveTitleLanguagePlan`); the
+group is still decided by what plays. Z-FEATURES C25 and `PLAN-language-and-whats-new.md` updated.
+Evidence: mobile host tests (watchparty, core.language, player) 843/843, APK installed on the phone;
+desktop same packages 784/784, local MSI **125** (124 superseded, never installed). Mobile `8331de024`,
+`ee0203c17`; desktop `077542740`, `f93de7775`, `1d716972c`. Maintainer retest on 125: lobby status,
+language fallback and reopen-with-no-party **pass**.
+**Then (same day):**
+- **Swipe-away left the phone Away on the host.** Samsung keeps a swiped app's process cached, so it kept
+  heartbeating the party, and the reopen ran in the same process (the once-per-process check never fired).
+  `MainActivity` now sends `appClosed` on a finishing, non-rotation destroy: leave, and a host hands over.
+  A fresh `onCreate` sends `appOpened`: leave anything held, and re-run the server leftover check.
+  Mobile `e570f68f6`, desktop `f0a4af8b9` (shared part only; desktop has no Android hooks).
+- **Pop-up click raises the desktop window** over another app: always-on-top blip + `SetForegroundWindow`
+  (JNA, `DesktopWindowForeground`). Desktop `7c1c3dd67`.
+- **Friends starting to watch notify by default** (maintainer's call). App `SocialFriendPrefs` default on
+  (mobile `8f6b0d354`, desktop `7a52d34d4`). Backend `202610230001_friend_watching_default_on`
+  (`8d125fd`) **deployed 2026-10-23 on the maintainer's OK**; verified live (column default true,
+  trigger walks friendships). The local pgTAP suite passes 516/516.
+- **Retest on 126:** swipe-away (from the player), reopen, and pop-up raise (outside the player) pass;
+  dead host hands over. Three follow-ups, built:
+  - **Lobby swipe-away was left only at the next launch.** With no service, Samsung killed the process
+    ("remove task") before any app code ran. `WatchPartyTaskRemovalService` now runs while a live party
+    is held: not foreground, and `onTaskRemoved` -> `appClosed(onDone)`. Mobile `ee40f5aab`.
+  - **A guest showed "Reconnecting…" while the host was dead.** New `HostOffline` status row
+    ("<host> lost connection · waiting for them"). Mobile `3d0cf840d`, desktop `967275320`.
+  - **A pop-up click during playback didn't raise the window.** It now raises it without navigating.
+    Desktop `b10cac316`.
+  - **Decided 2026-10-23: host handover stays at 60 s.** The server shows a silent host Offline at 20 s but
+    hands the role over at 60 s (`party_transfer_stale_host`). The maintainer chose to keep 60 s; do not re-propose 20 s.
+  Evidence: mobile watch party + player 810/810 (APK installed 2026-10-23, debug `0.5.4-z3.110`);
+  desktop watch party + tray + social + player 969/969, local MSI **127**.
+  **Retest on 127 + that APK** (maintainer, 2026-10-23): lobby swipe-away and pop-up during playback
+  **pass**. **Dropped host FAILS:** the phone still said "Reconnecting", never "<host> lost connection".
+  Server side is fine: party `5e1a17a4`, host `d339` last seen 08:26:52Z, the phone became host before
+  08:28:24Z, and `party_heartbeat` marks a host silent for 20 s `connected=false` in the guest's snapshot.
+  **Reproduced with the phone on USB (party `f149124c`, 13:38-13:40 local).** The maintainer saw the
+  player line say "<host> lost connection" (HostOffline worked) while the open panel's chip said
+  "Reconnecting…", and after the handover the player line said "Reconnecting to the party…". Log
+  timeline: last realtime message from the host 13:38:50.99; snapshot `host:disconnected` 13:39:07.1,
+  status `HostOffline` 13:39:08.0; `health-stale receiveAgeMs=20462` -> realtime `Live->Degraded`
+  13:39:11.45 (chip Reconnecting 3 s later); phone made host 13:39:49.0, status `Reconnecting` 13:39:49.9
+  and it stayed. Socket heartbeats were acked (~150 ms) and every poll succeeded throughout.
+  **Cause (proven):** the transport's health monitor calls realtime Degraded after 20 s with no message
+  from another member, so in a party where nobody else is connected, silence reads as the viewer's own
+  connection. **Fix:** `partyHasNobodyToHearFrom` keeps Degraded/unverified from reading as reconnecting
+  in the panel chip (`partyConnectionChip`) and the status line (`partyRealtimeReadsReconnecting`);
+  Connecting still says Reconnecting, a failed poll still says Offline. The lobby was not changed (it
+  says "Following the party every few seconds", which is true). Mobile `726a35cc7`, desktop `6748b8122`.
+  Evidence: mobile watch party + player host tests 811 (0 failed, 6 skipped), APK installed on the phone
+  2026-10-23 13:55 (still named `0.5.4-z3.110`); desktop watch party + player 752/752, local MSI **128**.
+  **Found in the same log, then fixed (maintainer: "fix both"):**
+  - **The guest's drift nudge outlived the host.** Its last drift correction (13:38:50.99, driftMs=-5046)
+    set speed 0.9. Corrections run only when a tick arrives, so nothing undid it, and the phone played at
+    0.9x for the whole minute. On handover the generation key changed (authority epoch); the old
+    generation's dispose cleared `partyNominalSpeedDuringCorrection` and left the engine at 0.9, so the new
+    host published `speed=0.9` as the party's speed. Fix: a watchdog in the guest loop puts the nominal rate
+    back once no tick has come for `WatchPartyTickStaleMs` (`partyOrphanedNudgeSpeed`, log line
+    `drift nudge orphaned`), and the generation dispose restores the rate before forgetting it.
+  - **Invite missed until the Social tab was opened.** The phone was in the foreground. The invite row was
+    created 13:37:16.8 (server), inside the phone's socket outage (heartbeat timeout 13:37:10.6,
+    reconnected 13:37:18.3), so its broadcast was lost. The channel re-subscribed, and nothing re-fetched:
+    the keep-alive fetches by hand only when the channel is *not* subscribed at its 60 s tick. (Earlier, at
+    13:36:44, the rejoin after unfreezing was refused with `Token has expired 4212 seconds ago`; it
+    recovered on its own.) Fix: `SocialChannelLiveness` in the keeper fetches by hand whenever the socket
+    and the channel are back after either was down (log `social channel back: refreshing by hand`).
+  Mobile `9190ff1de` (speed), `cef424a99` (social); desktop `82b16e0ad`, `8facc70f3`. Evidence: mobile
+  watch party + player + social host tests 978 (0 failed, 6 skipped), APK installed on the phone 14:34;
+  desktop watch party + player + social + tray 972/972, local MSI **129** (128 superseded).
+  **Retest on 129 + that APK:** the dropped-host wording above; the new host's speed reads 1x after the
+  handover (and the phone log has `drift nudge orphaned` about 4 s after the kill if a nudge was running);
+  an invite reaches the phone without opening the Social tab.
+- Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
+  has no forced track.
+Evidence: mobile social + watch party host tests 607/607 (APK installed); desktop watch party + tray +
+language 485/485 and social 197/197; local MSI **126**. Swipe-away and pop-up raise
+**pass** (126, then the follow-ups on 127); dead-host wording still fails. **Not yet retested:** notify default (deployed).
+
+## Social V2 QA pass (2026-10-22)
+
+The maintainer tested desktop debug 117 + mobile 108 (checklist steps 1-9 pass; Watch Together
+desktop<->phone retest pending on the new builds) and asked for these changes, all built:
+
+- **Pickers:** Recommend and Watch Together invite share `SocialPickerFrame` - header and button
+  fixed, friend list capped (~7 rows) and scrolling, dialog 48dp off the window edges.
+- **Recommended to you** left the Inbox: a thumbs-up header button (count, dot while any are new)
+  opens its own page in the big-card style (maintainer's pick). The Inbox badge and mark-read skip
+  recommendations; pop-ups and Android pushes (routed by `kind`) open the page. The server's
+  fallback push body still says "Open it in your Inbox" - changing it needs a backend deploy.
+- **Language:** Advanced Setup's three Language panels have a preview (two moments of a scene;
+  one alternating still on phones) and radio-list bodies. The first-run wizard's Language step is
+  now those three panels as steps (`LanguageOwnTitles`, `LanguageOtherTitles`; old diagram removed).
+- **Reviews:** What's New "Review new settings" and the "New settings available" offer open
+  Advanced Setup on `advancedSetupAreasChangedSince(...)`, each area whole, closing after the last.
+  The wizard Upgrade run is no longer opened by either.
+- **Windows startup:** the first-close prompt offers "Start Nuvio Z with Windows (Recommended)",
+  ticked; new THIS PC -> Startup & tray area in Advanced Setup (part of revision 11's review);
+  close action / Start with Windows moved from Social settings to Settings -> Advanced -> Startup
+  (`PlatformSettingsExtensions`, one line in upstream-owned `AdvancedSettingsPage.kt`).
+- **Sample stills:** Breaking Bad season 1 instead of the finale; Narcos (English show with Spanish)
+  and Squid Game for the language moments.
+
+**Round 2 (debug 119 desktop / 110 mobile):** lobby shows outstanding invites as dashed INVITED
+tiles; Language page 1 asks three questions; Startup & tray registers on every desktop (macOS has
+the tray; Start with Windows hidden off Windows - round 1 had dropped the close setting on macOS).
+**Fixed in desktop debug 120 (root cause found):** since debug 117 every desktop player sat on its
+opening overlay over playing video with nothing clickable. The 0.1.31-alpha merge left two load-time
+errors in the controls page, so controls.js never sent `controlsReady`: upstream party.js and
+controls.js both declared top-level `partyPanel` (SyntaxError; ours is now `watchPartyPanel`), and
+upstream `applyTheme` calls `setColors` on Z's opening-indicator stub. Found by loading controls.html
+in headless Edge; new tests in `NativePlayerControlsPageTest`. The round-2 overlay guard and
+`PlayerPage` logging stay. Mobile unaffected (no player page).
+"Review new settings" is untestable until the release's What's New event exists.
+
+Evidence: desktop focused packages (social, setup, settings, What's New, tray, watch party)
+919/919; mobile Android compile + the same packages 828/828. Full suites not rerun.
+Desktop `ddc31c078`, `ca7f07e53`, debug prep `2efeaa5a7`; mobile cherry-picks `4ff9e5f7b`,
+`4683dcf2c`, push routing + debug prep on top. Next: maintainer retest, then What's New copy and
+renders (maintainer writes the notes), then stable; TV port after that.
 
 ## Upstream sync complete (2026-10-21)
 
