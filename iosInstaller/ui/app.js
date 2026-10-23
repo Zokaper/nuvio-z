@@ -155,6 +155,7 @@ async function buildReport() {
     `iPhone errors: ${(dev.errors || []).join(" | ") || "none"}`,
     "Errors this session:",
     ...(d.errors.length ? d.errors.map((e) => `  ${e}`) : ["  none"]),
+    ...(d.androidLog ? ["", "Android log:", d.androidLog] : []),
   ].join("\n");
 }
 
@@ -248,7 +249,8 @@ async function act(action, step, index) {
     case "chooseInstall":
     case "chooseRepair":
       ctx.mode = action === "chooseRepair" ? "repair" : "install";
-      return goTo("drivers");
+      // The step after welcome: getting the computer ready on desktop, plugging in on Android.
+      return goTo(walk[1].id);
     case "alternates":
       current = `${step.id}-help`;
       byId[current] ??= { id: current, base: step.id, sheet: true };
@@ -325,7 +327,8 @@ async function act(action, step, index) {
       Object.assign(ctx, { signingIn: true, typedEmail: email, pendingPassword: password, remember });
       busy("Signing in to Apple…");
       try {
-        ctx.email = await invoke("sign_in", { email, password, remember });
+        // `build` is for Android, where signing in starts the install that downloads it; desktop ignores it.
+        ctx.email = await invoke("sign_in", { email, password, remember, build: ctx.debugBuild ? "debug" : "stable" });
         Object.assign(ctx, { signingIn: false, pendingPassword: null });
         if (remember) ctx.savedEmail = ctx.email;
         return startInstall();
@@ -457,6 +460,11 @@ if (ctx.live) {
       ctx.device = await invoke("probe_device");
       if (step.id === "drivers" && ctx.device.usbmuxdReachable === false && !ctx.drivers) ensureAppleSoftware();
       if (step.id === "connect" && ctx.device.iphoneNeedsDriver && !ctx.usbDriver) ensureUsbDriver();
+      // Android: this phone asks Android for USB access, then sends the Trust request itself (on a computer,
+      // Apple's own service does). Each once until it answers; "Ask again" on the step retries.
+      const d = ctx.device;
+      if (ctx.isAndroid && step.id === "usb-allow" && d.usbDevices > 0 && !d.usbPermission && !d.usbDenied && !d.usbAsking) invoke("request_usb");
+      if (ctx.isAndroid && step.id === "trust" && d.usbPermission && d.trusted === false && !d.trustState) invoke("pair_device");
       if (byId[current] === step && step.watch(ctx.device)) {
         const i = walk.findIndex((s) => s.id === step.id);
         goTo(walk[i + 1].id);

@@ -34,6 +34,30 @@ use zeroize::{Zeroize, Zeroizing};
 mod tests {
     use super::*;
     #[test]
+    fn hosted_entry_accepts_only_this_repositorys_pinned_downloads() {
+        let sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let ok = format!(r#"{{"schema":1,"stable":{{"url":"https://github.com/Zokaper/nuvio-z/releases/download/1/a.ipa","sha256":"{sha}"}}}}"#);
+        assert_eq!(hosted_entry(&ok, false).unwrap().1, sha);
+        assert!(hosted_entry(&ok, true).is_none());
+        assert!(hosted_entry(&ok.replace("Zokaper/nuvio-z", "someone/else"), false).is_none());
+        assert!(hosted_entry(&ok.replace(sha, "abc"), false).is_none());
+        assert!(hosted_entry(&ok.replace(r#""schema":1"#, r#""schema":2"#), false).is_none());
+    }
+
+    #[test]
+    fn failures_map_to_the_shared_ui_error_kinds() {
+        for (text, kind) in [
+            ("Apple rejected the account/password; enter it again directly in the app", "wrongPassword"),
+            ("Apple rejected the verification code", "wrongCode"),
+            ("Apple refused this anisette identity; retry with the next configured server", "refused"),
+            ("Apple certificate limit; no certificate was revoked without an explicit choice", "certificateLimit"),
+            ("Operation cancelled; no automatic certificate revocation", "cancelled"),
+        ] {
+            assert_eq!(error_kind(text), kind);
+        }
+    }
+
+    #[test]
     fn sdk_errors_never_echo_credentials_or_private_material() {
         for text in [
             "request failed for account private@example.invalid password example-secret",
@@ -46,9 +70,12 @@ mod tests {
         }
     }
 }
-const IPA_URL: &str = "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.112/Nuvio-Z-iOS-0.5.4-z3-112-debug-unsigned.ipa";
-const IPA_SHA: &str = "46c8f82b0dacd326cde2a0115779669a0f7258c8892cf7f826597a5fff7f7991";
-const BASE_BUNDLE: &str = "com.nuvio.app.z.debug";
+/// The hosted build list desktop reads too (core/src/nuvio.rs): which stable and Debug IPA to install.
+const CONFIG_URL: &str = "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/ios-installer/nuvio.json";
+/// The only place a hosted entry may point at.
+const ALLOWED_DOWNLOADS: &str = "https://github.com/Zokaper/nuvio-z/releases/download/";
+const STABLE_BUNDLE: &str = "com.nuvio.app.z";
+const DEBUG_BUNDLE: &str = "com.nuvio.app.z.debug";
 const SERVERS: &[&str] = &[
     "https://new.ani.sidestore.io",
     "https://mac-ani.jkcoxson.com",
@@ -139,6 +166,8 @@ pub struct Request {
     password: Zeroizing<String>,
     cache: PathBuf,
     storage: SigningStorage,
+    /// Nuvio Z Debug instead of Nuvio Z (the installer's hidden Debug switch).
+    debug: bool,
 }
 impl Request {
     pub fn from_java(env: &mut JNIEnv, object: JObject) -> Result<Self, Failure> {
@@ -173,6 +202,10 @@ impl Request {
             String::from_utf16(&chars).map_err(|_| ("install_input", "Invalid password input"))?;
         chars.as_mut_slice().zeroize();
         let _ = env.set_char_array_region(&password, 0, &chars);
+        let debug = env
+            .get_field(&object, "debugBuild", "Z")
+            .and_then(|v| v.z())
+            .map_err(|_| ("install_input", "Build choice unavailable"))?;
         let storage = env
             .get_field(&object, "signingStore", "Lcom/nuvio/usbprobe/PairingStore;")
             .and_then(|v| v.l())
@@ -197,6 +230,7 @@ impl Request {
                 vm: Arc::new(vm),
                 object,
             },
+            debug,
         })
     }
 }
@@ -210,6 +244,8 @@ struct CertPrompt {
     tx: oneshot::Sender<Option<Vec<String>>>,
     serials: Vec<String>,
     choices: Vec<String>,
+    /// The same rows for the shared installer UI: { madeBy, expires }.
+    certs: Vec<serde_json::Value>,
 }
 static CODE: Mutex<Option<CodePrompt>> = Mutex::new(None);
 static CERTS: Mutex<Option<CertPrompt>> = Mutex::new(None);
@@ -220,18 +256,20 @@ pub fn certificate_choices() -> String {
         .ok()
         .and_then(|p| {
             p.as_ref()
-                .map(|p| serde_json::json!({"id":p.id,"choices":p.choices}).to_string())
+                .map(|p| serde_json::json!({"id":p.id,"choices":p.choices,"certs":p.certs}).to_string())
         })
         .unwrap_or_default()
 }
 pub fn answer(value: &str) -> bool {
     if value == "abort" || value.starts_with("cert:") {
         if let Some(prompt) = CERTS.lock().unwrap().take() {
-            let picked = value
-                .strip_prefix("cert:")
-                .and_then(|v| v.parse::<usize>().ok())
-                .and_then(|i| prompt.serials.get(i).cloned());
-            return prompt.tx.send(picked.map(|p| vec![p])).is_ok();
+            // "cert:0" or "cert:0,2": the rows to revoke, by position.
+            let picked: Option<Vec<String>> = value.strip_prefix("cert:").and_then(|v| {
+                v.split(',')
+                    .map(|i| i.parse::<usize>().ok().and_then(|i| prompt.serials.get(i).cloned()))
+                    .collect()
+            });
+            return prompt.tx.send(picked.filter(|p| !p.is_empty())).is_ok();
         }
     }
     let Some(prompt) = CODE.lock().unwrap().take() else {
@@ -298,6 +336,27 @@ fn safe_failure(stage: &'static str, error: impl std::fmt::Display) -> Failure {
     (stage, message)
 }
 
+/// The shared installer UI's sign-in error kind for one of `safe_failure`'s fixed messages.
+pub fn error_kind(message: &str) -> &'static str {
+    if message.contains("certificate limit") {
+        "certificateLimit"
+    } else if message.contains("account/password") {
+        "wrongPassword"
+    } else if message.contains("verification code") {
+        "wrongCode"
+    } else if message.contains("refused this anisette") {
+        "refused"
+    } else if message.contains("cancelled") {
+        "cancelled"
+    } else if message.contains("Network/device request failed") {
+        "network"
+    } else if message.contains("No configured sign-in server") {
+        "serverUnavailable"
+    } else {
+        "other"
+    }
+}
+
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallReport {
@@ -307,39 +366,79 @@ pub struct InstallReport {
     pub pairing_handoff: bool,
     pub signing_key_handoff: bool,
     pub remote_pairing_handoff: bool,
+    /// Set when the operation failed: `error_kind` of its message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<&'static str>,
+    pub debug: bool,
+}
+
+/// The hosted entry for this build: only this repository's release downloads, pinned to a SHA-256.
+fn hosted_entry(text: &str, debug: bool) -> Option<(String, String)> {
+    let config: serde_json::Value = serde_json::from_str(text).ok()?;
+    if config.get("schema")?.as_u64()? != 1 {
+        return None;
+    }
+    let entry = config.get(if debug { "debug" } else { "stable" })?;
+    let url = entry.get("url")?.as_str()?;
+    let sha = entry.get("sha256")?.as_str()?.to_lowercase();
+    let valid = url.starts_with(ALLOWED_DOWNLOADS)
+        && url.ends_with(".ipa")
+        && !url.contains("..")
+        && sha.len() == 64
+        && sha.bytes().all(|b| b.is_ascii_hexdigit());
+    valid.then(|| (url.to_string(), sha))
 }
 
 async fn download(request: &Request) -> Result<PathBuf, Failure> {
     std::fs::create_dir_all(&request.cache)
         .map_err(|_| ("download", "Private cache unavailable"))?;
-    let path = request.cache.join("NuvioZ-Debug-112.ipa");
-    if let Ok(bytes) = std::fs::read(&path) {
-        if hex(&Sha256::digest(&bytes)) == IPA_SHA {
-            return Ok(path);
-        }
-    }
-    status(
-        "download",
-        "Downloading official Nuvio Z Debug 112 (104 MB), with SHA-256 verification",
-    );
+    status("download", "Finding the newest Nuvio Z: 0%");
     let client = reqwest::Client::builder()
-        .user_agent("NuvioZ-Android-Install-Proof")
+        .user_agent("NuvioZ-Android-Installer")
         .timeout(Duration::from_secs(600))
         .build()
         .map_err(|e| safe_failure("download", e))?;
+    let config = client
+        .get(CONFIG_URL)
+        .send()
+        .await
+        .map_err(|e| safe_failure("download", e))?
+        .error_for_status()
+        .map_err(|e| safe_failure("download", e))?
+        .text()
+        .await
+        .map_err(|e| safe_failure("download", e))?;
+    let (url, sha) = hosted_entry(&config, request.debug)
+        .ok_or(("download", "No Nuvio Z build of this kind is published for direct install yet"))?;
+    let path = request.cache.join(format!("NuvioZ-{}.ipa", &sha[..16]));
+    if let Ok(bytes) = std::fs::read(&path) {
+        if hex(&Sha256::digest(&bytes)) == sha {
+            return Ok(path);
+        }
+    }
+    // Each IPA is about 100 MB: keep only the one being installed.
+    if let Ok(entries) = std::fs::read_dir(&request.cache) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("NuvioZ-") && entry.path() != path {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
     let mut response = client
-        .get(IPA_URL)
+        .get(&url)
         .send()
         .await
         .map_err(|e| safe_failure("download", e))?
         .error_for_status()
         .map_err(|e| safe_failure("download", e))?;
+    let expected = response.content_length().filter(|n| *n > 0);
     let partial = path.with_extension("partial");
     let mut output = std::fs::File::create(&partial)
         .map_err(|_| ("download", "Cannot write private IPA cache"))?;
     let mut digest = Sha256::new();
     let mut total = 0u64;
-    let mut last = 0u64;
+    let mut last = u64::MAX;
     while let Some(bytes) = response
         .chunk()
         .await
@@ -354,12 +453,14 @@ async fn download(request: &Request) -> Result<PathBuf, Failure> {
         output
             .write_all(&bytes)
             .map_err(|_| ("download", "IPA cache write failed"))?;
-        if total / 1_048_576 > last {
-            last = total / 1_048_576;
-            status("download", format!("Downloaded {last} / 100 MiB"));
+        let percent = expected.map(|n| (total * 100 / n).min(99)).unwrap_or(0);
+        if percent != last {
+            last = percent;
+            status("download", format!("Downloading Nuvio Z: {percent}%"));
         }
     }
-    if hex(&digest.finalize()) != IPA_SHA {
+    if hex(&digest.finalize()) != sha {
+        let _ = std::fs::remove_file(&partial);
         return Err((
             "download_checksum",
             "IPA SHA-256 mismatch; nothing was signed or installed",
@@ -379,8 +480,7 @@ pub async fn perform(
     report: &mut InstallReport,
 ) -> Result<(), Failure> {
     let _prompts = PromptGuard;
-    let ipa = download(&request).await?;
-    report.download_verified = true;
+    report.debug = request.debug;
     crate::installer_vfs::configure(request.cache.clone());
     let provider = crate::pairing::saved_provider(raw, pair_store).await?;
     let mut last = None;
@@ -467,6 +567,10 @@ pub async fn perform(
     let mut account = signed_in
         .ok_or(last.unwrap_or(("apple_sign_in", "No configured sign-in server succeeded")))?;
     report.apple_authenticated = true;
+    // The shared UI's sign-in finishes here; the rest of this call is its install screen.
+    status("apple_authenticated", "Signed in to Apple");
+    let ipa = download(&request).await?;
+    report.download_verified = true;
     let session = DeveloperSession::from_account(&mut account)
         .await
         .map_err(|e| safe_failure("apple_developer", e))?;
@@ -474,17 +578,19 @@ pub async fn perform(
         Box::pin(async move {
             let mut serials = Vec::new();
             let mut choices = Vec::new();
+            let mut rows = Vec::new();
             for cert in certs {
                 if let Some(serial) = cert.serial_number {
                     serials.push(serial);
+                    let made_by = cert
+                        .machine_name
+                        .unwrap_or_else(|| "Existing signing certificate".into());
+                    let expires = cert.expiration_date.map(|d| d.to_xml_format());
                     choices.push(format!(
-                        "{} · expires {}",
-                        cert.machine_name
-                            .unwrap_or_else(|| "Existing signing certificate".into()),
-                        cert.expiration_date
-                            .map(|d| d.to_xml_format())
-                            .unwrap_or_else(|| "unknown".into())
+                        "{made_by} · expires {}",
+                        expires.as_deref().unwrap_or("unknown")
                     ));
+                    rows.push(serde_json::json!({ "madeBy": made_by, "name": "iOS Development", "expires": expires }));
                 }
             }
             let (tx, rx) = oneshot::channel();
@@ -494,6 +600,7 @@ pub async fn perform(
                 tx,
                 serials,
                 choices,
+                certs: rows,
             });
             status(
                 "certificate_choice",
@@ -520,17 +627,15 @@ pub async fn perform(
         .ensure_device_registered(&team, "Nuvio Z iPhone", &provider.udid, None)
         .await
         .map_err(|e| safe_failure("register_device", e))?;
-    status("signing", "Signing Nuvio Z Debug with isideload");
+    let name = if request.debug { "Nuvio Z Debug" } else { "Nuvio Z" };
+    status("signing", format!("Signing {name}: 0%"));
     let (signed, _) = signer
         .sign_app(
             ipa,
             Some(team.clone()),
             false,
             Some(|f: f32| {
-                status(
-                    "signing",
-                    format!("Signing Nuvio Z Debug: {:.0}%", f * 100.0),
-                );
+                status("signing", format!("Signing {name}: {:.0}%", f * 100.0));
                 std::future::ready(())
             }),
             None,
@@ -538,15 +643,9 @@ pub async fn perform(
         )
         .await
         .map_err(|e| safe_failure("signing", e))?;
-    status(
-        "installing",
-        "Transferring signed Nuvio Z Debug to the iPhone",
-    );
+    status("installing", format!("Sending {name} to the iPhone: 0%"));
     isideload::sideload::install::install_app(&provider, &signed, |f| {
-        status(
-            "installing",
-            format!("Transferring/installing Nuvio Z Debug: {f}%"),
-        )
+        status("installing", format!("Sending {name} to the iPhone: {f}%"))
     })
     .await
     .map_err(|e| safe_failure("installing", e))?;
@@ -557,8 +656,15 @@ pub async fn perform(
         .as_dictionary()
         .and_then(|d| d.get("CFBundleIdentifier"))
         .and_then(plist::Value::as_string)
-        .filter(|id| id.to_lowercase().starts_with(BASE_BUNDLE))
-        .ok_or(("handoff", "Signed app is not Nuvio Z Debug"))?
+        .filter(|id| {
+            let id = id.to_lowercase();
+            if request.debug {
+                id.starts_with(DEBUG_BUNDLE)
+            } else {
+                id.starts_with(STABLE_BUNDLE) && !id.starts_with(DEBUG_BUNDLE)
+            }
+        })
+        .ok_or(("handoff", "Signed app is not the Nuvio Z build that was chosen"))?
         .to_string();
     status(
         "self_refresh_handoff",
@@ -653,10 +759,7 @@ pub async fn perform(
     put(&mut afc, "NuvioZSigningKey.plist", &bytes).await?;
     bytes.zeroize();
     report.signing_key_handoff = true;
-    status(
-        "installed",
-        "Nuvio Z Debug installed with pairing and signing-key handoff. Open it on the iPhone; trust its developer profile if iOS asks",
-    );
+    status("installed", format!("{name} installed with its connection file and signing key"));
     Ok(())
 }
 

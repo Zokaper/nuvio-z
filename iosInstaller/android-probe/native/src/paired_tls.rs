@@ -136,6 +136,30 @@ pub async fn developer_mode(
     provider: &dyn idevice::provider::IdeviceProvider,
     record: &PairingFile,
 ) -> Result<bool, IdeviceError> {
+    amfi(lockdown, provider, record)
+        .await?
+        .get_developer_mode_status()
+        .await
+}
+
+/// Makes Settings › Privacy & Security › Developer Mode appear (iOS hides it until a computer asks). Only reveals
+/// the switch, as desktop's `reveal_developer_mode` does; the person still turns it on and confirms the restart.
+pub async fn reveal_developer_mode(
+    lockdown: &mut LockdownClient,
+    provider: &dyn idevice::provider::IdeviceProvider,
+    record: &PairingFile,
+) -> Result<(), IdeviceError> {
+    amfi(lockdown, provider, record)
+        .await?
+        .reveal_developer_mode_option_in_ui()
+        .await
+}
+
+async fn amfi(
+    lockdown: &mut LockdownClient,
+    provider: &dyn idevice::provider::IdeviceProvider,
+    record: &PairingFile,
+) -> Result<idevice::amfi::AmfiClient, IdeviceError> {
     let (port, ssl) = lockdown.start_service("com.apple.amfi.lockdown").await?;
     let device = provider.connect(port).await?;
     let device = if ssl {
@@ -153,9 +177,7 @@ pub async fn developer_mode(
     } else {
         device
     };
-    idevice::amfi::AmfiClient::new(device)
-        .get_developer_mode_status()
-        .await
+    Ok(idevice::amfi::AmfiClient::new(device))
 }
 
 #[cfg(test)]

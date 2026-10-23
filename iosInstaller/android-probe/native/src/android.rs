@@ -212,6 +212,24 @@ async fn probe(
                 "Private Android store unavailable".to_string(),
             ))?;
             let mut pairing = crate::pairing::PairingReport::default();
+            // 7: what the installer screens wait on. 8: reveal Developer Mode in Settings. Neither pairs.
+            if mode == 7 {
+                let status = crate::pairing::status(&provider, store, &mut pairing, |stage, message| {
+                    if stage == "lockdown_connected" {
+                        report.lockdown_connected = true;
+                    }
+                    event(report, stage, message);
+                })
+                .await;
+                report.pairing = Some(pairing);
+                report.status = Some(status.map_err(|(stage, message)| (stage, message.to_string()))?);
+                return Ok(());
+            }
+            if mode == 8 {
+                return crate::pairing::reveal_developer_mode(&provider, store)
+                    .await
+                    .map_err(|(stage, message)| (stage, message.to_string()));
+            }
             let result = crate::pairing::authenticate(
                 &provider,
                 store,
@@ -236,6 +254,9 @@ async fn probe(
                 let mut installed = crate::installer::InstallReport::default();
                 let result =
                     crate::installer::perform(&provider, store, request, &mut installed).await;
+                if let Err((_, message)) = &result {
+                    installed.error_kind = Some(crate::installer::error_kind(message));
+                }
                 if let Some(pairing) = &mut report.pairing {
                     pairing.self_refresh_ready = installed.pairing_handoff
                         && installed.remote_pairing_handoff
@@ -317,7 +338,7 @@ fn run(
                 tokio::select! {
                     biased;
                     _ = CANCEL.wait(attempt) => Err("probe_cancelled"),
-                    result = timeout(Duration::from_secs(if mode == 6 { 1200 } else if mode >= 3 { 180 } else { 45 }), probe(fd, mode, &mut report, store, install)) =>
+                    result = timeout(Duration::from_secs(if mode == 6 { 1200 } else if mode == 7 || mode == 8 { 60 } else if mode >= 3 { 180 } else { 45 }), probe(fd, mode, &mut report, store, install)) =>
                         result.map_err(|_| "deadline"),
                 }
             });
@@ -328,7 +349,9 @@ fn run(
                         &mut report,
                         "complete",
                         if mode == 6 {
-                            "Signed Nuvio Z Debug installed with self-refresh handoff"
+                            "Signed Nuvio Z installed with self-refresh handoff"
+                        } else if mode == 7 || mode == 8 {
+                            "Phone status read through the saved record"
                         } else if mode >= 3 {
                             "Authenticated information read succeeded; no Apple authentication, signing or installation"
                         } else {

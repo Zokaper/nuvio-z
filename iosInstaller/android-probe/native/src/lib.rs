@@ -2,7 +2,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const VERSION: &str = "nuvio-usb-probe/0.5.2 isideload/0.4.6+android rustls-platform-verifier/0.7.1 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+pub const VERSION: &str = "nuvio-z-installer-android/0.6.0 isideload/0.4.6+android rustls-platform-verifier/0.7.1 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
 #[cfg(target_os = "android")]
 mod android_network;
 #[cfg(target_os = "android")]
@@ -63,6 +63,9 @@ pub struct ProbeReport {
     pub pairing: Option<pairing::PairingReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installation: Option<installer::InstallReport>,
+    /// Mode 7: what the installer screens wait on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<pairing::PhoneStatus>,
 }
 
 impl Default for ProbeReport {
@@ -78,6 +81,7 @@ impl Default for ProbeReport {
             blocker: None,
             pairing: None,
             installation: None,
+            status: None,
         }
     }
 }

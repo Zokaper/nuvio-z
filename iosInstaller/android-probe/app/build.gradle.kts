@@ -21,8 +21,8 @@ android {
         applicationId = "com.nuvio.app.z.usbprobe"
         minSdk = 24
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 7
-        versionName = "install-proof-0.5.2"
+        versionCode = 8
+        versionName = "installer-0.6.0"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -54,8 +54,33 @@ val buildUsbProbeRust = tasks.register<BuildUsbProbeRust>("buildUsbProbeRust") {
     buildScript.set(projectDir.resolve("../build-native.ps1"))
     outputDirectory.set(layout.buildDirectory.dir("generated/jniLibs"))
 }
+// The installer's screens are desktop's own iosInstaller/ui, copied at build time (never a second copy in git),
+// with android-bridge.js loaded before the shared scripts so they find window.__TAURI__ as on desktop.
+abstract class CopyInstallerUi : DefaultTask() {
+    @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE) abstract val ui: DirectoryProperty
+    @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE) abstract val bridge: RegularFileProperty
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction fun copy() {
+        val out = outputDirectory.get().asFile.resolve("ui")
+        out.deleteRecursively()
+        ui.get().asFile.copyRecursively(out)
+        bridge.get().asFile.copyTo(out.resolve("android-bridge.js"))
+        val index = out.resolve("index.html")
+        val marker = "<script src=\"icons.js\"></script>"
+        val html = index.readText()
+        check(html.contains(marker)) { "ui/index.html no longer loads icons.js first; update CopyInstallerUi" }
+        index.writeText(html.replace(marker, "<script src=\"android-bridge.js\"></script>\n  $marker"))
+    }
+}
+val copyInstallerUi = tasks.register<CopyInstallerUi>("copyInstallerUi") {
+    ui.set(projectDir.resolve("../../ui"))
+    bridge.set(projectDir.resolve("src/main/web/android-bridge.js"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/installerUi"))
+}
 androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) {
     it.sources.jniLibs?.addGeneratedSourceDirectory(buildUsbProbeRust, BuildUsbProbeRust::outputDirectory)
+    it.sources.assets?.addGeneratedSourceDirectory(copyInstallerUi, CopyInstallerUi::outputDirectory)
 }
 
 dependencies {

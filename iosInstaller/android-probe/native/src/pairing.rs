@@ -264,3 +264,107 @@ pub async fn authenticate(
     let _ = tokio::time::timeout(Duration::from_secs(2), lockdown.stop_session()).await;
     result
 }
+
+/// One installed app the installer screens care about. Same shape as desktop's `device::AppInfo`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    pub bundle_id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Apps {
+    pub sidestore: Option<AppInfo>,
+    pub local_dev_vpn: Option<AppInfo>,
+    pub nuvio_stable: Option<AppInfo>,
+    pub nuvio_debug: Option<AppInfo>,
+}
+
+/// What the shared installer's steps wait on (desktop's `DeviceSnapshot` fields of the same names).
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneStatus {
+    /// The saved record opened an authenticated session: Trust was tapped for this phone.
+    pub trusted: bool,
+    pub ios_version: Option<String>,
+    pub developer_mode: Option<bool>,
+    pub apps: Option<Apps>,
+    /// Whether the installed Nuvio Z (Debug first) holds its own connection file.
+    pub nuvio_pairing: Option<bool>,
+}
+
+async fn longer<T>(
+    stage: &'static str,
+    future: impl Future<Output = Result<T, IdeviceError>>,
+) -> Result<T, Failure> {
+    tokio::time::timeout(Duration::from_secs(20), future)
+        .await
+        .map_err(|_| (stage, "Device step timed out"))?
+        .map_err(|error| protocol_error(stage, error))
+}
+
+/// Reads the phone through its saved record only. A phone without one is reported untrusted; this never pairs.
+pub async fn status(
+    raw: &dyn IdeviceProvider,
+    store: &mut dyn Store,
+    report: &mut PairingReport,
+    progress: impl FnMut(&str, &str),
+) -> Result<PhoneStatus, Failure> {
+    let mut status = PhoneStatus::default();
+    match authenticate(raw, store, false, false, report, progress).await {
+        Ok(info) => {
+            status.trusted = true;
+            status.ios_version = info.get("ProductVersion").cloned();
+            status.developer_mode = report.developer_mode;
+        }
+        Err(("pairing_record_missing", _)) => return Ok(status),
+        Err(failure) => return Err(failure),
+    }
+    let paired = saved_provider(raw, store).await?;
+    let list = longer("apps", async {
+        let mut proxy = idevice::installation_proxy::InstallationProxyClient::connect(&paired).await?;
+        proxy.get_apps(Some("User"), None).await
+    })
+    .await?;
+    let mut apps = Apps::default();
+    for (bundle, info) in &list {
+        let field = |k: &str| info.as_dictionary().and_then(|d| d.get(k)).and_then(|v| v.as_string());
+        let lower = bundle.to_lowercase();
+        let slot = if lower.starts_with("com.sidestore.sidestore") || field("CFBundleDisplayName") == Some("SideStore") {
+            &mut apps.sidestore
+        } else if lower.starts_with("com.jkcoxson.localdevvpn") {
+            &mut apps.local_dev_vpn
+        } else if lower.starts_with("com.nuvio.app.z.debug") {
+            &mut apps.nuvio_debug
+        } else if lower == "com.nuvio.app.z" || lower.starts_with("com.nuvio.app.z.") {
+            &mut apps.nuvio_stable
+        } else {
+            continue;
+        };
+        *slot = Some(AppInfo { bundle_id: bundle.clone(), version: field("CFBundleShortVersionString").unwrap_or("").into() });
+    }
+    if let Some(nuvio) = apps.nuvio_debug.as_ref().or(apps.nuvio_stable.as_ref()) {
+        let bundle = nuvio.bundle_id.clone();
+        status.nuvio_pairing = longer("nuvio_pairing", async {
+            let ha = idevice::house_arrest::HouseArrestClient::connect(&paired).await?;
+            let mut afc = ha.vend_documents(bundle).await?;
+            Ok::<_, IdeviceError>(afc.list_dir("/Documents").await?.iter().any(|e| e == "NuvioZPairing.plist"))
+        })
+        .await
+        .ok();
+    }
+    status.apps = Some(apps);
+    Ok(status)
+}
+
+/// "It's not in the list": asks the phone to show Developer Mode in Settings, through the saved record.
+pub async fn reveal_developer_mode(raw: &dyn IdeviceProvider, store: &mut dyn Store) -> Result<(), Failure> {
+    let paired = saved_provider(raw, store).await?;
+    let lockdown = bounded("lockdown", LockdownClient::connect(&paired)).await?;
+    let mut lockdown = bounded("lockdown_tls", crate::paired_tls::start(lockdown, &paired.record)).await?;
+    let result = bounded("developer_mode", crate::paired_tls::reveal_developer_mode(&mut lockdown, &paired, &paired.record)).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), lockdown.stop_session()).await;
+    result
+}

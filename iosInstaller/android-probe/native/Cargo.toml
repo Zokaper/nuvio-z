@@ -17,7 +17,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Same device/signing pins as ../../Cargo.toml; this workspace does not change production dependencies.
-idevice = { version = "=0.1.68", default-features = false, features = ["tcp", "rustls", "ring", "pair", "amfi", "house_arrest", "remote_pairing"] }
+idevice = { version = "=0.1.68", default-features = false, features = ["tcp", "rustls", "ring", "pair", "amfi", "house_arrest", "remote_pairing", "installation_proxy", "afc"] }
 rusbmux = { path = "vendor/rusbmux", default-features = false, features = ["nusb"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 serde = { version = "1", features = ["derive"] }

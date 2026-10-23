@@ -3,11 +3,14 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <!-- Experimental signing/install proof: Apple, anisette and pinned official IPA download. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <application android:allowBackup="false" android:label="Nuvio Z USB Probe"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <application android:allowBackup="false" android:label="Nuvio Z Installer"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@android:style/Theme.Material.NoActionBar">
         <receiver android:name=".UsbPermissionReceiver" android:exported="false" />
-        <activity android:name=".UsbProbeActivity" android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+        <!-- The installer: desktop's screens (iosInstaller/ui) in a WebView. -->
+        <activity android:name=".InstallerActivity" android:exported="true"
+            android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -18,5 +21,9 @@
             <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/apple_usb_devices" />
         </activity>
+        <!-- The proof's diagnostic screen, kept for adb: am start -n com.nuvio.app.z.usbprobe/com.nuvio.usbprobe.UsbProbeActivity -->
+        <activity android:name=".UsbProbeActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
     </application>
 </manifest>

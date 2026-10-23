@@ -403,7 +403,7 @@ function buildSteps(ctx) {
 // Each override is merged over the desktop step of the same id; anything not named stays as on desktop.
 function forAndroid(all, ctx) {
   const d = ctx.device || {};
-  const asked = ["denied", "timedOut", "locked"];
+  const asked = ["denied", "timedOut", "locked", "failed"];
   const lock = `<div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> This phone never keeps it; “Remember” saves only your email.</span></div>`;
   const savedForm = ctx.savedEmail && !ctx.useOtherAccount;
   const password = `<label>Password<input id="password" type="password" autocomplete="current-password" value="${esc(ctx.live ? ctx.pendingPassword || "" : "password12")}"${ctx.signingIn ? " disabled" : ""}></label>`;
@@ -448,6 +448,7 @@ function forAndroid(all, ctx) {
       liveStatus: (s) => s.trustState === "denied" ? { kind: "bad", text: "The iPhone said Don’t Trust.", sub: "Unplug it, plug it back in, then tap Ask again." }
         : s.trustState === "timedOut" ? { kind: "warn", text: "Trust wasn’t tapped in time.", sub: "Unlock the iPhone and tap Ask again." }
         : s.trustState === "locked" ? { kind: "warn", text: "The iPhone is locked.", sub: "Unlock it and tap Ask again." }
+        : s.trustState === "failed" ? { kind: "warn", text: "The iPhone didn’t answer.", sub: "Unplug it, plug it back in, then tap Ask again." }
         : null,
       buttons: asked.includes(d.trustState) ? [{ label: "Ask again", action: "pairAgain" }] : [],
       alternates: [

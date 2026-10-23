@@ -35,6 +35,8 @@ final class UsbProbeSession {
     private final List<String> journal = new ArrayList<>();
     private final List<String> results = new ArrayList<>();
     private Listener listener;
+    /** Called once with the final report of the attempt that set it (the installer bridge). */
+    private java.util.function.Consumer<String> done;
     private long attempt;
     private UsbDevice selected;
     private String cancelled;
@@ -86,7 +88,11 @@ final class UsbProbeSession {
         return start(device, mode, null);
     }
     boolean start(UsbDevice device, int mode, InstallRequest install) {
+        return start(device, mode, install, null);
+    }
+    boolean start(UsbDevice device, int mode, InstallRequest install, java.util.function.Consumer<String> whenDone) {
         if (busy()) return false;
+        done = whenDone;
         final long id = NativeUsbProbe.nextAttempt();
         attempt = id;
         selected = device;
@@ -203,5 +209,8 @@ final class UsbProbeSession {
                 + (waitingForReboot ? "Pairing retained: complete the iPhone reboot, reconnect and tap Saved pairing."
                 : mode == 6 && ok ? "Nuvio Z Debug installed. Open it on the iPhone and trust its developer profile if iOS asks."
                 : mode >= 3 && ok ? "Authenticated pairing connection passed." : "Ready to retry."));
+        java.util.function.Consumer<String> callback = done;
+        done = null;
+        if (callback != null) callback.accept(result);
     }
 }
