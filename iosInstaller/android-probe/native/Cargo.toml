@@ -1,0 +1,40 @@
+[package]
+name = "nuvioz-usb-probe"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+# Intentionally independent: experimental dependencies cannot change the desktop/iOS lockfile.
+[workspace]
+members = ["vendor/rusbmux"]
+resolver = "2"
+
+[lib]
+name = "nuvioz_usb_probe"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Same device protocol pin as ../../Cargo.toml; no installer core/signing/authentication linked.
+idevice = { version = "=0.1.68", default-features = false, features = ["tcp", "rustls", "ring"] }
+rusbmux = { path = "vendor/rusbmux", default-features = false, features = ["nusb"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "=0.21.1"
+nusb = { version = "=0.2.8", features = ["tokio"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
+
+[dev-dependencies]
+plist = "1"
+tokio = { version = "1", features = ["test-util"] }
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true
+panic = "unwind"

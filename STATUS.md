@@ -5,6 +5,49 @@ Last updated: 2026-10-23
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK only | Phase 1 ARM64/x86_64 build, 5 Rust + 5 emulator tests pass; real Galaxy/iPhone USB validation pending |
+
+## Android-to-iPhone USB experiment (2026-10-23)
+
+Authorized scope: a debug-only ARM64 Android harness for permission, raw USB mux and unpaired
+Lockdown device-info reads. No Apple login, signing, pairing or installation. Isolated worktree:
+`.codex-worktrees/android-ios-usb-phase1`; normal Android, desktop and iOS behavior stays unchanged.
+The maintainer confirms the existing desktop install / iPhone self-refresh flow works. No Android
+USB hardware result is reported yet; the available iPhone is approximately a 13/14, exact iOS TBD.
+Implemented `iosInstaller/android-probe/`: optional `:androidUsbProbe`, separate debug-only package
+`com.nuvio.app.z.usbprobe` (no release variant or Internet permission), USB permission/attachment UI,
+JNI descriptor adoption, direct rusbmux handshake and four unpaired GetValue queries. No production
+Android/desktop/iOS sources or installer lockfile changed. One upstream seam: opt-in module include
+in `settings.gradle.kts`; ledger C26 and PATCH-SURFACE record it.
+
+Released rusbmux 0.3.0 needed a documented vendor patch: accept an already-open nusb handle, disable
+Android-inapplicable discovery, prefer the active configuration, use idevice 0.1.68 (matching the
+installer), and define a deliberately unusable path for unused pairing code. No preflight/daemon/
+pairing path is called. `VENDOR.md` records the archive hash and exact changed files. nusb 0.2.8 is
+unmodified. Routing identity is a Phase 1 placeholder; it must not be used for Phase 2 pairing.
+
+**Verified locally on 2026-10-23:** ARM64 + x86_64 optimized Rust JNI libraries and the debug APK build;
+host Rust **5/5** (real idevice protocol against fake Lockdown peer, refusal and timeout included);
+Android API 34 x86_64 emulator **5/5**, zero failures/skips (JNI load, invalid/non-USB FD diagnostics,
+Java FD ownership, debug/no-network isolation, Activity startup). Lint **0 errors, 11 warnings**
+(test UI localization, target matching the app, backup declaration). APK signature and 16 KB ZIP/
+ELF segment alignment pass. Normal Gradle project graph excludes the module; opted-in module has
+no release variant. Screen and the self-test button were inspected on the emulator.
+
+The emulator tests caught a timeout constructed outside Tokio's runtime and poisoned busy state;
+both are corrected and the final five tests pass. This is **not physical USB evidence**: the AVD
+does not expose USB host hardware. Real Android permission grant/denial, nusb USB access/configuration,
+mux handshake, iPhone information reads, detach/reconnect and ARM64 runtime behavior remain untested.
+No real phone was attached to adb in this session. Do not declare Phase 1's USB criteria passed or
+start pairing/Phase 2 before reviewing the Galaxy/iPhone report.
+
+Test APK (7,566,563 bytes), copied to `Nuvio Z/release-artifacts/android-ios-usb-phase1/`:
+`Nuvio-Z-USB-Probe-phase1.apk`; SHA-256
+`84b03d7f474f0961fd1692176e8a0ef044e4a70f23f810f9fab9422b033fff0c`.
+Build/reproduction/device checklist: `iosInstaller/android-probe/README.md`. Local evidence:
+`build/usb-probe-research/{android-smoke,rust-tests,normal-projects,probe-tasks}.log`, emulator screen,
+and app build's lint / connected-test XML reports. No tag, release, production deployment or
+full installer integration is part of this experiment.
 
 ## Regional My language switched subtitles off (2026-10-23, debug 112 / 131)
 
