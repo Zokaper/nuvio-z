@@ -234,7 +234,8 @@ private val LanguageSentinels = setOf(
 /**
  * [code] in the form upstream's track pickers can match. They keep a region only where it names a
  * different subtitle or dub (pt-BR, es-419, zh-TW / zh-CN) and otherwise compare it whole, so a stored
- * "en-sa" (a device locale, carried over by [migrateLegacyLanguageFields]) matched no English track:
+ * "en-sa" (in the old audio field, origin unknown, carried over by [migrateLegacyLanguageFields] and shown
+ * as plain English by the settings label) matched no English track:
  * Attack on Titan played with its only subtitle track, English and on by default, switched off. Any
  * other region is dropped here, the one seam both pickers read through; sentinels pass unchanged.
  */
