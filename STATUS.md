@@ -9,6 +9,13 @@ Last updated: 2026-10-24
 
 ## Android-to-iPhone USB experiment (2026-10-23)
 
+**Next phase started 2026-10-24: desktop-like Android installer.** Plan and decisions:
+`Nuvio Z/PLAN-android-installer.md`. The Android app runs desktop's own `iosInstaller/ui/` in a WebView through a
+Java bridge with the same invoke/event names (not Tauri Android). Android remembers the email only. The installer
+moves to its own repo `Zokaper/nuviozinstaller`. Stage A is committed (`1f5f7c1f7`): the Android variant of the
+shared screens plus a phone layout, renders sent for review. Desktop DOM is identical across 114 preview variants.
+The bridge, native command split, repo split and device checks are not started.
+
 **REAL INSTALL PASS ? 2026-10-24, APK 0.5.2:** maintainer confirms Nuvio Z Debug is installed
 on the iPhone. Pulled Galaxy adb logs independently verify attempt 2 / mode 6 completed at
 **00:51:44.777 local**, `ok=true`, `blocker=null`, both transport flags true and
