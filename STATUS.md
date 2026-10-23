@@ -3,8 +3,8 @@ Last updated: 2026-10-23
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 130 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
-| Mobile | `claude/social-v2` | 111 (dispatched) | Same final check on debug 111 (Android + iOS) |
+| Desktop | `claude/social-v2-design` | 130 | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
+| Mobile | `claude/social-v2` | 111 | Same final check on debug 111 (Android + iOS) |
 
 ## Social V2: final check (2026-10-23)
 
