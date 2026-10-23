@@ -5,9 +5,56 @@ Last updated: 2026-10-23
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.3 | Recovery harness and automated checks pass; only 0.2 happy path device-tested; 0.3 reconnect/denial/unplug checklist pending; Phase 2 design reviewed, implementation gated |
 
 ## Android-to-iPhone USB experiment (2026-10-23)
+
+**0.3 reliability follow-up:** the maintainer explicitly confirms only the happy flow was physically
+tested; no reconnect, denial/retry or active-unplug acceptance is promoted. No physical phone was
+attached to adb during this follow-up. Updated APK **phase1-0.3** (versionCode 3, native 0.3.0) is
+ready for the Galaxy/iPhone sweep in `iosInstaller/android-probe/README.md`, "Phase 1 reliability
+checklist (0.3)". **Phase 2 implementation has not started; it waits for those device reports.**
+
+The harness now holds a live mux connection for **10 seconds before Lockdown** in an explicit unplug
+test mode; the ordinary probe still performs the same four unpaired GetValue requests. Detach or
+permission loss cancels the selected attempt; a Cancel button uses the same path. Monotonic native
+attempt IDs preserve cancellation even before JNI starts and prevent old cancellation poisoning the
+next attempt. A drop guard cancels mux loops on cancellation/deadline. The worker closes Java's FD
+after JNI returns; retry is admitted only after cleanup. A process-owned session survives screen
+recreation/Back and reopen, rejects overlapping attempts, and retains the last 12 native results plus
+a bounded journal. Completion rechecks the selected USB instance and permission, so a detached attempt
+cannot overwrite the recovery state with a successful result. History is process-local, not durable.
+INFO native logging replaces DEBUG (vendor DEBUG includes packet payloads).
+
+**Final automated evidence:** Rust host **8/8**, JVM permission-state **15/15**, Android API 34 x86_64
+emulator **14/14**, zero failures/skips. The new checks cover fake Lockdown EOF then a fresh successful
+connection, cancellation before/while JNI runs, cancellation followed by a new attempt, Activity
+recreation with one active operation/report retained, and 20 repeated non-USB descriptor failures
+without losing the borrowed Java FD or growing the open-FD count beyond its tolerance. Synthetic
+cancellation (`androidMode=2`) never accesses USB; callbacks never request actual USB permission.
+These tests do **not** prove hardware detach/reconnect, physical denial/retry, ARM64 runtime on 0.3,
+or iPhone pairing. Both optimized ARM64/x86_64 libraries and the APK build. Lint **0 errors / 12
+prototype warnings**. APK v2 signature, 16 KB ZIP and both ABIs' ELF PT_LOAD alignment pass (not a
+16 KB runtime test). Normal Gradle graph excludes the probe; opted-in graph exposes no release variant.
+The first cold-emulator run had two existing callback tests exceed their 5 s background-broadcast
+waits; test-only waits are now 30 s and the full final run passes. Production's 120 s permission
+deadline is unchanged. Evidence: ignored `build/usb-reliability-0.3/` (final Rust/Android logs, test XML
+under app build, graph/tasks, signature and alignment logs).
+
+Artifact: `Nuvio Z/release-artifacts/android-ios-usb-phase1/Nuvio-Z-USB-Probe-phase1-0.3.apk`,
+**7,621,019 bytes**, SHA-256
+`96e89a36242eb56f1cb5a2f2bde4059f38d8348a16d5365f69760c7c3fd4547d`.
+Not installed on a physical Galaxy in this follow-up. No tag/release/feed publication or production
+source/dependency changes; the experimental lockfile changes only the probe's own version.
+
+**Phase 2 review/design:** `iosInstaller/android-probe/PHASE2-DESIGN.md` records the existing
+`NuvioZPairing.plist` contract: complete Lockdown record plus remote-pairing identity on iOS 17.4+,
+used by both on-device routes. Planned Android persistence uses an encrypted app-private,
+backup-excluded, atomic store keyed by real device identity, never the Phase 1 routing placeholder.
+Trust/TLS/reconnect/Developer Mode reboot recovery and device acceptance gates are specified. Pinned
+idevice 0.1.68's `start_session` returns a **legacy flag**, not TLS success; `false` is normal modern
+TLS. Review vendor error-payload logs before pairing. No pairing record, Wi-Fi debugging, Apple auth,
+signing or IPA installation operation has been added. The production self-refresh path is untouched.
 
 **Real-device 0.2 pass (20:17:41 local):** pulled the maintainer's Galaxy log over adb after
 reconnecting it to the computer. The permission callback contains both expected extras and

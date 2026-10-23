@@ -34,7 +34,7 @@ public final class UsbProbeSmokeTest {
 
     @Test public void activityStartsAndReportsNativeLoadWithoutAnAttachedIphone() {
         try (ActivityScenario<UsbProbeActivity> scenario = ActivityScenario.launch(UsbProbeActivity.class)) {
-            scenario.onActivity(activity -> assertTrue(activity.report().contains("Native loaded: nuvio-usb-probe/0.2.0")));
+            scenario.onActivity(activity -> assertTrue(activity.report().contains("Native loaded: nuvio-usb-probe/0.3.0")));
         }
     }
 
@@ -46,5 +46,15 @@ public final class UsbProbeSmokeTest {
             assertTrue(report.toString(), report.getString("blocker").startsWith("file_descriptor:"));
             assertNotNull(android.system.Os.fstat(descriptor.getFileDescriptor()));
         }
+    }
+
+    @Test public void repeatedNativeFailuresReleaseDescriptorsAndBusyState() throws Exception {
+        NativeUsbProbe.probe(-1); // Initialize runtime/logger before measuring.
+        int before = new java.io.File("/proc/self/fd").list().length;
+        for (int i = 0; i < 20; i++) {
+            nativeRejectsANonUsbDescriptorAndPreservesTheJavaOwnedDescriptor();
+        }
+        int after = new java.io.File("/proc/self/fd").list().length;
+        assertTrue("FDs before=" + before + " after=" + after, after <= before + 3);
     }
 }

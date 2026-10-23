@@ -2,7 +2,9 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const VERSION: &str = "nuvio-usb-probe/0.2.0 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+pub const VERSION: &str = "nuvio-usb-probe/0.3.0 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+#[cfg(any(target_os = "android", test))]
+mod control;
 pub const INFO_KEYS: [&str; 4] = [
     "DeviceClass",
     "ProductType",
@@ -142,6 +144,10 @@ mod tests {
 
     #[tokio::test]
     async fn wire_protocol_only_sends_four_unpaired_get_value_requests() {
+        successful_read().await;
+    }
+
+    async fn successful_read() {
         let (client, server) = tokio::io::duplex(16384);
         let server = tokio::spawn(async move {
             let mut peer = server;
@@ -204,5 +210,34 @@ mod tests {
                 .unwrap_err()
                 .contains("DeviceClass: timed out")
         );
+    }
+
+    #[tokio::test]
+    async fn peer_unplug_during_get_value_fails_and_a_new_connection_can_succeed() {
+        let (client, server) = tokio::io::duplex(16384);
+        let server = tokio::spawn(async move {
+            let mut peer = server;
+            let first = request(&mut peer).await;
+            assert_eq!(
+                first.get("Key").and_then(plist::Value::as_string),
+                Some("DeviceClass")
+            );
+            // EOF in the middle of the response frame, as a disappearing transport might do.
+            peer.write_u32(100).await.unwrap();
+            peer.write_all(b"<?xml").await.unwrap();
+        });
+        let mut lockdown = idevice::lockdown::LockdownClient::new(idevice::Idevice::new(
+            Box::new(client),
+            "probe-test",
+        ));
+        assert!(
+            read_device_info(&mut lockdown, |_| {})
+                .await
+                .unwrap_err()
+                .contains("DeviceClass:")
+        );
+        server.await.unwrap();
+        // The real client on an independent stream must still perform all four unpaired requests.
+        successful_read().await;
     }
 }

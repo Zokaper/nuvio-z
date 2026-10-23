@@ -35,7 +35,8 @@ public final class UsbPermissionCallbackTest {
     @After public void cleanup() { UsbPermissionReceiver.clear(context); }
 
     private JSONObject awaitResult() {
-        long deadline = SystemClock.elapsedRealtime() + 5000;
+        // A cold API 34 emulator can queue background manifest broadcasts behind boot work.
+        long deadline = SystemClock.elapsedRealtime() + 30000;
         JSONObject result;
         do {
             result = UsbPermissionReceiver.result(context);
@@ -85,7 +86,7 @@ public final class UsbPermissionCallbackTest {
         java.util.concurrent.CountDownLatch delivered = new java.util.concurrent.CountDownLatch(1);
         old.send(context, 0, new Intent().putExtra(UsbManager.EXTRA_PERMISSION_GRANTED, true),
                 (pendingIntent, intent, resultCode, resultData, resultExtras) -> delivered.countDown(), null);
-        assertTrue(delivered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        assertTrue(delivered.await(30, java.util.concurrent.TimeUnit.SECONDS));
         assertNull(UsbPermissionReceiver.result(context));
         assertEquals(id, UsbPermissionReceiver.pending(context).getString("requestId"));
     }

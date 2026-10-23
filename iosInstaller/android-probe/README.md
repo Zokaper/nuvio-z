@@ -8,7 +8,12 @@ stable and debug Nuvio Z without changing their data. The launcher is **Nuvio Z 
 The native code reuses idevice **0.1.68** and a narrowly adapted rusbmux **0.3.0** with nusb
 **0.2.8**. See [VENDOR.md](VENDOR.md) for the exact adaptation and upstream provenance.
 
-**Current test build: phase1-0.2 (versionCode 2, native 0.2.0).** The original 0.1 harness incorrectly
+**Current test build: phase1-0.3 (versionCode 3, native 0.3.0).** This adds a 10-second live mux
+hold for the unplug test, attempt-scoped cancellation, a process-owned operation that survives
+screen recreation, and the last 12 native reports in one copyable diagnostic. Neither device
+pairing nor production installer code is enabled. [Phase 2 design and self-refresh contract](PHASE2-DESIGN.md).
+
+The original 0.1 harness incorrectly
 used an immutable USB permission PendingIntent and treated missing result extras as denial.
 Android supplies those extras through `PendingIntent.send` fill-in; immutable intents discard them.
 0.2 uses a mutable explicit one-shot callback to a private receiver, and validates the selected live
@@ -97,9 +102,70 @@ adb logcat -v threadtime -s NuvioUsbProbe AndroidRuntime
 | `muxConnected: true`, `lockdown` blocker | Raw mux works; port connection/protocol remains unresolved. |
 | Both flags true, `device_info` refusal | Mux/Lockdown connection works; unpaired information request refused. Do not silently pair. |
 | `ok: true` | Phase 1 transport/info pass on that device/cable/OS combination only. |
+| `recovery_hold` | Test mode only: mux is live for 10 seconds so you can unplug before Lockdown. |
+| `usb_disconnected_during_probe` / `permission_lost_during_probe` | Selected instance lost during work; cancellation requested, Java connection released before another attempt is allowed. |
+| `user_cancelled` | Cancel button used; wait for the connection-released message, then retry. |
 
 Proceed to Phase 2 only after reviewing the actual device report. Phase 1 does not establish
 fresh trust pairing, TLS sessions, remote pairing, large transfers, authentication or installation.
+
+## Phase 1 reliability checklist (0.3)
+
+Install **Nuvio-Z-USB-Probe-phase1-0.3.apk** over 0.2, then open **Nuvio Z USB Probe**.
+All steps use only this separate test app. Keep both phones unlocked. Do not reset iPhone trust.
+The maintainer confirmed on 2026-10-23 that only the earlier happy path has been physically tested.
+
+1. **Repeated probes:** with the cable attached, run the ordinary **Probe Apple device** five times.
+   Each should finish with `ok=true`, both connection flags true and all four information fields.
+   Repeated taps during work must not launch another attempt. No `busy` blocker on the next probe.
+2. **Reconnects:** unplug, wait until the app sees the detach, reconnect, scan and select the current
+   device. Grant access if Android asks. Repeat **three** times; each new probe must pass without
+   restarting the app. A new USB address must not silently reuse the removed instance's permission.
+3. **Actual denial/retry:** start a fresh cable connection and check `hasPermission=false`. Tap
+   Probe, then **Deny/Cancel** in Android's USB permission dialog. Expect `permission_denied` while
+   the iPhone remains listed. Tap Probe again and **Allow**; expect a full pass. If Android has
+   already granted access automatically, this did not test denial: clear only the probe app's USB
+   open-by-default association in Android settings, reconnect and retry. No iPhone Trust action.
+   Copy the report after this step so subsequent scans do not evict the permission journal.
+4. **Unplug while active:** tap **Unplug recovery test (10-second hold after mux)**. Wait until the
+   status says **`recovery_hold` / UNPLUG NOW**, then unplug within ten seconds. This is a real mux
+   connection, deliberately held before the information read. Expect `usb_disconnected_during_probe`,
+   `ok=false` and a connection-released/ready message (normally a few seconds; never a hang).
+   Reconnect, scan and run an ordinary probe; it must pass. Repeat once. If you never see the hold,
+   copy the blocker instead; do not count an unplug after a normal successful probe as this test.
+5. **Cancel and screen recovery:** start the hold test with the cable connected and tap **Cancel
+   active probe**. Expect `user_cancelled`, connection released, and a passing ordinary retry.
+   Start the hold again, press Back and reopen the app before it completes. It must still show one
+   active attempt or its completed report; the next ordinary probe must pass. Reports survive screen
+   recreation/reopen within the same Android process, not force-stop/process death.
+6. **Return evidence:** tap **Copy diagnostic report** after the unplug/retry steps and send it
+   with the denial report, test counts and Galaxy Android/One UI versions. The report includes mode
+   (`androidMode`: 0 ordinary, 1 live recovery hold, 2 automated no-USB cancellation test), attempt ID,
+   cancellation reason and `javaConnectionClosed`. The latter means worker cleanup finished, not
+   that a descriptor was necessarily opened (negative-FD self-tests never open one).
+
+Pass the physical reconnect, denial/retry and active-unplug rows before starting Phase 2.
+Automated cancellation, fake-peer EOF and emulator permission callbacks cannot settle these rows.
+
+## Current 0.3 verification (2026-10-23)
+
+- **8 Rust host tests, 15 JVM tests and 14 API 34 x86_64 emulator tests pass**, zero failures/skips.
+  Includes framed fake-peer EOF/retry, cancellation before/while native work runs, screen recreation,
+  prevention of overlapping attempts, and 20 repeated non-USB failures with FD ownership/count checks.
+  The synthetic cancellation test (`androidMode=2`) never adopts a descriptor or connects mux.
+- Both native ABIs build. Lint **0 errors, 12 prototype warnings**. APK signature and ZIP/ELF
+  16 KB alignment pass; 16 KB runtime is not tested. Normal builds exclude the module, which still
+  has no release variant or Internet permission. Production installer sources/lockfile are unchanged.
+- The first cold-emulator run timed out two existing permission callback tests at 5 seconds during
+  background broadcast delivery. Test-only waits now allow 30 seconds; the final full run passes.
+  The actual app's 120-second permission deadline did not change.
+- **No physical Galaxy/iPhone tests on 0.3 yet.** Prior 0.2 transport/info evidence is retained below.
+  Phase 2 remains gated on the physical recovery checklist. Source design is in `PHASE2-DESIGN.md`.
+
+APK: **Nuvio-Z-USB-Probe-phase1-0.3.apk**, **7,621,019 bytes**, SHA-256:
+`96e89a36242eb56f1cb5a2f2bde4059f38d8348a16d5365f69760c7c3fd4547d`.
+Local evidence: `build/usb-reliability-0.3/` from the repo root, with the final test logs and artifact
+verification. The app build directory contains the JVM, connected-test and lint reports.
 
 ## Current 0.2 verification (2026-10-23)
 

@@ -1,16 +1,16 @@
-use crate::{ProbeReport, VERSION, read_device_info};
+use crate::{ProbeReport, VERSION, control::Cancellation, read_device_info};
 use idevice::{IdeviceService, lockdown::LockdownClient};
 use jni::{
     JNIEnv,
     objects::JClass,
-    sys::{jint, jstring},
+    sys::{jint, jlong, jstring},
 };
 use rusbmux::{device::usb::UsbDevice, provider::RusbmuxProvider, usb_backend::AnyDeviceInfo};
 use std::{
     io::{self, Write},
     os::fd::BorrowedFd,
     sync::{
-        Mutex, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -19,6 +19,7 @@ use tokio::time::timeout;
 
 static PROGRESS: Mutex<String> = Mutex::new(String::new());
 static BUSY: AtomicBool = AtomicBool::new(false);
+static CANCEL: Cancellation = Cancellation::new();
 struct ProbeGuard;
 impl Drop for ProbeGuard {
     fn drop(&mut self) {
@@ -26,6 +27,14 @@ impl Drop for ProbeGuard {
     }
 }
 const STEP_TIMEOUT: Duration = Duration::from_secs(8);
+
+// Cancels mux loops even when the whole probe future is dropped by detach or its deadline.
+struct MuxGuard(Arc<UsbDevice>);
+impl Drop for MuxGuard {
+    fn drop(&mut self) {
+        self.0.core.canceler.cancel();
+    }
+}
 
 #[link(name = "log")]
 unsafe extern "C" {
@@ -63,7 +72,7 @@ fn init() {
         let _ = tracing_subscriber::fmt()
             .with_ansi(false)
             .without_time()
-            .with_max_level(tracing::Level::DEBUG)
+            .with_max_level(tracing::Level::INFO)
             .with_writer(|| LogWriter)
             .try_init();
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -80,7 +89,15 @@ fn event(report: &mut ProbeReport, stage: &str, message: impl Into<String>) {
     report.event(stage, message);
 }
 
-async fn probe(fd: i32, report: &mut ProbeReport) -> Result<(), (&'static str, String)> {
+async fn probe(fd: i32, mode: i32, report: &mut ProbeReport) -> Result<(), (&'static str, String)> {
+    if mode == 2 {
+        event(
+            report,
+            "synthetic_wait",
+            "Automated cancellation check; no USB access",
+        );
+        std::future::pending::<()>().await;
+    }
     if fd < 0 {
         return Err((
             "file_descriptor",
@@ -160,11 +177,20 @@ async fn probe(fd: i32, report: &mut ProbeReport) -> Result<(), (&'static str, S
         )
     })?
     .map_err(|e| (transport_stage, e.to_string()))?;
+    let _mux_guard = MuxGuard(device.clone());
     report.mux_connected = true;
     event(report, "usb_mux", "Mux version/setup exchange succeeded");
     // Do not use watch_usb_daemon or preflight: those can pair automatically.
     let provider = RusbmuxProvider::new(device.clone(), "nuvio-usb-probe-phase1".into());
     let result = async {
+        if mode == 1 {
+            event(
+                report,
+                "recovery_hold",
+                "Mux connected. UNPLUG NOW: holding for 10 seconds before Lockdown (test mode)",
+            );
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
         event(
             report,
             "lockdown",
@@ -197,7 +223,7 @@ async fn probe(fd: i32, report: &mut ProbeReport) -> Result<(), (&'static str, S
     result
 }
 
-fn run(fd: i32) -> String {
+fn run(fd: i32, attempt: u64, mode: i32) -> String {
     init();
     let mut report = ProbeReport::default();
     if BUSY
@@ -208,6 +234,9 @@ fn run(fd: i32) -> String {
         return serde_json::to_string_pretty(&report).unwrap();
     }
     let _busy = ProbeGuard;
+    if let Ok(mut progress) = PROGRESS.lock() {
+        *progress = "Starting new probe".into();
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -215,8 +244,14 @@ fn run(fd: i32) -> String {
     match runtime {
         Ok(runtime) => {
             // Construct the timer inside the runtime, including negative-FD self-tests.
-            let result = runtime
-                .block_on(async { timeout(Duration::from_secs(45), probe(fd, &mut report)).await });
+            let result = runtime.block_on(async {
+                tokio::select! {
+                    biased;
+                    _ = CANCEL.wait(attempt) => Err("probe_cancelled"),
+                    result = timeout(Duration::from_secs(45), probe(fd, mode, &mut report)) =>
+                        result.map_err(|_| "deadline"),
+                }
+            });
             match result {
                 Ok(Ok(())) => {
                     report.ok = true;
@@ -227,6 +262,10 @@ fn run(fd: i32) -> String {
                     );
                 }
                 Ok(Err((stage, error))) => report.fail(stage, error),
+                Err("probe_cancelled") => report.fail(
+                    "probe_cancelled",
+                    "Attempt cancelled; releasing mux tasks and descriptor",
+                ),
                 Err(_) => report.fail("deadline", "45s total probe deadline reached"),
             }
             // Drops spawned tasks, including any mux loops canceled during a timeout.
@@ -264,20 +303,34 @@ pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_progress(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_probe(
+pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_run(
     env: JNIEnv,
     _: JClass,
     fd: jint,
+    attempt: jlong,
+    mode: jint,
 ) -> jstring {
-    let result = std::panic::catch_unwind(|| run(fd)).unwrap_or_else(|panic| {
-        let mut report = ProbeReport::default();
-        let detail = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .unwrap_or("Rust panic; see logcat");
-        report.fail("native_panic", detail);
-        serde_json::to_string_pretty(&report).unwrap()
-    });
+    let result =
+        std::panic::catch_unwind(|| run(fd, attempt as u64, mode)).unwrap_or_else(|panic| {
+            let mut report = ProbeReport::default();
+            let detail = panic
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| panic.downcast_ref::<&str>().copied())
+                .unwrap_or("Rust panic; see logcat");
+            report.fail("native_panic", detail);
+            serde_json::to_string_pretty(&report).unwrap()
+        });
     string(&env, result)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_cancel(
+    _: JNIEnv,
+    _: JClass,
+    attempt: jlong,
+) {
+    if attempt > 0 {
+        CANCEL.cancel(attempt as u64);
+    }
 }
