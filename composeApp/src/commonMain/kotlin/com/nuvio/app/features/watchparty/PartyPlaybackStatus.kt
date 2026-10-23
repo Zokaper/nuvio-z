@@ -156,6 +156,15 @@ data class PartyPlaybackStatusInputs(
     val outgoingRequestOutcome: PartyStatusOutgoingOutcome? = null,
 )
 
+/**
+ * Whether [realtime] says this viewer is reconnecting, for [PartyPlaybackStatusInputs.realtimeUnhealthyMs].
+ * Connecting is always its own channel. Degraded is also what silence reads as, and silence with
+ * nobody else connected ([partyHasNobodyToHearFrom]) is the party going quiet, not this viewer.
+ */
+fun partyRealtimeReadsReconnecting(realtime: PartyRealtimeHealth, nobodyToHearFrom: Boolean): Boolean =
+    realtime == PartyRealtimeHealth.Connecting ||
+        (realtime == PartyRealtimeHealth.Degraded && !nobodyToHearFrom)
+
 /** An outgoing join request's answer, for the few seconds the player says so (2026-10-16). */
 enum class PartyStatusOutgoingOutcome { Declined, NoAnswer, Stopped }
 

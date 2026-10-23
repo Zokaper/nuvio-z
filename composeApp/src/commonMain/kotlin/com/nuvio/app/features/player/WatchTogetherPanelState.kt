@@ -15,6 +15,7 @@ import com.nuvio.app.features.watchparty.WatchPartyState
 import com.nuvio.app.features.watchparty.WatchPartyStatus
 import com.nuvio.app.features.watchparty.displayName
 import com.nuvio.app.features.watchparty.matchesPlayback
+import com.nuvio.app.features.watchparty.partyHasNobodyToHearFrom
 
 /**
  * What the in-player Watch Together panel is showing, as one sealed state.
@@ -220,7 +221,10 @@ private fun WatchTogetherPanelInputs.active(party: WatchPartyState): WatchTogeth
         role = if (isHost) WatchTogetherRole.Host else WatchTogetherRole.Guest,
         title = party.content.title,
         subline = subline,
-        connection = partyConnectionChip(health, realtimeSinceMs, nowMs),
+        connection = partyConnectionChip(
+            health, realtimeSinceMs, nowMs,
+            nobodyToHearFrom = partyHasNobodyToHearFrom(party, viewerProfileId),
+        ),
         people = people,
         incomingRequest = incomingRequest.takeIf { isHost },
         settings = if (isHost) {
@@ -265,11 +269,25 @@ fun partyLeaveSuccessor(party: WatchPartyState): WatchPartyParticipant? =
  * A Connecting / Degraded socket reads as Live for its first [PartyConnectionReconnectVisibleMs], and
  * `SubscribedUnverified` for its verification grace: both are ordinary and both are usually over
  * before anyone could read the word.
+ *
+ * [nobodyToHearFrom] ([partyHasNobodyToHearFrom]): Degraded and unverified are what silence reads as,
+ * and with nobody else connected silence is all there is. The chip is this viewer's connection, so
+ * it stays Live; a dropped host is told by the status line and the host's own row.
  */
-fun partyConnectionChip(health: PartyHealthState, realtimeSinceMs: Long?, nowMs: Long): PartyConnectionChip {
+fun partyConnectionChip(
+    health: PartyHealthState,
+    realtimeSinceMs: Long?,
+    nowMs: Long,
+    nobodyToHearFrom: Boolean = false,
+): PartyConnectionChip {
     val capability = health.capability()
     if (capability == PartySyncCapability.OfflineLocalPlayback) return PartyConnectionChip.Offline
     if (capability == PartySyncCapability.FullSync) return PartyConnectionChip.Live
+    if (nobodyToHearFrom && (health.realtime == PartyRealtimeHealth.Degraded ||
+            health.realtime == PartyRealtimeHealth.SubscribedUnverified)
+    ) {
+        return PartyConnectionChip.Live
+    }
     val inState = realtimeSinceMs?.let { nowMs - it } ?: Long.MAX_VALUE
     return when (health.realtime) {
         PartyRealtimeHealth.Connecting,

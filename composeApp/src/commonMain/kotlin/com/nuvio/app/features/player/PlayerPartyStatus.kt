@@ -18,7 +18,8 @@ import com.nuvio.app.features.watchparty.decidePartySourceHandoff
 import com.nuvio.app.features.watchparty.partySourceActivity
 import com.nuvio.app.features.watchparty.PartyPresentationProjector
 import com.nuvio.app.features.watchparty.partyRealizationPhaseFor
-import com.nuvio.app.features.watchparty.PartyRealtimeHealth
+import com.nuvio.app.features.watchparty.partyHasNobodyToHearFrom
+import com.nuvio.app.features.watchparty.partyRealtimeReadsReconnecting
 import com.nuvio.app.features.watchparty.PartySourceRealizationState
 import com.nuvio.app.features.watchparty.PartySourceRealizer
 import com.nuvio.app.features.watchparty.PartyStatusDebounceState
@@ -101,8 +102,10 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
     val barrierHolding = party != null && (partyHoldingForBarrier || partyPendingSeek != null)
     LaunchedEffect(barrierHolding) { barrierSinceMs = if (barrierHolding) currentEpochMs() else 0L }
     var realtimeUnhealthySinceMs by remember { mutableStateOf(0L) }
-    val realtimeUnhealthy = partyUi.health.realtime == PartyRealtimeHealth.Connecting ||
-        partyUi.health.realtime == PartyRealtimeHealth.Degraded
+    val realtimeUnhealthy = partyRealtimeReadsReconnecting(
+        partyUi.health.realtime,
+        nobodyToHearFrom = party != null && partyHasNobodyToHearFrom(party, viewerId),
+    )
     LaunchedEffect(realtimeUnhealthy) { realtimeUnhealthySinceMs = if (realtimeUnhealthy) currentEpochMs() else 0L }
 
     val presentation = PartyPresentationProjector.project(

@@ -67,6 +67,11 @@ class PartyPlaybackStatusTest {
         // 2026-10-23: the host's dropped socket is named as theirs, not reported as this guest's.
         assertEquals(PartyStatusKind.HostOffline, kind(guest.copy(realtimeUnhealthyMs = 10_000, hostOffline = true)))
         assertNull(projectPartyPlaybackStatus(host.copy(hostOffline = true)))
+        // Same run, after the handover: Degraded on silence in a party of one is not this viewer's.
+        assertFalse(partyRealtimeReadsReconnecting(PartyRealtimeHealth.Degraded, nobodyToHearFrom = true))
+        assertTrue(partyRealtimeReadsReconnecting(PartyRealtimeHealth.Degraded, nobodyToHearFrom = false))
+        assertTrue(partyRealtimeReadsReconnecting(PartyRealtimeHealth.Connecting, nobodyToHearFrom = true))
+        assertFalse(partyRealtimeReadsReconnecting(PartyRealtimeHealth.SubscribedUnverified, nobodyToHearFrom = false))
         assertEquals(
             "Connection lost · playing on your own",
             projectPartyPlaybackStatus(guest.copy(capability = PartySyncCapability.OfflineLocalPlayback))!!.text,
