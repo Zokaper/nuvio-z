@@ -51,3 +51,7 @@ iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
 .mpvkit-build.sparseimage
+
+# The pinned installer signer (signer/build.sh): build output and staged library
+signer/target/
+signer/out/

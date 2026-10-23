@@ -7,6 +7,19 @@ Last updated: 2026-10-23
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
 | Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
 
+## The installer has its own repository (2026-10-24)
+
+**The installer moved to `Zokaper/nuviozinstaller`** (public, history kept by filter-repo from
+`experiment/android-ios-usb-phase1`, which held every `iosInstaller/` commit on main). Its Release workflow publishes
+Windows, Mac and Android together as `v<version>`, marked latest; nuvio-z's `ios-setup-v*` / `ios-setup-vlatest`
+releases are frozen (the maintainer re-points shared links). On branch `claude/installer-repo-split`: `iosInstaller/` and
+the four `ios-installer-*.yml` workflows are removed; the iOS app's signer comes from `signer/` (`nuvioz-signer` as a
+Cargo git dependency pinned to installer commit `c3595229`, whose `core/`+`ffi/` trees are byte-identical to what
+main shipped, so the next release gets no false signing-changed marker). `signer/build.sh` builds and stages it for
+Gradle; debug-release, android-release and now ios-test-build link it. `ios-release-markers.sh` compares the signer
+by tree hash across both repos. **Not merged to main yet**; verify with a build-only ios-test-build run first.
+Other branches that still carry `iosInstaller/` keep building with it until they merge main.
+
 ## Android-to-iPhone USB experiment (2026-10-23)
 
 **Real-device 0.2 pass (20:17:41 local):** pulled the maintainer's Galaxy log over adb after

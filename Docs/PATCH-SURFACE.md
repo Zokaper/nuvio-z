@@ -208,7 +208,7 @@ Everything else in the pass is in Z files (`features/setup/`, `features/settings
   hosted config.
 
 Everything else is Z-owned: `SelfSigning.swift`, `iosSelfSigning`/`iosNoSelfSigning`, `KeepNuvioWorkingScreen.kt`,
-`SelfSigningSetup.kt` and `iosInstaller/`. **NuvioZDesktop merge debt:** its desktop
+`SelfSigningSetup.kt` and `signer/` (the installer's signer, pinned from Zokaper/nuviozinstaller). **NuvioZDesktop merge debt:** its desktop
 `AppUpdaterPlatform.desktop.kt` must take the new `installDownloadedUpdate` signature when this reaches it.
 
 **2026-10-03 RC P1:** Desktop's upstream-owned

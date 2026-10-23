@@ -221,14 +221,11 @@ jobs:
       # SideStore's source, where the self-signing parts stay off (no installer connection file).
       - name: Build the self-signing library
         id: signer
-        if: ${{ hashFiles('iosInstaller/ffi/Cargo.toml') != '' }}
-        working-directory: iosInstaller
+        if: ${{ hashFiles('signer/Cargo.toml') != '' }}
         env:
           IPHONEOS_DEPLOYMENT_TARGET: "16.1"
         run: |
-          rustup target add aarch64-apple-ios
-          cargo build -p nuvioz-signer --release --target aarch64-apple-ios
-          ls -la target/aarch64-apple-ios/release/libnuvioz_signer.a
+          bash signer/build.sh aarch64-apple-ios
           echo "NUVIO_IOS_SELF_SIGNING=true" >> "$GITHUB_ENV"
           echo "linked=true" >> "$GITHUB_OUTPUT"
       - name: Configure and build unsigned IPA
@@ -368,7 +365,7 @@ jobs:
             distribution/sidestore/setup-macos.sh
 
       # Installer 3 installs stable Nuvio Z from the link in distribution/ios-installer/nuvio.json on main
-      # (iosInstaller/core/src/nuvio.rs), pinned to its SHA-256. Only an IPA that renews itself goes there.
+      # (Zokaper/nuviozinstaller core/src/nuvio.rs), pinned to its SHA-256. Only an IPA that renews itself goes there.
       - name: Point the iOS installer at this build
         if: ${{ needs.ios_unsigned.outputs.self_signing == 'true' }}
         run: |

@@ -54,6 +54,14 @@ jobs:
           restore-keys: |
             konan-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Build the self-signing library
+        if: ${{ hashFiles('signer/Cargo.toml') != '' }}
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "16.1"
+        run: |
+          bash signer/build.sh aarch64-apple-ios
+          echo "NUVIO_IOS_SELF_SIGNING=true" >> "$GITHUB_ENV"
+
       - name: Verify Apple toolchain
         run: |
           xcodebuild -version

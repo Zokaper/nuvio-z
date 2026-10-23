@@ -1,0 +1,26 @@
+# Nuvio Z's iOS app links the installer's signer (nuvioz-signer, the installer core as a C library) to renew and
+# update itself. It lives in Zokaper/nuviozinstaller; this pins it to one commit. Bump the rev on purpose (the
+# signer must pass that repository's signer-ios workflow), then run cargo update -p nuvioz-signer here.
+# Built by signer/build.sh; composeApp/build.gradle.kts links what it stages in signer/out/.
+[package]
+name = "nuvioz-signer-pin"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+nuvioz-signer = { git = "https://github.com/Zokaper/nuviozinstaller", rev = "c35952297ef1565021f108160ceb99687a447efe" }
+
+# The installer's own release profile, so the library is built exactly as there.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[workspace]
