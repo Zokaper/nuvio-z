@@ -77,7 +77,29 @@ language fallback and reopen-with-no-party **pass**.
   **pass**. **Dropped host FAILS:** the phone still said "Reconnecting", never "<host> lost connection".
   Server side is fine: party `5e1a17a4`, host `d339` last seen 08:26:52Z, the phone became host before
   08:28:24Z, and `party_heartbeat` marks a host silent for 20 s `connected=false` in the guest's snapshot.
-  Open: which surface showed it and for how long (the phone log was not captured; phone off USB).
+  **Reproduced with the phone on USB (party `f149124c`, 13:38-13:40 local).** The maintainer saw the
+  player line say "<host> lost connection" (HostOffline worked) while the open panel's chip said
+  "Reconnecting…", and after the handover the player line said "Reconnecting to the party…". Log
+  timeline: last realtime message from the host 13:38:50.99; snapshot `host:disconnected` 13:39:07.1,
+  status `HostOffline` 13:39:08.0; `health-stale receiveAgeMs=20462` -> realtime `Live->Degraded`
+  13:39:11.45 (chip Reconnecting 3 s later); phone made host 13:39:49.0, status `Reconnecting` 13:39:49.9
+  and it stayed. Socket heartbeats were acked (~150 ms) and every poll succeeded throughout.
+  **Cause (proven):** the transport's health monitor calls realtime Degraded after 20 s with no message
+  from another member, so in a party where nobody else is connected, silence reads as the viewer's own
+  connection. **Fix:** `partyHasNobodyToHearFrom` keeps Degraded/unverified from reading as reconnecting
+  in the panel chip (`partyConnectionChip`) and the status line (`partyRealtimeReadsReconnecting`);
+  Connecting still says Reconnecting, a failed poll still says Offline. The lobby was not changed (it
+  says "Following the party every few seconds", which is true). Mobile `726a35cc7`, desktop `6748b8122`.
+  Evidence: mobile watch party + player host tests 811 (0 failed, 6 skipped), APK installed on the phone
+  2026-10-23 13:55 (still named `0.5.4-z3.110`); desktop watch party + player 752/752, local MSI **128**.
+  **Retest on 128 + that APK:** kill the host with the panel open, then wait out the handover.
+  **Found in the same log, not fixed:**
+  - **The guest's drift nudge outlived the host.** Its last drift correction (13:38:50.99, driftMs=-5046)
+    set speed 0.9; no tick came to undo it, so the phone played at 0.9x for the whole minute. On handover,
+    it published `speed=0.9` as the party's speed. A temporary speed needs to reset when ticks stop.
+  - **Invite missed until the Social tab was opened.** At 13:36:44 the phone's social channel was refused
+    with `InvalidJWTToken: Token has expired 4212 seconds ago` (the process had been frozen in the
+    background). Same family as the realtime-token note in memory: no refresh before rejoin.
 - Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
   has no forced track.
 Evidence: mobile social + watch party host tests 607/607 (APK installed); desktop watch party + tray +
