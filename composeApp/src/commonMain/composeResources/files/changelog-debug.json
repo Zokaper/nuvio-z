@@ -213,6 +213,10 @@
     {
       "build": 111,
       "text": "Social V2 final check. Watch Together: backing out to the lobby shows you In lobby on the host; a rejoin lands in sync; swiping the app away leaves the party (and hands over hosting); when the host drops, guests see \"<host> lost connection\" instead of Reconnecting, and a guest who takes over keeps normal speed. Social: invites sent during a brief connection drop show up when it is back; friends starting to watch notify you by default. Language: a title with unknown origin plays in your language."
+    },
+    {
+      "build": 112,
+      "text": "Language: subtitles no longer switch off when My language is saved with a region (such as English, Saudi Arabia); Attack on Titan now keeps its English subtitles. What's New has the Social V2 entry."
     }
   ]
 }
