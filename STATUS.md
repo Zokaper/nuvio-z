@@ -18,9 +18,14 @@ Together after this week's fixes.
 everything read); Start a party / Recommend from a friend's profile is not needed for this release.
 **Not a bug, no fix wanted:** after quitting the desktop mid-playback a friend's Watching Now card
 can linger until the server's 90 s heartbeat cutoff (the process ends before its clear is sent).
-**Remaining before stable:** the maintainer's What's New text (draft is in
-`nuviozdesktop/.../promo/WhatsNewArtHarness.kt` `WhatsNewExample`), the real changelog event in both
-repos, version/serial bump naming the new vanilla bases, merge to `main`, publish on their word.
+**What's New: done.** The maintainer approved the draft with its stale claims fixed (recommendations
+have their own page, closed-app notifications are Android/Windows only, no "picks get it right"). It is
+`changelog.json` seq 5, byte-identical in both repos (mobile `485314733`, desktop `2db631116`), hero
+`social-v2-hero.jpg`, `review_settings` on Language, ships `unreleased`: mobile `0.6.2-z1` serial 130,
+desktop `0.1.31-alpha-z1` serial 134. Validate/compare clean; whatsnew tests mobile 40/40, desktop 41/41.
+Not in debug 111/130 (dispatched before it).
+**Remaining before stable:** the final check on 111/130, then the version/serial bump to those values
+(release dates set by the release commits), merge to `main`, publish on the maintainer's word.
 
 ## Social V2 What's New: one hero picture (2026-10-23)
 
