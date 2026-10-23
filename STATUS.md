@@ -14,7 +14,16 @@ Last updated: 2026-10-24
 Java bridge with the same invoke/event names (not Tauri Android). Android remembers the email only. The installer
 moves to its own repo `Zokaper/nuviozinstaller`. Stage A is committed (`1f5f7c1f7`): the Android variant of the
 shared screens plus a phone layout, renders sent for review. Desktop DOM is identical across 114 preview variants.
-The bridge, native command split, repo split and device checks are not started.
+**Stages C+D committed (`3871c4b43`), APK 0.6.0 built, not yet run on the Galaxy/iPhone pair.** The app
+(`Nuvio Z Installer`, same package `com.nuvio.app.z.usbprobe`, same debug signing cert as 0.5.2, so `adb install -r`
+keeps the pairing and signing data) opens the shared `ui/` in a WebView through `InstallerBridge.java`. Native modes:
+7 = status through the saved record, 8 = reveal Developer Mode; mode 6 signs in before downloading and uses the
+hosted `nuvio.json` (stable by default, Debug via 7 taps on the welcome title). Verified: Rust 19/19, JVM 15/15,
+lint clean, a fake-bridge headless walk welcome→devmode, and an emulator smoke test (screens, Help, Copy report,
+Debug switch). Not on Android yet: "Add it again" (use Repair). Artifact (ignored):
+`Nuvio Z/release-artifacts/android-installer/Nuvio-Z-Installer-Android-0.6.0.apk`, SHA-256
+`656d67fcaa9befbcce5801b4a343c3f6df2f981662de155688bcaeba96e4ea74`. Repo split (stage B) deferred until after the
+maintainer's device test, at their request (fastest path to a testable app).
 
 **REAL INSTALL PASS ? 2026-10-24, APK 0.5.2:** maintainer confirms Nuvio Z Debug is installed
 on the iPhone. Pulled Galaxy adb logs independently verify attempt 2 / mode 6 completed at
