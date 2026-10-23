@@ -3,8 +3,30 @@ Last updated: 2026-10-23
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 130 | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
-| Mobile | `claude/social-v2` | 111 | Same final check on debug 111 (Android + iOS) |
+| Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
+| Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
+
+## Regional My language switched subtitles off (2026-10-23, debug 112 / 131)
+
+The maintainer's first check on 111: Attack on Titan S1E1 (Japanese audio, one `eng` "[ASS]" track,
+on by default) played with **no subtitles**. Reproduced over adb with a live logcat (logd had pruned
+the first run): `subtitle_pick chosen=none applied=true pref=en-sa/null`. Profile 2 ("debug") had
+`my_language` **"en-sa"**, which the settings label shows as plain English. Upstream's subtitle matcher
+keeps a region whole except pt-BR / es-419 / Chinese, so "en-sa" matched no English track.
+Origin of "en-sa" is **unknown**: it was already in the legacy `preferred_audio_language_2` and the
+migration copied it. Not the phone's locale (en-GB), not the laptop (Java en-US; desktop has profile 1
+only, `en`); no picker can store it. Suspected but unproven: profile settings sync from a device with a
+Saudi region (iOS reports `en-SA` in AppleLanguages).
+**Fix (Z seam, no upstream file):** `pickerLanguage` in `TitleLanguagePlan.kt` drops the region from every
+language the plan hands the pickers and the legacy fields, keeping pt / es / zh variants. Mobile
+`8e37b9d70` + `250c0eac8`, desktop `df988fb7e` + `8fa059fd0` (cherry-picks). Verified on the phone with a
+local APK: same episode, `pref=en`, `chosen=track:0 applied=true`. Tests: mobile language + player +
+playback + settings + downloads host 1234 (0 failed, 6 skipped); desktop same packages 1247 with 3
+failures, all in the known-flaky `DesktopDownloadQueueE2ETest` (no language code in it; rerun alone
+pending at the time of writing). Debug **112** / **131** dispatched (`dc1844738` / `a57f62a9f`), carrying
+this and the What's New event.
+Side note: the mobile-data quality prompt ("asked once per network") came up again on the second run
+after the reinstall; not investigated.
 
 ## Social V2: final check (2026-10-23)
 
