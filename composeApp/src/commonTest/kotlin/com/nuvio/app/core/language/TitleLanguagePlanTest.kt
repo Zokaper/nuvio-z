@@ -87,7 +87,7 @@ class TitleLanguagePlanTest {
         assertEquals(TitleGroup.OWN, plan(device, original = "en", device = listOf("en-GB")).group)
         val other = plan(device, original = "fr", device = listOf("en-GB"))
         assertEquals("fr", other.preferredAudio)
-        assertEquals("en-gb", other.secondaryAudio)
+        assertEquals("en", other.secondaryAudio)
         // The primary slot keeps the sentinel: upstream resolves it there, with the device's whole list.
         assertEquals(AudioLanguageOption.DEVICE, plan(device, original = "en").preferredAudio)
     }
@@ -96,9 +96,9 @@ class TitleLanguagePlanTest {
     fun subtitleOverrideAndFallbackReachTheSubtitleFields() {
         val p = plan(maintainer.copy(subtitleLanguage = "es", fallbackLanguage = "pt-BR", ownSubtitles = SubtitleKind.SDH), original = "en")
         assertEquals("es", p.preferredSubtitle)
-        assertEquals("pt-BR", p.secondarySubtitle)
+        assertEquals("pt-br", p.secondarySubtitle)
         assertEquals(true, p.preferSdh)
-        assertEquals("pt-BR", p.secondaryAudio)
+        assertEquals("pt-br", p.secondaryAudio)
     }
 
     @Test
@@ -185,5 +185,37 @@ class TitleLanguagePlanTest {
         assertEquals("es", migrate("en", "en", false, secondaryAudio = "es").fallbackLanguage)
         assertEquals("fr", migrate("en", "en", false, secondaryAudio = "en", secondarySubtitle = "fr").fallbackLanguage)
         assertNull(migrate("en", "en", false, secondarySubtitle = SubtitleLanguageOption.FORCED).fallbackLanguage)
+    }
+
+    /** A device locale stored as My language reaches the pickers as its language (the 2026-10-23 phone). */
+    @Test
+    fun regionalMyLanguageReachesThePickersAsItsLanguage() {
+        val saudi = maintainer.copy(myLanguage = "en-sa", ownSubtitles = SubtitleKind.FULL, fallbackLanguage = "fr-CA")
+        val foreign = plan(saudi, original = "ja", playing = "jpn", device = listOf("en-SA"))
+        assertEquals(TitleGroup.OTHER, foreign.group)
+        assertEquals("ja", foreign.preferredAudio)
+        assertEquals("en", foreign.secondaryAudio)
+        assertEquals("en", foreign.preferredSubtitle)
+        assertEquals("fr", foreign.secondarySubtitle)
+
+        val own = plan(saudi, original = "en", playing = "eng", device = listOf("en-SA"))
+        assertEquals(TitleGroup.OWN, own.group)
+        assertEquals("en", own.preferredAudio)
+        assertEquals("en", own.preferredSubtitle)
+
+        val legacy = legacyLanguageFields(saudi)
+        assertEquals("en", legacy.preferredAudio)
+        assertEquals("en", legacy.preferredSubtitle)
+        assertEquals("fr", legacy.secondaryAudio)
+    }
+
+    /** The regions upstream's pickers treat as a different language are kept. */
+    @Test
+    fun meaningfulRegionsSurviveThePickerForm() {
+        for (code in listOf("pt-br", "es-419", "zh-tw", "zh-cn")) {
+            val p = plan(maintainer.copy(myLanguage = code, ownSubtitles = SubtitleKind.FULL), original = "ja", playing = "jpn")
+            assertEquals(code, p.preferredSubtitle, code)
+            assertEquals(code, p.secondaryAudio, code)
+        }
     }
 }

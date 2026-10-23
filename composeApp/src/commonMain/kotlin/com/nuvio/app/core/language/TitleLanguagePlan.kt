@@ -128,10 +128,10 @@ fun resolveTitleLanguagePlan(
     return TitleLanguagePlan(
         group = group,
         subtitleKind = kind,
-        preferredAudio = preferredAudio,
-        secondaryAudio = secondaryAudio,
-        preferredSubtitle = if (kind == SubtitleKind.OFF) SubtitleLanguageOption.NONE else subtitleLanguage,
-        secondarySubtitle = if (kind == SubtitleKind.OFF) null else fallback,
+        preferredAudio = pickerLanguage(preferredAudio),
+        secondaryAudio = secondaryAudio?.let(::pickerLanguage),
+        preferredSubtitle = if (kind == SubtitleKind.OFF) SubtitleLanguageOption.NONE else pickerLanguage(subtitleLanguage),
+        secondarySubtitle = if (kind == SubtitleKind.OFF) null else fallback?.let(::pickerLanguage),
         forcedOnly = kind == SubtitleKind.FORCED,
         preferSdh = when (kind) {
             SubtitleKind.FULL -> false
@@ -159,10 +159,10 @@ fun legacyLanguageFields(preferences: LanguagePreferences): LegacyLanguageFields
     val fallback = preferences.fallbackLanguage?.takeIf { knownLanguage(it) != null }
     val off = preferences.ownSubtitles == SubtitleKind.OFF
     return LegacyLanguageFields(
-        preferredAudio = preferences.myLanguage,
-        secondaryAudio = fallback,
-        preferredSubtitle = if (off) SubtitleLanguageOption.NONE else preferences.subtitleLanguage ?: preferences.myLanguage,
-        secondarySubtitle = if (off) null else fallback,
+        preferredAudio = pickerLanguage(preferences.myLanguage),
+        secondaryAudio = fallback?.let(::pickerLanguage),
+        preferredSubtitle = if (off) SubtitleLanguageOption.NONE else pickerLanguage(preferences.subtitleLanguage ?: preferences.myLanguage),
+        secondarySubtitle = if (off) null else fallback?.let(::pickerLanguage),
         useForcedSubtitles = preferences.ownSubtitles == SubtitleKind.FORCED,
     )
 }
@@ -230,6 +230,21 @@ private val LanguageSentinels = setOf(
     SubtitleLanguageOption.NONE,
     SubtitleLanguageOption.FORCED,
 )
+
+/**
+ * [code] in the form upstream's track pickers can match. They keep a region only where it names a
+ * different subtitle or dub (pt-BR, es-419, zh-TW / zh-CN) and otherwise compare it whole, so a stored
+ * "en-sa" (a device locale, carried over by [migrateLegacyLanguageFields]) matched no English track:
+ * Attack on Titan played with its only subtitle track, English and on by default, switched off. Any
+ * other region is dropped here, the one seam both pickers read through; sentinels pass unchanged.
+ */
+internal fun pickerLanguage(code: String): String {
+    val normalized = normalizeLanguageCode(code) ?: return code
+    val base = normalized.substringBefore('-')
+    return if (base == normalized || base in RegionalPickerLanguages) normalized else base
+}
+
+private val RegionalPickerLanguages = setOf("pt", "es", "zh")
 
 private fun isConcreteLanguage(code: String?): Boolean =
     code != null && code !in LanguageSentinels && code != "und" && code != "unknown"
