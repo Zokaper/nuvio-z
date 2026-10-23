@@ -55,13 +55,16 @@ language fallback and reopen-with-no-party **pass**.
     Desktop `b10cac316`.
   - **Decided 2026-10-23: host handover stays at 60 s.** The server shows a silent host Offline at 20 s but
     hands the role over at 60 s (`party_transfer_stale_host`). The maintainer chose to keep 60 s; do not re-propose 20 s.
-  Evidence: mobile watch party + player 810/810 (APK built, **not installed**: phone off USB);
+  Evidence: mobile watch party + player 810/810 (APK installed 2026-10-23, debug `0.5.4-z3.110`);
   desktop watch party + tray + social + player 969/969, local MSI **127**.
+  **Retest on 127 + that APK: all three pass** (maintainer, 2026-10-23): lobby swipe-away drops the phone
+  at once, a killed host reads "<host> lost connection · waiting for them" on the phone, and a pop-up
+  click during playback raises the window and playback continues.
 - Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
   has no forced track.
 Evidence: mobile social + watch party host tests 607/607 (APK installed); desktop watch party + tray +
-language 485/485 and social 197/197; local MSI **126**. **Not yet retested:** swipe-away, dead host,
-pop-up raise, notify default (needs the deploy).
+language 485/485 and social 197/197; local MSI **126**. Swipe-away, dead host and pop-up raise
+**pass** (126, then the follow-ups on 127). **Not yet retested:** notify default (deployed).
 
 ## Social V2 QA pass (2026-10-22)
 
