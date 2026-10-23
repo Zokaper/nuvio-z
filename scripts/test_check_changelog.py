@@ -93,6 +93,25 @@ class ValidateTest(unittest.TestCase):
         for expected in ("unknown category", "unknown platform 'tizen'", "YYYY-MM-DD", "unknown action"):
             self.assertIn(expected, problems)
 
+    def test_pictures_are_bare_names_that_exist(self):
+        data = copy.deepcopy(BASE)
+        data["events"][1]["image"] = "hero.jpg"
+        data["events"][1]["entries"][0]["image"] = "card.jpg"
+        self.assertEqual([], cc.validate(data))
+        with tempfile.TemporaryDirectory() as folder:
+            images = pathlib.Path(folder)
+            (images / "hero.jpg").write_bytes(b"x")
+            problems = cc.validate(data, images=images)
+            self.assertEqual(1, len(problems))
+            self.assertIn("card.jpg is missing", problems[0])
+        data["events"][1]["image"] = "../hero.jpg"
+        self.assertIn("bare file name", "\n".join(cc.validate(data)))
+
+    def test_the_review_settings_action_is_known(self):
+        data = copy.deepcopy(BASE)
+        data["events"][1]["entries"][0]["action"] = "review_settings"
+        self.assertEqual([], cc.validate(data))
+
     def test_a_release_after_an_unreleased_ship_on_one_platform_is_rejected(self):
         data = copy.deepcopy(BASE)
         data["events"][2]["ships"]["desktop"]["date"] = "unreleased"

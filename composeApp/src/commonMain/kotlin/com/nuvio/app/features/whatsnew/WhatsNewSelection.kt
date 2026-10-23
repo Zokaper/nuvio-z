@@ -73,6 +73,8 @@ data class ChangelogEvent(
     val entries: List<ChangelogEntry>,
     /** Optional one line. Deliberately not a "release name": the date is the identity. */
     val summary: String? = null,
+    /** The update's hero picture, a bare file name like [ChangelogEntry.image]; shown above its date. */
+    val image: String? = null,
 )
 
 /** A line for the "This debug build" section. Per family, from `changelog-debug.json`. */

@@ -46,6 +46,8 @@ data class WhatsNewEventUi(
     val sections: List<WhatsNewSection>,
     /** "Also in this update, on other devices" - kept, set apart, never hidden. */
     val otherDevices: List<WhatsNewItem>,
+    /** The update's hero picture (`files/whatsnew/`), drawn above its date. */
+    val image: String? = null,
 )
 
 /**
@@ -122,6 +124,7 @@ fun whatsNewEventsUi(events: List<ChangelogEvent>, platform: ChangelogPlatform):
                     ?.let { entries -> WhatsNewSection(category.toWhatsNewCategory(), entries.map { it.toItem(platform) }) }
             },
             otherDevices = emptyList(),
+            image = event.image,
         )
     }
 

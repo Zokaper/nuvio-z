@@ -2,6 +2,8 @@ package com.nuvio.app.features.whatsnew
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,6 +36,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,10 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -57,8 +58,10 @@ import com.nuvio.app.features.updater.AppReleaseNotes
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_done
 import nuvio.composeapp.generated.resources.whats_new_action_advanced_setup
-import nuvio.composeapp.generated.resources.zwhatsnew_bug_fixes_count
 import nuvio.composeapp.generated.resources.whats_new_debug_build
+import nuvio.composeapp.generated.resources.whats_new_bug_fixes
+import nuvio.composeapp.generated.resources.whats_new_improvements
+import nuvio.composeapp.generated.resources.whats_new_new_features
 import nuvio.composeapp.generated.resources.whats_new_no_notes
 import nuvio.composeapp.generated.resources.whats_new_platform_android
 import nuvio.composeapp.generated.resources.whats_new_platform_desktop
@@ -135,31 +138,22 @@ internal fun WhatsNewContent(
         color = tokens.colors.surfaceDialog,
         shape = tokens.shapes.dialog,
     ) {
-        Column(
-            modifier = Modifier.padding(tokens.spacing.dialogPadding),
-        ) {
-            Text(
-                text = stringResource(Res.string.whats_new_title),
-                style = MaterialTheme.typography.headlineMedium,
-                color = tokens.colors.textPrimary,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = stringResource(Res.string.whats_new_version, versionName),
-                style = MaterialTheme.typography.bodyMedium,
-                color = tokens.colors.textMuted,
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-
+        // Z (2026-10-23): the newest update's hero is the top of the panel itself - edge to edge, fading
+        // into the dialog - with the title centred under it. Without a hero, the plain header as before.
+        val hero = events.firstOrNull()?.image
+        val padding = tokens.spacing.dialogPadding
+        Column {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
+                item(key = "header") { WhatsNewHeader(versionName, hero, imageContent) }
                 debugSection?.let { section ->
-                    item(key = "debug") { WhatsNewSectionContent(section, onAction = null) }
+                    item(key = "debug") {
+                        Box(Modifier.padding(horizontal = padding)) { WhatsNewSectionContent(section, onAction = null) }
+                    }
                 }
                 if (events.isEmpty() && debugSection == null) {
                     item(key = "empty") {
@@ -167,28 +161,77 @@ internal fun WhatsNewContent(
                             text = stringResource(Res.string.whats_new_no_notes),
                             style = MaterialTheme.typography.bodyMedium,
                             color = tokens.colors.textMuted,
+                            modifier = Modifier.padding(horizontal = padding),
                         )
                     }
                 }
-                items(events, key = { "event-${it.seq}" }) { event ->
-                    WhatsNewEventContent(event, onAction, imageContent)
+                itemsIndexed(events, key = { _, event -> "event-${event.seq}" }) { index, event ->
+                    Box(Modifier.padding(horizontal = padding)) {
+                        // The header already shows the newest update's hero.
+                        WhatsNewEventContent(event, onAction, imageContent, showImage = index > 0)
+                    }
                 }
                 if (showHistory) {
                     item(key = "history") {
-                        PreviousVersions(history = history)
+                        Box(Modifier.padding(horizontal = padding)) { PreviousVersions(history = history) }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
             Button(
                 onClick = onContinue,
-                modifier = Modifier.align(Alignment.End),
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(start = padding, end = padding, top = 20.dp, bottom = padding),
                 shape = tokens.shapes.button,
             ) {
                 Text(stringResource(Res.string.action_done))
             }
         }
+    }
+}
+
+/** The dialog's top: the hero bleeding to the panel's edges with the title centred under it, or the plain title. */
+@Composable
+private fun WhatsNewHeader(versionName: String, hero: String?, imageContent: @Composable (String) -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val padding = tokens.spacing.dialogPadding
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (hero != null) Alignment.CenterHorizontally else Alignment.Start,
+    ) {
+        if (hero != null) {
+            Box(Modifier.fillMaxWidth()) {
+                imageContent(hero)
+                // Fade the picture's lower edge into the panel so the title sits on the same surface.
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.55f to Color.Transparent,
+                                1f to tokens.colors.surfaceDialog,
+                            ),
+                        ),
+                )
+            }
+        } else {
+            Spacer(Modifier.height(padding))
+        }
+        Text(
+            text = stringResource(Res.string.whats_new_title),
+            style = MaterialTheme.typography.headlineMedium,
+            color = tokens.colors.textPrimary,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = padding),
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(Res.string.whats_new_version, versionName),
+            style = MaterialTheme.typography.bodyMedium,
+            color = tokens.colors.textMuted,
+            modifier = Modifier.padding(horizontal = padding),
+        )
     }
 }
 
@@ -206,10 +249,15 @@ private fun WhatsNewEventContent(
     event: WhatsNewEventUi,
     onAction: ((ChangelogAction) -> Unit)?,
     imageContent: @Composable (String) -> Unit,
+    showImage: Boolean = true,
 ) {
     val tokens = MaterialTheme.nuvio
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         HorizontalDivider(color = tokens.colors.borderSubtle)
+        // Z (2026-10-23): one hero picture per update; the details go in the announcement's trailer.
+        event.image?.takeIf { showImage }?.let { image ->
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))) { imageContent(image) }
+        }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 text = event.date ?: stringResource(Res.string.whats_new_unreleased),
@@ -217,23 +265,8 @@ private fun WhatsNewEventContent(
                 color = tokens.colors.textPrimary,
                 fontWeight = FontWeight.Bold,
             )
-            if (event.versions.isNotEmpty()) {
-                val labels = event.versions.map { platformLabel(it.platform) }
-                Text(
-                    text = buildAnnotatedString {
-                        event.versions.forEachIndexed { index, version ->
-                            if (index > 0) append("  ·  ")
-                            val style = if (version.isViewer) {
-                                SpanStyle(color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
-                            } else {
-                                SpanStyle(color = tokens.colors.textMuted)
-                            }
-                            withStyle(style) { append("${labels[index]} ${version.version}") }
-                        }
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
+            // Z (2026-10-23): no per-platform version line under the date - the dialog's subtitle
+            // already names this build's version, and three versions beside a date read as clutter.
             event.summary?.let { summary ->
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -243,67 +276,64 @@ private fun WhatsNewEventContent(
                 )
             }
         }
-        // Picture-led changes share one place, whether authored as features or improvements.
-        val changes = event.sections.filter {
-            it.category == WhatsNewCategory.NewFeatures || it.category == WhatsNewCategory.Improvements
-        }.flatMap { it.items }
-        changes.filter { it.image != null }.forEach { item ->
-            WhatsNewPictureCard(item, onAction, imageContent)
-        }
-        val smallerChanges = changes.filter { it.image == null }
-        if (smallerChanges.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                smallerChanges.forEach { item -> WhatsNewLine(item, onAction) }
-            }
-        }
-        event.sections.filter {
-            it.category == WhatsNewCategory.BugFixes || it.category == WhatsNewCategory.DebugBuild
-        }.forEach { section -> WhatsNewSectionContent(section, onAction) }
+        // Z (2026-10-23): the New features / Improvements / Bug fixes headings are back (maintainer).
+        event.sections.forEach { section -> WhatsNewSectionContent(section, onAction, imageContent) }
     }
 }
 
 @Composable
-private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((ChangelogAction) -> Unit)?) {
+private fun WhatsNewSectionContent(
+    section: WhatsNewSection,
+    onAction: ((ChangelogAction) -> Unit)?,
+    imageContent: @Composable (String) -> Unit = { WhatsNewImage(it) },
+) {
     val tokens = MaterialTheme.nuvio
+    // Fixes fold away behind their count; everything else is open.
     val foldable = section.category == WhatsNewCategory.BugFixes
     var expanded by remember(section) { mutableStateOf(!foldable) }
+    val accent = when (section.category) {
+        // Its own colour: the theme accent is white in the default theme, the same as the text.
+        WhatsNewCategory.NewFeatures -> Color(0xFFFFB547)
+        WhatsNewCategory.Improvements -> Color(0xFF49B6FF)
+        WhatsNewCategory.BugFixes -> Color(0xFF66C98D)
+        WhatsNewCategory.DebugBuild -> tokens.colors.textSecondary
+    }
+    val label = when (section.category) {
+        WhatsNewCategory.NewFeatures -> stringResource(Res.string.whats_new_new_features)
+        WhatsNewCategory.Improvements -> stringResource(Res.string.whats_new_improvements)
+        WhatsNewCategory.BugFixes -> stringResource(Res.string.whats_new_bug_fixes)
+        WhatsNewCategory.DebugBuild -> stringResource(Res.string.whats_new_debug_build)
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (foldable) {
-            Surface(
-                onClick = { expanded = !expanded },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                color = tokens.colors.surfaceCard,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(Res.string.zwhatsnew_bug_fixes_count, section.items.size),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = tokens.colors.textPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(
-                        imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ChevronRight,
-                        contentDescription = null,
-                        tint = tokens.colors.textMuted,
-                    )
-                }
-            }
-        } else if (section.category == WhatsNewCategory.DebugBuild) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .then(if (foldable) Modifier.clickable { expanded = !expanded } else Modifier),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(8.dp).background(accent, CircleShape))
+            Spacer(Modifier.width(8.dp))
             Text(
-                text = stringResource(Res.string.whats_new_debug_build),
+                text = if (foldable) "$label (${section.items.size})" else label,
                 style = MaterialTheme.typography.labelLarge,
-                color = tokens.colors.textSecondary,
+                color = accent,
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
             )
+            if (foldable) {
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ChevronRight,
+                    contentDescription = null,
+                    tint = tokens.colors.textMuted,
+                )
+            }
         }
         if (expanded) {
-            section.items.forEach { item -> WhatsNewLine(item, onAction) }
+            section.items.forEach { item ->
+                if (item.image != null) WhatsNewPictureCard(item, onAction, imageContent) else WhatsNewLine(item, onAction)
+            }
         }
     }
 }
@@ -315,13 +345,15 @@ private fun WhatsNewLine(item: WhatsNewItem, onAction: ((ChangelogAction) -> Uni
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
         Box(Modifier.padding(top = 7.dp).size(6.dp).background(tokens.colors.textSecondary, CircleShape))
         Column(Modifier.weight(1f)) {
-            WhatsNewTitleRow(item, MaterialTheme.typography.bodyMedium, emphasized = false)
+            // Z (2026-10-23): every entry is a line now (the hero carries the pictures), so lines are
+            // no longer the quiet tier under picture cards: full-strength titles, secondary bodies.
+            WhatsNewTitleRow(item, MaterialTheme.typography.bodyLarge)
             if (item.description.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = item.description,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = tokens.colors.textMuted,
+                    color = tokens.colors.textSecondary,
                 )
             }
             WhatsNewActionButton(item, onAction)

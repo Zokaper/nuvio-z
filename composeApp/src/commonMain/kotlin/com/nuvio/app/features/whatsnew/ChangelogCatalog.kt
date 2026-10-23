@@ -65,6 +65,7 @@ object ChangelogCatalog {
             ships = ships,
             entries = (event["entries"] as? JsonArray)?.mapNotNull(::parseEntry).orEmpty(),
             summary = event.string("summary")?.takeIf { it.isNotBlank() },
+            image = event.imageName(),
         )
     }
 
@@ -95,9 +96,13 @@ object ChangelogCatalog {
             title = title,
             body = entry.string("body")?.takeIf { it.isNotBlank() },
             action = ChangelogAction.fromKey(entry.string("action")),
-            image = entry.string("image")?.takeIf { it.isNotBlank() && !it.contains('/') && !it.contains('\\') },
+            image = entry.imageName(),
         )
     }
+
+    /** A bare file name in `files/whatsnew/`; anything carrying a path is dropped. */
+    private fun JsonObject.imageName(): String? =
+        string("image")?.takeIf { it.isNotBlank() && !it.contains('/') && !it.contains('\\') }
 
     private fun platformOf(name: String): ChangelogPlatform? =
         ChangelogPlatform.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
