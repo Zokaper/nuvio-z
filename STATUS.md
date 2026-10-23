@@ -3,8 +3,24 @@ Last updated: 2026-10-23
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 120 | Social V2 QA pass from the maintainer's debug 117 test; retest on 118, then What's New copy/renders, then stable |
-| Mobile | `claude/social-v2` | 110 | Same QA pass, cherry-picked; retest on 109 |
+| Desktop | `claude/social-v2-design` | 130 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
+| Mobile | `claude/social-v2` | 111 (dispatched) | Same final check on debug 111 (Android + iOS) |
+
+## Social V2: final check (2026-10-23)
+
+The maintainer's retest on local MSI 129 + the 14:34 APK: dropped-host wording, new host at 1x and
+invite delivery off the Social tab **pass** (the last "probably"). Debug **111** (mobile) and **130**
+(desktop; 121-129 were local only) were dispatched from `01affc905` / `471123c24` for a final pass on CI
+builds, which have the TMDB key. Still never retested: friend-watching notify default, the upgrade
+path from stable (language migration + New settings offer), Android push delivery, and iOS Watch
+Together after this week's fixes.
+**Scope settled:** generic Inbox dismissal / Mark all read are dropped (opening the Inbox already marks
+everything read); Start a party / Recommend from a friend's profile is not needed for this release.
+**Not a bug, no fix wanted:** after quitting the desktop mid-playback a friend's Watching Now card
+can linger until the server's 90 s heartbeat cutoff (the process ends before its clear is sent).
+**Remaining before stable:** the maintainer's What's New text (draft is in
+`nuviozdesktop/.../promo/WhatsNewArtHarness.kt` `WhatsNewExample`), the real changelog event in both
+repos, version/serial bump naming the new vanilla bases, merge to `main`, publish on their word.
 
 ## Social V2 What's New: one hero picture (2026-10-23)
 
