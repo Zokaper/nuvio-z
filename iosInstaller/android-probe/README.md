@@ -6,6 +6,13 @@ The maintainer now authorizes real Apple sign-in/signing/install proof after the
 transport/pairing work. Version 0.5 adds those operations with Internet permission and the same
 isideload 0.4.6 pin as desktop; no release variant or production application dependency is added.
 
+**Actual install passed on 2026-10-24:** maintainer confirms Nuvio Z Debug installed on the iPhone.
+Galaxy logs independently show successful Apple sign-in/2FA, signing, USB install and all pairing,
+remote-pairing and signing-key handoff flags, `selfRefreshReady=true`, clean connection release.
+A later on-device self-refresh/update cycle and app launch were not independently verified.
+[Current results and next-session handoff](HANDOFF-2026-10-24.md). Next work is desktop-like UI and
+shared installer architecture; keep the validated package/data and native path intact.
+
 ## Direct install proof (0.5.2)
 
 The immediate goal is a real sign-and-install attempt, not more repetition of passed USB checks.
@@ -41,8 +48,8 @@ Apple HTTPS client: its extra-root API is unsupported by Android's verifier. 0.5
 experimental isideload patch to configure standard rustls verification with public WebPKI roots
 plus the same bundled Apple CA. That CA is required by Apple's endpoint; omitting it failed the
 no-password lookup on the Galaxy. Certificate/hostname/signature verification stays enabled. The no-password Galaxy test now covers the real
-Apple client builder and public URL-bag lookup. No real sign-in/install success is claimed from
-compiler/synthetic tests. Keep the paired app's data when updating.
+Apple client builder and public URL-bag lookup. The actual sign/install/handoff subsequently passed; compiler/synthetic results remain separate
+evidence. Keep the paired app's data when updating.
 
 Follow-up preference: desktop and Android should share the Tauri/web-UI framework and portable Rust
 installer logic, with platform adapters. That interface consolidation is deferred until after this

@@ -5,9 +5,31 @@ Last updated: 2026-10-24
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.5.2 installed | Phase 1/2 physically pass; real signing/install proof in progress; fixing Android Apple HTTPS setup, no authenticated sign-in/install success yet |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.5.2 installed | Actual Apple auth/2FA, signing, USB install and self-refresh handoff PASS on Galaxy/iPhone; next session: desktop-like UI/shared framework |
 
 ## Android-to-iPhone USB experiment (2026-10-23)
+
+**REAL INSTALL PASS ? 2026-10-24, APK 0.5.2:** maintainer confirms Nuvio Z Debug is installed
+on the iPhone. Pulled Galaxy adb logs independently verify attempt 2 / mode 6 completed at
+**00:51:44.777 local**, `ok=true`, `blocker=null`, both transport flags true and
+`javaConnectionClosed=true`. All installation flags are true: `downloadVerified`,
+`appleAuthenticated`, `appInstalled`, `pairingHandoff`, `signingKeyHandoff`, `remotePairingHandoff`.
+Saved pairing/pinned TLS passed with `pairedNow=false`, `recordSaved=true`, Developer Mode on and
+`selfRefreshReady=true`. Apple sign-in began 00:50:36.482; 2FA requested 00:50:45.347; signing began
+00:51:00.932; handoff began 00:51:43.461. No fatal Android exception. Earlier saved-pair mode 4 also
+passed. The IPA was verified; this retry may reuse the previously verified download cache.
+The existing handoff files were written and read back by the implementation. **Launching/using the
+iPhone app and a subsequent on-device self-refresh/update cycle have not been independently tested.**
+No claim of a newly tested certificate revocation, Developer Mode off-to-on transition or automatic
+post-reboot USB recovery. Raw evidence remains ignored:
+`build/android-install-proof/0.5.2-success-{device.log,reports.json}`.
+
+**Wrap-up / next session:** maintainer explicitly requests documentation and stopping here; next is
+making Android look and act like the existing desktop installer. See
+[iosInstaller/android-probe/HANDOFF-2026-10-24.md](iosInstaller/android-probe/HANDOFF-2026-10-24.md).
+Do not restart USB reliability testing. Preserve the installed package/data and validated native
+path. Review desktop Tauri/web UI and shared Rust core first, then choose the smallest safe Android
+adapter path; no production edits or framework migration occurred during this proof.
 
 **Current signing/install proof (0.5.2):** experimental ARM64 implementation now downloads official
 Debug 112 with pinned SHA-256, accepts Apple account/password and 2FA directly in the Android app,
@@ -35,22 +57,22 @@ An intermediate no-password diagnostic proved that omitting the Apple CA builds 
 lookup with `UnknownIssuer`; the CA is required, not redundant. Non-Android behavior is unchanged.
 Provenance/license/two-file patch are in `iosInstaller/android-probe/VENDOR.md`. The expanded
 on-device no-password test exercises the actual GrandSlam client builder and Apple's public URL-bag
-lookup, in addition to HTTPS/anisette. No actual Apple authentication, signing, installation
-or self-refresh success is claimed yet. Panic output includes only source basename/line.
+lookup, in addition to HTTPS/anisette. The subsequent actual install/handoff passed as recorded
+above; a later self-refresh cycle is still untested. Panic output includes only source basename/line.
 
 **0.5.2 final automated results:** Rust **17/17**, JVM permission suite **15/15**; final native
 ARM64/APK/test APK builds pass, lint **0 errors / 18 prototype warnings**. Three focused checks
 pass on the real Galaxy under direct instrumentation (JNI version, Activity startup and verified
 HTTPS + anisette + actual Apple client/public lookup), without Apple credentials or an iPhone.
-These are automated phone tests, not a successful real sign-in or installation. Final `adb install -r`
+These automated phone tests are separate from the subsequent real install success above. `adb install -r`
 preserves pairing/signing data; installed/open version `install-proof-0.5.2`, code 7. APK signature
 and 16 KB ZIP/native alignment pass (not a 16 KB runtime claim). Artifact:
 `Nuvio Z/release-artifacts/android-ios-install-proof/Nuvio-Z-Android-Installer-proof-0.5.2.apk`,
 **19,974,261 bytes**, SHA-256
 `3edd251490e2cbe0b37158cccd3a9dbeb98396b414fd62316a1683c22b465835`.
 Ignored evidence `build/android-install-proof/0.5.2-{final-build,final-rust,final-galaxy-checks,
-signature,alignment}.log` plus earlier diagnostic failures. The maintainer has been asked for one
-actual sign/install retry; waiting on that outcome. Never rerun passed USB edge cases as its gate.
+signature,alignment}.log` plus earlier diagnostic failures and the final success report. The actual
+sign/install retry passed. Never rerun passed USB edge cases as its gate.
 
 Release asset verified through GitHub's public release API: `debug-v0.5.4-z3.112`, asset
 `Nuvio-Z-iOS-0.5.4-z3-112-debug-unsigned.ipa`, 104,244,655 bytes, SHA-256
