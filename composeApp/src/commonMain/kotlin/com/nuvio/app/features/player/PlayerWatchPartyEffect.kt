@@ -47,6 +47,8 @@ import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
 import com.nuvio.app.features.watchparty.WatchPartySeekLandingPollMs
 import com.nuvio.app.features.watchparty.partyCorrectionNominalSpeed
+import com.nuvio.app.features.watchparty.partyOrphanedNudgeSpeed
+import com.nuvio.app.features.watchparty.WatchPartyTickStaleMs
 import com.nuvio.app.features.watchparty.WatchPartySnapshotIntervalMs
 import com.nuvio.app.features.watchparty.WatchPartyStallWatchPollMs
 import com.nuvio.app.features.watchparty.WatchPartyStatusSettleMs
@@ -331,6 +333,12 @@ private fun PlayerScreenRuntime.setPartyEngineSpeed(actual: Float, nominal: Floa
     playerController?.setPlaybackSpeed(actual)
 }
 
+/** Puts the party's own rate back while a drift nudge is running; does nothing otherwise. */
+private fun PlayerScreenRuntime.restorePartyNominalSpeed() {
+    val nominal = partyNominalSpeedDuringCorrection ?: return
+    setPartyEngineSpeed(nominal)
+}
+
 private fun PlayerScreenRuntime.notePartyNominalSpeed(actual: Float, nominal: Float) {
     partyNominalSpeedDuringCorrection = partyCorrectionNominalSpeed(actual = actual, nominal = nominal)
 }
@@ -587,6 +595,10 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 // A commanded playhead belongs to the generation that commanded it. Carried into
                 // the next one it would be a baseline for a file the party has not placed yet.
                 partyAlignedBaselineMs = null
+                // A nudge belongs to the generation it was steering. Forgotten without putting the
+                // rate back, the engine kept it and the next generation read it as the party's speed:
+                // a guest made host mid-nudge published 0.9x (2026-10-23, party f149124c).
+                restorePartyNominalSpeed()
                 partyNominalSpeedDuringCorrection = null
                 partyPositionUnreachable = false
                 // Per content generation: a new episode is a new stream, and it deserves the
@@ -917,6 +929,20 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     LaunchedEffect(generationKey, isHost) {
         if (generationKey == null || isHost) return@LaunchedEffect
         var tracker = DriftTracker()
+        // Corrections run per tick, so one in force when the ticks stop needs ending from outside.
+        launch {
+            while (true) {
+                delay(WatchPartyTickIntervalMs)
+                val nominal = partyOrphanedNudgeSpeed(
+                    partyNominalSpeedDuringCorrection,
+                    WatchPartySync.state.value.tickCapturedAtPartyMs,
+                    WatchPartySync.partyNowMs(),
+                ) ?: continue
+                partyLog.i { "drift nudge orphaned - no tick for ${WatchPartyTickStaleMs}ms, back to ${nominal}x" }
+                setPartyEngineSpeed(nominal)
+                tracker = DriftTracker()
+            }
+        }
         WatchPartySync.ticks.collect { tick -> tracker = followPartyTick(tick, tracker) }
     }
 
