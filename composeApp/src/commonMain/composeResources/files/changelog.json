@@ -13,6 +13,124 @@
   ],
   "events": [
     {
+      "seq": 5,
+      "summary": "Social got better: recommend titles to friends, one Inbox for requests and invites, and notifications as they arrive.",
+      "image": "social-v2-hero.jpg",
+      "ships": {
+        "android": {
+          "version": "0.6.2-z1",
+          "serial": 130,
+          "date": "unreleased"
+        },
+        "ios": {
+          "version": "0.6.2-z1",
+          "serial": 130,
+          "date": "unreleased"
+        },
+        "desktop": {
+          "version": "0.1.31-alpha-z1",
+          "serial": 134,
+          "date": "unreleased"
+        }
+      },
+      "entries": [
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Recommend to friends",
+          "body": "You can now send a movie or show to friends with a note. It shows up on their Recommended to you page, and you'll know when they start watching it."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Inbox and notifications",
+          "body": "Friend requests, party invites and join requests land in one Inbox, and a banner tells you as they arrive. On Android, notifications reach you even when the app is closed."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Runs in the tray",
+          "body": "Nuvio Z can now run in the tray, so notifications reach you even when the app is closed."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "A better Social tab",
+          "body": "Friends who are watching show as big cards, and each friend has a profile."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Language and subtitles",
+          "body": "Audio and subtitles are now picked by whether a title is in your language, and language settings are simpler.",
+          "action": "review_settings"
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Social UI improvements",
+          "body": "Invite several friends at once, and see who's invited or waiting in the lobby."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Updated to Nuvio 0.6.2 / 0.1.31",
+          "body": "Jellyfin and Emby libraries, MDBList, and more."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Subtitles you picked stay in the same language on the next episode"
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "A notice when you've been signed out, with a Sign in button"
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Social pop-ups no longer stop after an hour idle"
+        }
+      ]
+    },
+    {
       "seq": 4,
       "summary": "Nuvio Z on iPhone now keeps itself signed and updates itself. No more SideStore, and a new installer for Windows and Mac sets it up or repairs it.",
       "ships": {
