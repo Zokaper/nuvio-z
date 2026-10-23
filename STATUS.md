@@ -14,9 +14,13 @@ announcement. Every entry is text, with the New features / Improvements / Bug fi
 Events in `changelog.json` take an optional `"image"` (bare file name in `files/whatsnew/`). Hero =
 Social / Recommended / tray pop-ups cut by two diagonal slashes, from `promo/WhatsNewArtHarness`
 (PNGs in `Nuvio Z/promo/renders/whatsnew/`). Entry wording: benefit-first, the maintainer writes the
-final text. **Desktop only so far** (`bb93aba5a`, `522fbe957` on `claude/social-v2-design`; What's New
-tests 41/41). Next: maintainer approves the look -> port the three What's New files to mobile, ship
-`hero.jpg` (JPEG it), write the real Social V2 event with `review_settings` on Language.
+final text. **Approved and on both repos:** the hero is the top of the dialog (edge to edge, fading into
+it, title centred under it); New features heading amber; entries at full strength. Shipped asset
+`files/whatsnew/social-v2-hero.jpg`; `check-changelog.py` knows `review_settings` and checks pictures
+exist. Mobile `e7e931782`, desktop `bb93aba5a`..`5e1f9299b`; What's New files identical across repos;
+whatsnew tests mobile 40/40, desktop 41/41; `:androidApp` compiles. **Next:** the maintainer's final
+text -> the real Social V2 event in `changelog.json` (both repos, byte-identical) with
+`"image": "social-v2-hero.jpg"` and `review_settings` on Language.
 
 ## Watch Together lobby / rejoin / leftover-party fixes (2026-10-22 to 10-23)
 
