@@ -5,11 +5,33 @@ Last updated: 2026-10-23
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.3 | Recovery harness and automated checks pass; only 0.2 happy path device-tested; 0.3 reconnect/denial/unplug checklist pending; Phase 2 design reviewed, implementation gated |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.3 | Physical repeated probes, three reconnects and real denial/retry pass (adb logs verified); active unplug/cancel/screen recovery pending; Phase 2 design reviewed, implementation gated |
 
 ## Android-to-iPhone USB experiment (2026-10-23)
 
-**0.3 reliability follow-up:** the maintainer explicitly confirms only the happy flow was physically
+**0.3 physical reliability update (23:02-23:04 local):** APK 0.3 was installed over the existing probe
+on the maintainer's Galaxy S25+ (SM-S936B, Android 16, ARM64). Pulled its filtered log over adb after
+the maintainer completed the first recovery steps. Ten complete native JSON reports were extracted
+and validated: six consecutive ordinary probes (attempts 1-6), three cable detach/reconnect/grant
+cycles (7-9), and an Allow retry following a real denial (10). Every report has `ok=true`, both
+connection flags true, all four expected fields (`iPhone15,2`, iOS `26.5`, build `23F77`),
+`blocker=null`, and `javaConnectionClosed=true`. No busy blocker or fatal exception appears.
+
+Denial evidence: at **23:04:11.852**, Android's actual callback has the device extra and explicit
+`granted=false`; at **23:04:12.078**, the controller confirms the same device remains attached and
+`hasPermission=false`, reporting `permission_denied`. A new request's real Allow callback arrives
+at **23:04:18.278** and attempt 10 passes at **23:04:18.739**. No native probe starts for the denied
+request. Reconnects reuse the same USB bus address on this hardware, with fresh permission callbacks;
+this does not physically verify replacement-device/different-address rejection. The maintainer also
+reports that each requested repeat/reconnect/denial step behaved as expected.
+
+Local ignored evidence: `build/usb-reliability-0.3/device/denial-retry.log`,
+`denial-retry-reports.json`, `denial-retry-summary.json`. Automated results below are unchanged; these
+are additional **physical-device** observations. **Next:** two live 10-second-hold unplug/reconnect
+cycles, then Cancel and screen recovery. No `androidMode=1` report exists in this capture. Phase 2
+implementation remains gated on active-unplug recovery. No rebuild was needed; APK hash unchanged.
+
+**Historical 0.3 build verification (before this physical sweep):** the maintainer confirmed only the happy flow was physically
 tested; no reconnect, denial/retry or active-unplug acceptance is promoted. No physical phone was
 attached to adb during this follow-up. Updated APK **phase1-0.3** (versionCode 3, native 0.3.0) is
 ready for the Galaxy/iPhone sweep in `iosInstaller/android-probe/README.md`, "Phase 1 reliability

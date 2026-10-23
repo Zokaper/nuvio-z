@@ -1,6 +1,7 @@
 # Phase 2 pairing design and entry gate
 
-Status: design only, 2026-10-23. The maintainer confirms only the Phase 1 happy path was tested.
+Status: design only, 2026-10-23. Physical 0.3 repeat probes, three reconnects and real denial/retry
+now pass (adb logs reviewed); active-unplug, Cancel and screen recovery remain pending.
 Phase 2 implementation starts after the [recovery checklist](README.md#phase-1-reliability-checklist-03)
 passes on the actual Galaxy/iPhone pair. No Trust request, pair record, authenticated session,
 Developer Mode change, Apple login, signing or installation has been added to APK 0.3.

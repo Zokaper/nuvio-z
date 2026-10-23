@@ -113,7 +113,8 @@ fresh trust pairing, TLS sessions, remote pairing, large transfers, authenticati
 
 Install **Nuvio-Z-USB-Probe-phase1-0.3.apk** over 0.2, then open **Nuvio Z USB Probe**.
 All steps use only this separate test app. Keep both phones unlocked. Do not reset iPhone trust.
-The maintainer confirmed on 2026-10-23 that only the earlier happy path has been physically tested.
+The first physical 0.3 sweep now passes repeated probes, three reconnects and real Deny/Allow retry;
+active-unplug, Cancel and screen recovery remain pending (see verification below).
 
 1. **Repeated probes:** with the cable attached, run the ordinary **Probe Apple device** five times.
    Each should finish with `ok=true`, both connection flags true and all four information fields.
@@ -159,8 +160,14 @@ Automated cancellation, fake-peer EOF and emulator permission callbacks cannot s
 - The first cold-emulator run timed out two existing permission callback tests at 5 seconds during
   background broadcast delivery. Test-only waits now allow 30 seconds; the final full run passes.
   The actual app's 120-second permission deadline did not change.
-- **No physical Galaxy/iPhone tests on 0.3 yet.** Prior 0.2 transport/info evidence is retained below.
-  Phase 2 remains gated on the physical recovery checklist. Source design is in `PHASE2-DESIGN.md`.
+- **Physical Galaxy S25+ / Android 16 ARM64 -> iPhone15,2 / iOS 26.5 (23F77):** maintainer completed
+  repeated ordinary probes, three cable reconnects and real denial/retry. Pulled adb logs confirm
+  six consecutive ordinary passes, three reconnect passes and a passing Allow retry after explicit
+  `permission_denied` with the device still present. All ten native reports have both connection
+  flags true, four expected info fields, `blocker=null` and `javaConnectionClosed=true`.
+  Active-unplug (`androidMode=1`), Cancel and screen recovery are not yet physically verified;
+  Phase 2 remains gated on the remaining recovery checks. Source design: `PHASE2-DESIGN.md`.
+  Additional physical evidence: `build/usb-reliability-0.3/device/denial-retry{.log,-reports.json,-summary.json}`.
 
 APK: **Nuvio-Z-USB-Probe-phase1-0.3.apk**, **7,621,019 bytes**, SHA-256:
 `96e89a36242eb56f1cb5a2f2bde4059f38d8348a16d5365f69760c7c3fd4547d`.
