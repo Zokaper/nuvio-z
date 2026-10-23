@@ -21,8 +21,8 @@ android {
         applicationId = "com.nuvio.app.z.usbprobe"
         minSdk = 24
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 8
-        versionName = "installer-0.6.0"
+        versionCode = 9
+        versionName = "installer-0.6.1"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

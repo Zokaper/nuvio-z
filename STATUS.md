@@ -14,7 +14,9 @@ Last updated: 2026-10-24
 Java bridge with the same invoke/event names (not Tauri Android). Android remembers the email only. The installer
 moves to its own repo `Zokaper/nuviozinstaller`. Stage A is committed (`1f5f7c1f7`): the Android variant of the
 shared screens plus a phone layout, renders sent for review. Desktop DOM is identical across 114 preview variants.
-**Stages C+D committed (`3871c4b43`), APK 0.6.0 built, not yet run on the Galaxy/iPhone pair.** The app
+**DEVICE PASS 2026-10-24 (maintainer): the entire flow worked on the Galaxy/iPhone pair with APK 0.6.0.** Only defect: the header drew under the status bar (Android 15+ forces edge-to-edge and a WebView ignores its own padding). APK 0.6.1 puts the WebView in an inset container (system bars, cutout and keyboard); installed with `adb install -r` and checked on the Galaxy (welcome and connect screens). 0.6.1 artifact SHA-256 `b563e04b451f8134f27b0db19601cfeb0aad3fdd16eab236b9086a5384c7eb92`.
+
+**Stages C+D committed (`3871c4b43`), APK 0.6.0.** The app
 (`Nuvio Z Installer`, same package `com.nuvio.app.z.usbprobe`, same debug signing cert as 0.5.2, so `adb install -r`
 keeps the pairing and signing data) opens the shared `ui/` in a WebView through `InstallerBridge.java`. Native modes:
 7 = status through the saved record, 8 = reveal Developer Mode; mode 6 signs in before downloading and uses the
