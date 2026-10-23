@@ -109,8 +109,15 @@ fresh trust pairing, TLS sessions, remote pairing, large transfers, authenticati
   is requested in these synthetic callback tests, and no iPhone is paired or modified.
 - **15 JVM permission-state tests and 5 Rust protocol tests pass**. Both native ABIs build.
 - Lint: **0 errors, 13 prototype warnings**. APK signature and ZIP/ELF 16 KB alignment verified.
-- User's real iPhone detection, Android permission prompt and ARM64 native loading are confirmed.
-  The new real permission-dialog → open → claim → mux/Lockdown flow still needs a reconnect test.
+- **Real Galaxy S25+ / Android 16 -> iPhone15,2 / iOS 26.5 (23F77): core Phase 1 pass.**
+  At 20:17:41 the callback preserved `granted=true` and the device extra; `hasPermission()` was true.
+  Java open, native FD adoption, configuration 1 -> 3, mux interface 1 claim (0x85 IN / 0x04 OUT),
+  mux 2.0 exchange and Lockdown port 62078 all succeeded. All four unpaired GetValue reads returned;
+  final report: `ok=true`, `muxConnected=true`, `lockdownConnected=true`, `blocker=null`.
+  No pairing/StartSession was performed. A later normal physical detach was logged.
+- This is one successful physical probe. Repeated reconnect/reprobe, actual denial/retry, unplug
+  during a probe and physical re-enumeration remain unverified. Phase 2 has not started. Local
+  evidence: `build/usb-permission-fix/phone-retest-0.2{.log,-report.json}` from the repository root.
 
 Updated APK: `Nuvio-Z-USB-Probe-phase1-0.2.apk`, 7,599,395 bytes. SHA-256:
 `245990059cd1e9badc9bbbef4e3f88fadb2b17b42327746431465b1724e4c5cb`.
