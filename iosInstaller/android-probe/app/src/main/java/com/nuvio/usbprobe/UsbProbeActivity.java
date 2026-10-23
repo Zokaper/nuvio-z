@@ -18,7 +18,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Isolated debug application: no pairing, credentials or installation controls. */
+/** Isolated USB/pairing experiment. No Apple credentials, signing or installation controls. */
 public final class UsbProbeActivity extends Activity {
     private UsbManager usb;
     private TextView status;
@@ -64,7 +64,7 @@ public final class UsbProbeActivity extends Activity {
         title.setTextSize(23);
         content.addView(title);
         TextView scope = new TextView(this);
-        scope.setText("Phase 1 · DEBUG ONLY\nReads model and iOS version over USB. No Apple sign-in, pairing, signing or app installation. Unlock the iPhone and keep this screen open. A probe has a 45-second deadline.");
+        scope.setText("Phase 2 · DEBUG ONLY\nPair iPhone requests Trust and saves the pairing securely on this Android. Saved pairing checks an authenticated connection. No Apple sign-in, signing or app installation. Unlock the iPhone. Trust can wait 90 seconds; the complete pairing operation is bounded by 180 seconds.");
         content.addView(scope);
         status = new TextView(this);
         status.setTextSize(17);
@@ -91,7 +91,7 @@ public final class UsbProbeActivity extends Activity {
             status.setText(session.status());
         };
         session.observe(sessionListener);
-        note("Probe phase1-0.3; Android " + Build.VERSION.RELEASE + "; SDK " + Build.VERSION.SDK_INT
+        note("Probe phase2-0.4; Android " + Build.VERSION.RELEASE + "; SDK " + Build.VERSION.SDK_INT
                 + "; ABIs " + TextUtils.join(",", Build.SUPPORTED_ABIS));
         try {
             note("Native loaded: " + NativeUsbProbe.version());
@@ -142,14 +142,17 @@ public final class UsbProbeActivity extends Activity {
                         intf.getId(), intf.getInterfaceClass(), intf.getInterfaceSubclass(),
                         intf.getInterfaceProtocol(), intf.getEndpointCount()));
             }
-            button(devices, String.format(java.util.Locale.ROOT, "Probe Apple device %04x", device.getProductId()),
+            button(devices, "Pair iPhone / Trust", () -> requestProbe(device, 3));
+            button(devices, "Saved pairing: authenticated reconnect", () -> requestProbe(device, 4));
+            button(devices, "Prepare Developer Mode reboot recovery", () -> requestProbe(device, 5));
+            button(devices, String.format(java.util.Locale.ROOT, "USB info only (Phase 1): Apple %04x", device.getProductId()),
                     () -> requestProbe(device, 0));
             button(devices, "Unplug recovery test (10-second hold after mux)", () -> requestProbe(device, 1));
         }
         if (appleCount == 0 && !session.busy() && lastStage.isEmpty()) {
             status.setText("No Apple USB device detected. Connect a data cable, unlock the iPhone, and ensure the Galaxy controls USB.");
         } else if (appleCount > 0 && !session.busy() && !permission.pending() && lastStage.isEmpty()) {
-            status.setText("Apple USB device detected. Tap Probe to grant USB access.");
+            status.setText("iPhone detected. Tap Pair iPhone / Trust to begin, or Saved pairing to reconnect.");
         }
     }
 

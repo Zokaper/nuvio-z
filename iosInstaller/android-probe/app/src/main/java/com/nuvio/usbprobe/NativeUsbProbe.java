@@ -8,8 +8,16 @@ public final class NativeUsbProbe {
     public static native String version();
     public static native String progress();
     static long nextAttempt() { return ATTEMPTS.incrementAndGet(); }
-    static native String run(int borrowedFileDescriptor, long attempt, int mode);
+    private static native String execute(int borrowedFileDescriptor, long attempt, int mode, PairingStore store);
+    static String run(int borrowedFileDescriptor, long attempt, int mode) {
+        return execute(borrowedFileDescriptor, attempt, mode, null);
+    }
+    static String run(int borrowedFileDescriptor, long attempt, int mode, PairingStore store) {
+        return execute(borrowedFileDescriptor, attempt, mode, store);
+    }
     static native void cancel(long attempt);
+    // Instrumentation only: synthetic namespace/bytes; no USB, phone identity or protocol operation.
+    static native String testStoreBridge(PairingStore store);
     public static String probe(int borrowedFileDescriptor) {
         return run(borrowedFileDescriptor, nextAttempt(), 0);
     }

@@ -2,7 +2,7 @@ use crate::{ProbeReport, VERSION, control::Cancellation, read_device_info};
 use idevice::{IdeviceService, lockdown::LockdownClient};
 use jni::{
     JNIEnv,
-    objects::JClass,
+    objects::{JClass, JObject},
     sys::{jint, jlong, jstring},
 };
 use rusbmux::{device::usb::UsbDevice, provider::RusbmuxProvider, usb_backend::AnyDeviceInfo};
@@ -67,12 +67,14 @@ impl Write for LogWriter {
 fn init() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
-        std::panic::set_hook(Box::new(|panic| log(&format!("native panic: {panic}"))));
-        // Keep native diagnostics in logcat; never enable packet/payload trace logging.
+        std::panic::set_hook(Box::new(|_| {
+            log("Native panic; sensitive details withheld")
+        }));
+        // Vendor logs can include packet payloads even at ERROR. Emit only our safe stage events.
         let _ = tracing_subscriber::fmt()
             .with_ansi(false)
             .without_time()
-            .with_max_level(tracing::Level::INFO)
+            .with_max_level(tracing::level_filters::LevelFilter::OFF)
             .with_writer(|| LogWriter)
             .try_init();
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -89,7 +91,12 @@ fn event(report: &mut ProbeReport, stage: &str, message: impl Into<String>) {
     report.event(stage, message);
 }
 
-async fn probe(fd: i32, mode: i32, report: &mut ProbeReport) -> Result<(), (&'static str, String)> {
+async fn probe(
+    fd: i32,
+    mode: i32,
+    report: &mut ProbeReport,
+    store: Option<&mut dyn crate::pairing::Store>,
+) -> Result<(), (&'static str, String)> {
     if mode == 2 {
         event(
             report,
@@ -183,6 +190,30 @@ async fn probe(fd: i32, mode: i32, report: &mut ProbeReport) -> Result<(), (&'st
     // Do not use watch_usb_daemon or preflight: those can pair automatically.
     let provider = RusbmuxProvider::new(device.clone(), "nuvio-usb-probe-phase1".into());
     let result = async {
+        if mode >= 3 {
+            let store = store.ok_or((
+                "pairing_store",
+                "Private Android store unavailable".to_string(),
+            ))?;
+            let mut pairing = crate::pairing::PairingReport::default();
+            let result = crate::pairing::authenticate(
+                &provider,
+                store,
+                mode == 3,
+                mode == 5,
+                &mut pairing,
+                |stage, message| {
+                    if stage == "lockdown_connected" {
+                        report.lockdown_connected = true;
+                    }
+                    event(report, stage, message);
+                },
+            )
+            .await;
+            report.pairing = Some(pairing);
+            report.device_info = result.map_err(|(stage, message)| (stage, message.to_string()))?;
+            return Ok(());
+        }
         if mode == 1 {
             event(
                 report,
@@ -223,7 +254,7 @@ async fn probe(fd: i32, mode: i32, report: &mut ProbeReport) -> Result<(), (&'st
     result
 }
 
-fn run(fd: i32, attempt: u64, mode: i32) -> String {
+fn run(fd: i32, attempt: u64, mode: i32, store: Option<&mut dyn crate::pairing::Store>) -> String {
     init();
     let mut report = ProbeReport::default();
     if BUSY
@@ -248,7 +279,7 @@ fn run(fd: i32, attempt: u64, mode: i32) -> String {
                 tokio::select! {
                     biased;
                     _ = CANCEL.wait(attempt) => Err("probe_cancelled"),
-                    result = timeout(Duration::from_secs(45), probe(fd, mode, &mut report)) =>
+                    result = timeout(Duration::from_secs(if mode >= 3 { 180 } else { 45 }), probe(fd, mode, &mut report, store)) =>
                         result.map_err(|_| "deadline"),
                 }
             });
@@ -258,7 +289,11 @@ fn run(fd: i32, attempt: u64, mode: i32) -> String {
                     event(
                         &mut report,
                         "complete",
-                        "Device information read successfully; no pairing performed",
+                        if mode >= 3 {
+                            "Authenticated information read succeeded; no Apple authentication, signing or installation"
+                        } else {
+                            "Device information read successfully; no pairing performed"
+                        },
                     );
                 }
                 Ok(Err((stage, error))) => report.fail(stage, error),
@@ -266,7 +301,10 @@ fn run(fd: i32, attempt: u64, mode: i32) -> String {
                     "probe_cancelled",
                     "Attempt cancelled; releasing mux tasks and descriptor",
                 ),
-                Err(_) => report.fail("deadline", "45s total probe deadline reached"),
+                Err(_) => report.fail(
+                    "deadline",
+                    "Total operation deadline reached; retry with the retained identity",
+                ),
             }
             // Drops spawned tasks, including any mux loops canceled during a timeout.
             runtime.shutdown_timeout(Duration::from_secs(2));
@@ -303,24 +341,33 @@ pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_progress(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_run(
-    env: JNIEnv,
+pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_execute<'local>(
+    mut env: JNIEnv<'local>,
     _: JClass,
     fd: jint,
     attempt: jlong,
     mode: jint,
+    store: JObject<'local>,
 ) -> jstring {
-    let result =
-        std::panic::catch_unwind(|| run(fd, attempt as u64, mode)).unwrap_or_else(|panic| {
-            let mut report = ProbeReport::default();
-            let detail = panic
-                .downcast_ref::<String>()
-                .map(String::as_str)
-                .or_else(|| panic.downcast_ref::<&str>().copied())
-                .unwrap_or("Rust panic; see logcat");
-            report.fail("native_panic", detail);
-            serde_json::to_string_pretty(&report).unwrap()
-        });
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if store.is_null() {
+            run(fd, attempt as u64, mode, None)
+        } else {
+            let mut bridge = crate::android_store::AndroidStore {
+                env: &mut env,
+                object: store,
+            };
+            run(fd, attempt as u64, mode, Some(&mut bridge))
+        }
+    }))
+    .unwrap_or_else(|_| {
+        let mut report = ProbeReport::default();
+        report.fail(
+            "native_panic",
+            "Sensitive details withheld; no signing or installation performed",
+        );
+        serde_json::to_string_pretty(&report).unwrap()
+    });
     string(&env, result)
 }
 
@@ -333,4 +380,44 @@ pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_cancel(
     if attempt > 0 {
         CANCEL.cancel(attempt as u64);
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_testStoreBridge<'local>(
+    mut env: JNIEnv<'local>,
+    _: JClass,
+    object: JObject<'local>,
+) -> jstring {
+    use crate::pairing::Store;
+    init();
+    let result = (|| {
+        let mut store = crate::android_store::AndroidStore {
+            env: &mut env,
+            object,
+        };
+        let udid = "00000000-0000000000000001";
+        let identity = store.identity(udid)?;
+        if identity.0.is_empty() || identity.1.is_empty() {
+            return Err(("pairing_store", "Invalid identity"));
+        }
+        store.save(udid, b"synthetic-pair-record-not-a-real-credential")?;
+        let mut loaded = store
+            .load(udid)?
+            .ok_or(("pairing_store", "Synthetic record missing"))?;
+        let matches = loaded == b"synthetic-pair-record-not-a-real-credential";
+        loaded.fill(0);
+        if !matches {
+            return Err(("pairing_store", "Synthetic record mismatch"));
+        }
+        store.reboot(udid, 1)?;
+        store.reboot(udid, 2)?;
+        Ok::<_, crate::pairing::Failure>(())
+    })();
+    string(
+        &env,
+        match result {
+            Ok(()) => "ok".into(),
+            Err((stage, _)) => stage.into(),
+        },
+    )
 }

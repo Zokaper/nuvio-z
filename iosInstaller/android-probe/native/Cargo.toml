@@ -1,6 +1,6 @@
 [package]
 name = "nuvioz-usb-probe"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "GPL-3.0-only"
 publish = false
@@ -16,12 +16,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Same device protocol pin as ../../Cargo.toml; no installer core/signing/authentication linked.
-idevice = { version = "=0.1.68", default-features = false, features = ["tcp", "rustls", "ring"] }
+idevice = { version = "=0.1.68", default-features = false, features = ["tcp", "rustls", "ring", "pair", "amfi"] }
 rusbmux = { path = "vendor/rusbmux", default-features = false, features = ["nusb"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+plist = "1"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "=0.21.1"
@@ -30,7 +32,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
 
 [dev-dependencies]
-plist = "1"
+rsa = "=0.9.10"
 tokio = { version = "1", features = ["test-util"] }
 
 [profile.release]

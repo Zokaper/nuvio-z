@@ -5,9 +5,98 @@ Last updated: 2026-10-23
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.3 | Physical repeated probes, three reconnects and real denial/retry pass (adb logs verified); active unplug/cancel/screen recovery pending; Phase 2 design reviewed, implementation gated |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.4 installed | Phase 1/2 pairing + TLS + persistence/reboot reconnect pass with Android-end cable re-seat after reboot; maintainer now authorizes moving directly to signing and installation proof |
 
 ## Android-to-iPhone USB experiment (2026-10-23)
+
+**Latest checkpoint / scope expansion:** Phase 2 physical reports are **3 -> 4 -> 5 -> 4**, all PASS:
+fresh pairing; saved-pair reconnect after force-stopping/reopening the Android app; prepare expected
+reboot; saved-pair reconnect after normal iPhone reboot. Final report has `pairedNow=false`, saved
+record, authenticated TLS, Developer Mode on, `rebootReconnectVerified=true`, `rebootPending=false`.
+Maintainer reports no new Trust prompt. **After reboot, only unplugging/replugging the Galaxy/Android
+end restored USB; replugging the iPhone end did not.** Logs show a brief attach/detach at 23:37:53,
+stable attachment at 23:38:44 and authenticated recovery at 23:39:05.496. Automatic USB return is
+unresolved; record the Android-end re-seat workaround, not seamless reboot recovery. Developer Mode
+was already on; the off-to-on transition was not exercised. Evidence (ignored):
+`build/usb-pairing-0.4/phone-reboot-recovery{.log,-reports.json}`.
+
+**Maintainer now explicitly requests jumping to actual signing and installing Nuvio Z** rather than
+more incremental connection checks, citing time/token cost. This supersedes the earlier no-Apple-auth/
+signing/installation scope restriction for this experiment. Reuse the existing isideload path;
+Apple account/password/2FA must be entered directly in the Android app, never chat/logs. Keep all
+work isolated from production; preserve the existing paired app data and signing/self-refresh handoff.
+Do not repeat passed connection tests or run Gradle connected tests that uninstall this paired app.
+
+**Phase 2 / APK 0.4:** explicit Pair/Trust, encrypted private persistence, certificate-pinned
+authenticated Lockdown/TLS, saved-record reconnect and an expected Developer Mode reboot workflow
+are implemented in the isolated probe. No production source or installer lockfile changes. No Apple
+authentication, signing, IPA transfer/installation, remote pairing or self-refresh file placement.
+
+**Real fresh-pair pass (23:35 local):** the maintainer tapped Pair/Trust and reports PASS. Pulled
+adb logs independently confirm `awaiting_trust` at **23:35:05.328**, accepted/saved record at
+**23:35:10.694**, pinned TLS plus four authenticated reads complete at **23:35:10.717**, and session
+cleanup at **23:35:10.746**. Final report: `ok=true`, both transport flags true, all four expected
+device fields, `pairedNow=true`, `recordSaved=true`, `tlsAuthenticated=true`, `developerMode=true`,
+`selfRefreshReady=false`, `blocker=null`, Java connection closed. Record bytes/identifiers are absent
+from the diagnostic. The probe package was then force-stopped/reopened **without clearing data**;
+saved-pair reconnect and normal iPhone reboot checks subsequently passed with the workaround above.
+Developer Mode is already on, so no toggle/reveal/enable action is needed or performed.
+
+**Implementation/security:** `PairingStore.java` uses Android Keystore AES-256-GCM, fresh nonces,
+version/file-name AAD, hashed real-device filenames in `noBackupFilesDir`, atomic/fsynced writes and
+read-back verification. HostID/SystemBUID persist before Trust; accepted full idevice Lockdown bytes
+persist before TLS. Reconnect cannot silently pair; corruption/revocation/key loss retains the old
+record and returns a fixed diagnostic. The real iPhone identity is internal; the raw mux placeholder
+is never a store key. A persisted expected-reboot marker binds recovery to the same iPhone.
+
+Source review found idevice **0.1.68 `sni.rs` skips both certificate and TLS signature verification**.
+The local `paired_tls.rs` therefore reproduces only bounded StartSession framing through public
+socket APIs, requires SSL, pins the paired device certificate, verifies TLS 1.2/1.3 signatures and
+configures the paired host client certificate/key. GetValue/StartService/StopSession still use
+idevice. Read-only AMFI action 3 uses the pinned session/service channel; no Developer Mode toggle
+or automatic reboot. All third-party tracing and panic details are suppressed to prevent payload
+logging. Production's existing TLS path is untouched; its verifier is a separate review item.
+The existing merged `NuvioZPairing.plist`/remote-pairing handoff contract is documented and preserved
+for later integration; Lockdown alone never claims self-refresh readiness. Design/known interrupted
+Pair-save limitation: `iosInstaller/android-probe/PHASE2-DESIGN.md`.
+
+**0.4 automated verification:** Rust host **16/16**, JVM permission-state **15/15**, real Galaxy
+Android 16 ARM64 instrumentation **24/24**, zero failures/skips. Synthetic tests include the real
+idevice Pair wire protocol with pending/denial, exact pending-request reuse, encrypted Android
+Keystore storage/reopen/nonces/corruption/key loss/device-file swap/interrupted atomic write/reboot
+binding, JNI store callbacks/cleared exceptions, real TLS success/plaintext and wrong-pin rejection,
+forged TLS 1.2/1.3 handshake signatures, saved-record reconnect and simulated expected reboot. These
+do not constitute iPhone reboot/process-restart acceptance. Both native ABIs and APK build; lint
+**0 errors / 13 prototype warnings**. Signature and ZIP/ELF 16 KB alignment pass (not a 16 KB runtime
+test). Explicit final `adb install -r` and launch verify package version **phase2-0.4**, code **4**.
+
+**Test-runner lifecycle:** Gradle connected tests remove the target probe package after running on
+this setup. All instrumentation ran **before** real pairing; an explicit install restored the app
+afterward. Do not run that Gradle connected task on a phone with a valuable pairing store unless
+its install/uninstall lifecycle has been changed and verified. Further hardware QA uses the existing
+installed app and filtered logs; updates must use `adb install -r`, never uninstall/clear-data.
+
+Artifact: `Nuvio Z/release-artifacts/android-ios-usb-phase2/Nuvio-Z-USB-Pairing-phase2-0.4.apk`,
+**8,163,347 bytes**, SHA-256
+`9d8fa9e6d707b2cd4580c03ae764f882d6fdf19b2a826360aee658f19d9aac41`.
+Ignored evidence: `build/usb-pairing-0.4/` (final Rust/Galaxy verification, signature/alignment,
+startup and `phone-fresh-pair{.log,-report.json}`); app build holds JVM/connected/lint XML reports.
+No production build, tag, release or feed publication.
+
+**Phase 1 entry gate met; Phase 2 started:** the maintainer reports active-unplug recovery worked.
+Pulled adb logs independently verify one live-mux hold/unplug (attempt 12, 23:07:41.944 hold;
+23:07:51.768 detach; 23:07:51.963 cleanup complete, **195 ms** after detach), followed by an ordinary
+passing retry (13, 23:08:04.769). Interrupted report: `ok=false`, `muxConnected=true`,
+`lockdownConnected=false`, `androidRecovery=usb_disconnected_during_probe`, Java connection closed.
+Only one live-hold unplug cycle is independently visible; do not claim two. Combined with the
+verified repeated probes, three reconnects and real denial/retry below, this meets the requested
+Phase 1 reliability gate on this device pair. Additional physical Cancel/screen tests were not done;
+the **14/14 instrumentation checks also pass on the real Galaxy ARM64**, including synthetic
+cancellation/recreation (no iPhone connected during instrumentation). No additional physical
+connection repetition is required before Phase 2. Evidence: ignored
+`build/usb-reliability-0.3/device/{active-unplug.log,active-unplug-reports.json,galaxy-instrumentation.log}`.
+Next implementation: fresh Trust, encrypted private persistence, authenticated Lockdown/TLS and
+reboot/reconnect recovery. Phase 2 device behavior remains untested; no Apple auth/sign/install.
 
 **0.3 physical reliability update (23:02-23:04 local):** APK 0.3 was installed over the existing probe
 on the maintainer's Galaxy S25+ (SM-S936B, Android 16, ARM64). Pulled its filtered log over adb after

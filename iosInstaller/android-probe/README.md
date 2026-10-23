@@ -1,17 +1,63 @@
-# Android → iPhone USB probe (Phase 1)
+# Android → iPhone USB and pairing experiment
 
 An opt-in **debug-only** Android application, `com.nuvio.app.z.usbprobe`, built from the Nuvio Z
 repository. It has no release variant, no Internet permission, no production-app dependencies,
-and no Apple authentication, signing, pairing or IPA installation behavior. It installs beside
+and no Apple authentication, signing or IPA installation behavior. It installs beside
 stable and debug Nuvio Z without changing their data. The launcher is **Nuvio Z USB Probe**.
 
 The native code reuses idevice **0.1.68** and a narrowly adapted rusbmux **0.3.0** with nusb
 **0.2.8**. See [VENDOR.md](VENDOR.md) for the exact adaptation and upstream provenance.
 
-**Current test build: phase1-0.3 (versionCode 3, native 0.3.0).** This adds a 10-second live mux
+**Current test build: phase2-0.4 (versionCode 4, native 0.4.0).** Phase 1's requested physical
+repeat/reconnect/denial/unplug tests now pass. Phase 2 adds explicit **Pair iPhone / Trust**, encrypted
+record persistence, pinned authenticated TLS, saved-record reconnection and expected Developer Mode
+reboot recovery. Fresh Trust, saved-record reconnection after Android process restart and normal
+iPhone reboot now pass physically. After reboot, re-seat **the Galaxy/Android end** of the cable;
+re-seating only the iPhone end did not restore USB on this pair. Automatic USB return is unresolved.
+
+**Validated transport build: phase1-0.3.** This adds a 10-second live mux
 hold for the unplug test, attempt-scoped cancellation, a process-owned operation that survives
 screen recreation, and the last 12 native reports in one copyable diagnostic. Neither device
-pairing nor production installer code is enabled. [Phase 2 design and self-refresh contract](PHASE2-DESIGN.md).
+pairing nor production installer code is enabled in 0.3. [Phase 2 design and self-refresh contract](PHASE2-DESIGN.md).
+
+## Phase 2 hardware verification (0.4)
+
+Install over 0.3; do not clear app data between pairing and reconnect tests. The app never asks for
+an Apple Account. No signing or app installation step exists. Pairing records stay encrypted on
+the Galaxy; the ordinary diagnostic report contains no phone identifier or pairing secrets.
+
+1. **Fresh Android host trust:** connect the unlocked iPhone to the Galaxy, scan, tap **Pair iPhone /
+   Trust** and allow Android USB access. On the iPhone choose **Trust This Computer**, entering its
+   passcode when asked. No reset of existing desktop trust is needed: this is a separate host.
+   Expect PASS, `pairing.pairedNow=true`, `recordSaved=true`, `tlsAuthenticated=true` and four info
+   fields. Trust can wait 90 s; the entire operation is bounded by 180 s. A TLS failure is a blocker,
+   even if pairing was accepted; the accepted record is retained for inspection/retry.
+2. **Saved-record reconnect:** disconnect/reconnect, tap **Saved pairing: authenticated reconnect**
+   and allow Android access if asked. Expect PASS, `pairedNow=false`, `recordSaved=true`,
+   `tlsAuthenticated=true`, without another iPhone Trust prompt. Android's USB dialog is separate.
+3. **Process restart:** with the computer attached, the agent can force-stop/reopen only this
+   test package. Reconnect to the iPhone and use **Saved pairing** again. Expect the same result;
+   process-local report history can reset, but the encrypted pairing identity must survive.
+4. **Developer Mode reboot:** tap **Prepare Developer Mode reboot recovery** while connected. This
+   authenticates first and saves `rebootPending=true`; it does not reboot or change the iPhone.
+   If Developer Mode is off, enable it in iPhone Settings -> Privacy & Security and complete its
+   reboot and post-reboot confirmation. If it is already on, a normal manual iPhone restart can
+   test recovery without disabling it. If detection does not return, unplug/replug **the Galaxy end**
+   (iPhone-end re-seat did not work on the tested pair). After unlock/reconnection, grant Android USB access
+   and tap **Saved pairing**. Expect authenticated PASS, `developerMode=true`,
+   `rebootReconnectVerified=true`, `rebootPending=false`, and no new Trust prompt. If the Developer
+   Mode setting is missing or status is null, report that; the app does not silently enable it.
+5. **Denial/failure:** decline an initial Trust request if you want to check that path before
+   accepting it. Expect `trust_denied`; an explicit retry can request Trust again. Do not revoke
+   established iPhone trust globally just to test a failure. Unplug/cancel during a waiting Trust
+   operation must release the connection and retain the host identity; no success is inferred.
+6. Connect the Galaxy back to the computer for a filtered log capture. Device acceptance is separate
+   from fake-peer TLS and synthetic encrypted-store tests; do not declare it from automated results.
+
+The future self-refresh handoff needs a complete merged `NuvioZPairing.plist` including remote-pairing
+identity on recent iOS. 0.4 preserves the complete Lockdown record but does not generate remote
+pairing, enable Wi-Fi debugging, export/place a file, sign or install. `selfRefreshReady=false` is
+deliberate; production handoff behavior is unchanged.
 
 The original 0.1 harness incorrectly
 used an immutable USB permission PendingIntent and treated missing result extras as denial.
@@ -40,6 +86,11 @@ The opt-in flag is required to even include this module. Ordinary app builds hav
 
 ## Automated verification
 
+On this setup Gradle's connected-test runner uninstalls the target probe after running. Use it
+only on a disposable/unpaired test installation. All 0.4 instrumentation ran before real pairing.
+Preserve the current Galaxy's paired app: further hardware checks use the installed app and filtered
+logs; updates use `adb install -r`, never uninstall/clear-data.
+
 ```powershell
 cargo test --locked --manifest-path iosInstaller/android-probe/native/Cargo.toml -p nuvioz-usb-probe --lib
 .\gradlew.bat '-Pnuvio.androidIosUsbProbe=true' '-Pnuvio.android.distribution=full' :androidUsbProbe:testDebugUnitTest :androidUsbProbe:connectedDebugAndroidTest :androidUsbProbe:lintDebug --max-workers=4 --console=plain
@@ -50,7 +101,10 @@ check the four-query allowlist, a pairing refusal, timeout and diagnostic report
 instrumentation verifies JNI loading, the structured negative-FD error, debug/no-network isolation
 and Activity startup. Emulator results do **not** verify physical USB or ARM64 runtime behavior.
 
-## Test with the Galaxy S25+ and an iPhone
+## Phase 1 transport reference: Galaxy S25+ and iPhone
+
+These are the completed transport checks. In 0.4 the unpaired button is **USB info only (Phase 1)**;
+**Pair iPhone / Trust** is the separate Phase 2 action. You do not need to repeat passed Phase 1 steps.
 
 1. Install the APK on the Galaxy and open **Nuvio Z USB Probe**. It must show **Native loaded**.
    Tap **Native self-test**: the expected result is a `file_descriptor` blocker with both connection
@@ -74,7 +128,7 @@ and Activity startup. Emulator results do **not** verify physical USB or ARM64 r
 7. Tap **Copy diagnostic report** and return it with the exact iPhone model/iOS and Galaxy Android/
    One UI versions. Do not reset trust settings or change existing pairing records for this test.
 
-This probe does not generate a Trust prompt. If iOS refuses unpaired GetValue requests, it reports
+The Phase 1 info-only mode does not generate a Trust prompt. If iOS refuses unpaired GetValue requests, it reports
 the refusal and stops. That can establish mux transport while leaving the device-info acceptance
 criterion incomplete; pairing is a separate Phase 2 decision.
 
@@ -108,6 +162,34 @@ adb logcat -v threadtime -s NuvioUsbProbe AndroidRuntime
 
 Proceed to Phase 2 only after reviewing the actual device report. Phase 1 does not establish
 fresh trust pairing, TLS sessions, remote pairing, large transfers, authentication or installation.
+
+## Current 0.4 automated verification (2026-10-23)
+
+- **16 Rust host protocol/TLS tests pass**, using synthetic peers and generated-in-memory keys:
+  Trust pending reuses one request, denial/missing/corrupt record behavior, fresh record persistence,
+  authenticated saved-record reconnect, simulated expected reboot, real TLS success, plaintext/wrong
+  certificate rejection, and forged signature rejection under both TLS 1.2 and 1.3.
+- **24/24 Android instrumentation tests pass on the real Galaxy SM-S936B / Android 16 ARM64**,
+  zero failures/skips. Ten new tests use isolated synthetic store namespaces: Keystore encryption,
+  persistence across store recreation, random nonces, corruption/key loss, device-file swapping,
+  interrupted atomic write, expected-reboot binding and JNI callbacks/exception handling. These tests
+  do not pair with or access an iPhone. **15/15 JVM permission-state tests** also pass.
+- Both native ABIs and the APK build. Lint **0 errors / 13 prototype warnings**; APK signature and
+  16 KB ZIP/ELF alignment pass (16 KB runtime not tested). Build and launch verified on the Galaxy;
+  versionCode 4, `phase2-0.4`. Normal builds remain excluded from this opt-in module; no release
+  variant/Internet permission or production source/installer lockfile change.
+- **Physical fresh pairing/TLS passes:** maintainer's 0.4 run at 23:35 has `pairedNow=true`,
+  `recordSaved=true`, `tlsAuthenticated=true`, all four authenticated info fields and normal session/
+  Java cleanup. Developer Mode reports true. The probe was then force-stopped/reopened without
+  clearing data; saved-record reconnect and normal iPhone reboot subsequently passed. The latter
+  required an Android-end cable re-seat; iPhone-end re-seat did not restore USB. Developer Mode was
+  already on, so its off-to-on transition was not tested. `selfRefreshReady=false`;
+  merged remote-pairing handoff, Wi-Fi debugging, signing and installation are not implemented here.
+
+Artifact: **Nuvio-Z-USB-Pairing-phase2-0.4.apk**, **8,163,347 bytes**, SHA-256
+`9d8fa9e6d707b2cd4580c03ae764f882d6fdf19b2a826360aee658f19d9aac41`.
+Local evidence: `build/usb-pairing-0.4/{final-rust-tests.log,final-galaxy-verification.log,galaxy-startup.log}`,
+signature/alignment logs, and the app build's connected/JVM/lint reports.
 
 ## Phase 1 reliability checklist (0.3)
 
@@ -173,6 +255,7 @@ APK: **Nuvio-Z-USB-Probe-phase1-0.3.apk**, **7,621,019 bytes**, SHA-256:
 `96e89a36242eb56f1cb5a2f2bde4059f38d8348a16d5365f69760c7c3fd4547d`.
 Local evidence: `build/usb-reliability-0.3/` from the repo root, with the final test logs and artifact
 verification. The app build directory contains the JVM, connected-test and lint reports.
+
 
 ## Current 0.2 verification (2026-10-23)
 

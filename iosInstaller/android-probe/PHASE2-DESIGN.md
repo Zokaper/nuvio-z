@@ -1,10 +1,44 @@
 # Phase 2 pairing design and entry gate
 
-Status: design only, 2026-10-23. Physical 0.3 repeat probes, three reconnects and real denial/retry
-now pass (adb logs reviewed); active-unplug, Cancel and screen recovery remain pending.
-Phase 2 implementation starts after the [recovery checklist](README.md#phase-1-reliability-checklist-03)
-passes on the actual Galaxy/iPhone pair. No Trust request, pair record, authenticated session,
-Developer Mode change, Apple login, signing or installation has been added to APK 0.3.
+Status: Phase 2 implemented for experimental APK 0.4, 2026-10-23; real fresh Trust/encrypted save/
+pinned TLS, saved-record reconnect after Android process restart and normal iPhone reboot all pass.
+After reboot, unplug/replug at the Galaxy/Android end is required on this device pair; iPhone-end
+replug did not restore USB. Automatic return remains unresolved. Developer Mode was already on.
+The required Phase 1 repeat/reconnect/denial/active-unplug gate passes on the actual Galaxy/iPhone
+pair. One active-unplug cycle is independently visible in adb logs, with 195 ms cleanup and a
+passing ordinary retry. All 14 synthetic instrumentation checks also pass on the real Galaxy.
+APK 0.3 remains the validated transport build; it never pairs. APK 0.4 adds explicit Trust,
+encrypted private persistence, authenticated TLS and an expected-reboot/reconnect workflow.
+No Apple login, signing, IPA installation, remote pairing or self-refresh file placement is enabled.
+
+## Implemented boundaries in 0.4
+
+- `PairingStore.java`: Keystore AES-256-GCM, random nonce per write, record-name/version AAD,
+  hashed device filenames under `noBackupFilesDir`, atomic file replacement with explicit fsync,
+  read-back verification, stable HostID/SystemBUID before Trust, and persisted expected reboot.
+  Corruption/key loss is surfaced; existing records are never silently replaced. Unknown envelope
+  fields are retained when saving the Lockdown portion so remote pairing can be added later.
+- `pairing.rs`: actual iPhone identity stays private; only the explicit Pair button can request
+  fresh Trust. A saved-record failure does not automatically pair again. One prepared idevice Pair
+  request retries pending Trust for up to 90 s; accepted records are saved before starting TLS.
+  Reconnect uses the record bound to the real iPhone, independent of the Android USB bus address.
+- `paired_tls.rs`: see the important pinned-dependency finding below. Exact paired device
+  certificate pinning plus real TLS 1.2/1.3 signature verification; host client certificate/key
+  configured for mutual TLS. Missing/false `EnableSessionSSL` is rejected. No plaintext fallback.
+  The small StartSession framing adapter is local; no production or vendored idevice is modified.
+- Developer Mode is queried through read-only AMFI action 3, opened from the pinned TLS Lockdown
+  session; service TLS is also pinned when requested. No reveal/enable/accept/reboot command is sent.
+  Preparing reboot persists the expected phone; an authenticated saved-record reconnect with
+  Developer Mode on clears that marker. This verifies the connection after the user's expected
+  reboot; it does not independently prove that a physical reboot occurred. Device QA must do that.
+- Private record bytes cross JNI only to/from the store. Diagnostics have booleans and allowlisted
+  device info. All third-party Rust tracing and panic details are suppressed because dependency
+  logs include packet payloads. The Java store bridge clears exceptions and returns fixed codes.
+- Explicit limits: 180 s total pairing operation, existing detach/cancel handling throughout.
+  A process death or failed disk save after the iPhone accepts Pair can leave trust accepted
+  without a completed local record. The app reports storage failure and does not proceed; that
+  transition needs physical failure-injection/repair work before production. It never claims
+  self-refresh readiness from Lockdown alone, and never resets iPhone trust automatically.
 
 ## Existing handoff contract (reviewed at bc9de16d2)
 
@@ -50,14 +84,18 @@ plist, and test it with the existing parsers and on-device probe. These actions 
    wrap it in a bounded, cancellable operation and surface Trust/unlock/denial/timeout separately.
    Do not loop `pair_once` blindly: its current implementation generates new certificates each call.
    Save an accepted full record before moving on; test interrupted writes and reload.
-6. `LockdownClient::start_session` requires `EnableSessionSSL=true` and performs the TLS handshake.
-   Its returned `bool` is the **legacy protocol flag**, so `false` on modern iOS is successful,
-   modern TLS, not a failed session. Require a successful authenticated GetValue after it, and use
-   `stop_session` when available before dropping the connection. Do not fall back to plaintext or
-   disable certificate checks to make a failure pass.
+6. **Pinned dependency finding:** `LockdownClient::start_session` requires `EnableSessionSSL=true`
+   and returns a **legacy protocol flag**, not success. However idevice 0.1.68's `sni.rs` verifier
+   returns success for every server certificate and every TLS signature, despite its name
+   `NoServerNameVerification`. The experimental code therefore does **not** use that TLS helper.
+   `paired_tls.rs` reproduces only bounded StartSession framing, pins the exact paired device
+   certificate and calls rustls's real signature validators. It then returns an ordinary idevice
+   Lockdown client on the secured socket for GetValue/StartService/StopSession. Wrong pin, forged
+   proof of the pinned key (both TLS 1.2 and 1.3), and plaintext are regression tested. Production
+   installer TLS behavior is untouched and is a separate review item; do not imply it was fixed here.
 7. Set the native log filter conservatively before enabling pairing: Phase 1's old DEBUG filter
-   included vendor packet payloads. APK 0.3 now uses INFO, but Phase 2 must also audit vendor error
-   payload logging and idevice logs and redact at source before any secrets are sent.
+   included vendor packet payloads. APK 0.3 uses INFO; vendor ERROR events also contain payloads.
+   APK 0.4 disables third-party tracing entirely and retains only fixed/safe app stage events.
 
 Pinned source reviewed locally: idevice 0.1.68 `services/lockdown.rs` (`pair`, `pair_once`,
 `start_session`, `stop_session`) and the production files above. Recheck these implementations

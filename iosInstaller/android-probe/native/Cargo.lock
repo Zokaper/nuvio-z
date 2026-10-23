@@ -1355,17 +1355,19 @@ dependencies = [
 
 [[package]]
 name = "nuvioz-usb-probe"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "idevice",
  "jni",
  "nusb",
  "plist",
+ "rsa",
  "rusbmux",
  "rustls",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "tracing-subscriber",
 ]

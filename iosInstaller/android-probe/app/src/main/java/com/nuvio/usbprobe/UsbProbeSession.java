@@ -29,6 +29,7 @@ final class UsbProbeSession {
     }
 
     private final UsbManager usb;
+    private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final List<String> journal = new ArrayList<>();
@@ -41,6 +42,7 @@ final class UsbProbeSession {
     private int completed;
 
     private UsbProbeSession(Context context) {
+        this.context = context;
         usb = (UsbManager) context.getSystemService(Context.USB_SERVICE);
         BroadcastReceiver detach = new BroadcastReceiver() {
             @Override public void onReceive(Context ignored, Intent intent) {
@@ -75,6 +77,7 @@ final class UsbProbeSession {
     }
 
     private void setStatus(String message) {
+        if (status.equals(message)) return;
         status = message;
         if (listener != null) listener.changed();
     }
@@ -108,7 +111,8 @@ final class UsbProbeSession {
                     try {
                         main.post(() -> note("attempt=" + id + " android_open_success"));
                         failedAt = "native_probe";
-                        result = NativeUsbProbe.run(connection.getFileDescriptor(), id, mode);
+                        result = NativeUsbProbe.run(connection.getFileDescriptor(), id, mode,
+                                mode >= 3 ? new PairingStore(context) : null);
                     } finally {
                         // Never close this FD underneath JNI. Rust closes only its own duplicate.
                         connection.close();
@@ -118,7 +122,7 @@ final class UsbProbeSession {
                 JSONObject failure = new JSONObject();
                 try {
                     failure.put("ok", false).put("blocker", failedAt + ": " + error.getClass().getSimpleName()
-                            + ": " + error.getMessage());
+                            + (mode >= 3 ? ": sensitive details withheld" : ": " + error.getMessage()));
                 } catch (org.json.JSONException impossible) { throw new IllegalStateException(impossible); }
                 result = failure.toString();
             }
@@ -169,6 +173,7 @@ final class UsbProbeSession {
             if (problem != null && cancelled == null) cancelled = problem;
         } catch (RuntimeException error) { if (cancelled == null) cancelled = "android_device_monitor_failed"; }
         boolean ok = false;
+        boolean waitingForReboot = false;
         try {
             JSONObject report = new JSONObject(result);
             report.put("androidAttempt", id).put("androidMode", mode);
@@ -176,6 +181,8 @@ final class UsbProbeSession {
                     .put("blocker", cancelled + ": attempt ended; scan/select to retry");
             report.put("javaConnectionClosed", true);
             ok = report.optBoolean("ok");
+            JSONObject pairing = report.optJSONObject("pairing");
+            waitingForReboot = pairing != null && pairing.optBoolean("rebootPending");
             result = report.toString(2);
         } catch (org.json.JSONException error) { result = "BLOCKER invalid_native_report: " + result; }
         results.add(result);
@@ -186,6 +193,8 @@ final class UsbProbeSession {
         selected = null;
         note("attempt=" + id + " finished: " + outcome + "; Java connection closed; retry available");
         Log.i("NuvioUsbProbe", result);
-        setStatus("Attempt " + id + ": " + outcome + ". Connection released; ready to retry.");
+        setStatus("Attempt " + id + ": " + outcome + ". Connection released. "
+                + (waitingForReboot ? "Pairing retained: complete the iPhone reboot, reconnect and tap Saved pairing."
+                : mode >= 3 && ok ? "Authenticated pairing connection passed." : "Ready to retry."));
     }
 }

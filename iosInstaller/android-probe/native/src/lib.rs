@@ -1,10 +1,16 @@
-//! Read-only Phase 1 USB probe. No account, pairing, StartSession or installation operations.
+//! Isolated USB transport/pairing experiment. No Apple account, signing or installation operations.
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const VERSION: &str = "nuvio-usb-probe/0.3.0 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+pub const VERSION: &str = "nuvio-usb-probe/0.4.0 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+#[cfg(target_os = "android")]
+mod android_store;
 #[cfg(any(target_os = "android", test))]
 mod control;
+mod paired_tls;
+mod pairing;
+#[cfg(test)]
+mod pairing_tests;
 pub const INFO_KEYS: [&str; 4] = [
     "DeviceClass",
     "ProductType",
@@ -49,6 +55,8 @@ pub struct ProbeReport {
     pub device_info: BTreeMap<String, String>,
     pub events: Vec<Event>,
     pub blocker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pairing: Option<pairing::PairingReport>,
 }
 
 impl Default for ProbeReport {
@@ -62,6 +70,7 @@ impl Default for ProbeReport {
             device_info: BTreeMap::new(),
             events: Vec::new(),
             blocker: None,
+            pairing: None,
         }
     }
 }
@@ -76,7 +85,10 @@ impl ProbeReport {
 
     pub fn fail(&mut self, stage: &str, detail: impl std::fmt::Display) {
         self.blocker = Some(format!("{stage}: {detail}"));
-        self.event(stage, "Stopped; see blocker. No pairing was attempted.");
+        self.event(
+            stage,
+            "Stopped; see blocker. No Apple authentication, signing or installation performed.",
+        );
     }
 }
 

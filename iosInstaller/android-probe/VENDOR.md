@@ -25,9 +25,11 @@ Only these upstream files are adapted:
    a no-op callback. Protocol operations and framing are unchanged. This lets a granted Android
    permission followed by a claim failure be reported as `usb_claim`, independently of `usb_mux`.
 
-The mux handshake, framing, packet router and provider are upstream code. No new mux protocol
-implementation is introduced. The harness calls `UsbDevice::new` directly, never the daemon,
-network discovery, `preflight`, pair, StartSession or installer operations. Upstream library-mode
+The mux handshake, framing, packet router and raw provider are upstream code. No new mux protocol
+implementation is introduced. The harness constructs `UsbDevice` directly, never the daemon,
+network discovery or `preflight`. Phase 1 modes never pair or start a session. APK 0.4's explicit
+Phase 2 modes call idevice Pair and a local certificate-pinned TLS adapter; no installer operations
+are linked. Upstream library-mode
 unused-code warnings are retained rather than editing unrelated code.
 
 nusb **0.2.8** is unmodified. JNI duplicates the permission-granted UsbDeviceConnection descriptor;
@@ -35,5 +37,15 @@ nusb owns that duplicate, while Java keeps and closes its original around the co
 The lockfile belongs exclusively to this experiment; the production installer lockfile is unchanged.
 
 This patch is experimental and has not been proposed upstream. A real Galaxy/iPhone result is
-required before choosing it as a production transport. Phase 2 must replace the placeholder
-identity and provide an app-private pairing store; never enable preflight with this sentinel.
+required before choosing it as a production transport. Phase 1 now has physical transport/recovery
+evidence on the Galaxy/iPhone pair. In 0.4, the local `IdentifiedProvider` assigns the actual privately
+read device identity to authenticated idevice connections; the raw mux routing placeholder remains
+anonymous and is never a pairing store key. `PairingStore` provides encrypted private persistence.
+Never enable preflight with the sentinel. No additional vendored files change for Phase 2.
+
+**idevice 0.1.68 TLS finding:** its `sni.rs` bypasses both server certificate and TLS signature checks.
+The experiment's `native/src/paired_tls.rs` therefore owns only bounded StartSession framing and
+TLS wrapping through public socket APIs, with exact paired-device certificate pinning and real
+rustls TLS 1.2/1.3 signature verification. Remaining Pair/GetValue/StartService/StopSession behavior
+uses idevice. No idevice crate or production installer files are patched. Details and acceptance
+limits: [PHASE2-DESIGN.md](PHASE2-DESIGN.md).
