@@ -53,8 +53,8 @@ language fallback and reopen-with-no-party **pass**.
     ("<host> lost connection · waiting for them"). Mobile `3d0cf840d`, desktop `967275320`.
   - **A pop-up click during playback didn't raise the window.** It now raises it without navigating.
     Desktop `b10cac316`.
-  - **Open question:** the server hands over a silent host after 60 s, but shows it Offline at 20 s.
-    The proposal is to hand over at 20 s (`party_transfer_stale_host`). Not done; needs a deploy.
+  - **Decided 2026-10-23: host handover stays at 60 s.** The server shows a silent host Offline at 20 s but
+    hands the role over at 60 s (`party_transfer_stale_host`). The maintainer chose to keep 60 s; do not re-propose 20 s.
   Evidence: mobile watch party + player 810/810 (APK built, **not installed**: phone off USB);
   desktop watch party + tray + social + player 969/969, local MSI **127**.
 - Subtitles on The Prestige were not a bug: the phone's "Titles in my language" is Forced and the file
