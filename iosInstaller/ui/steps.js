@@ -38,6 +38,10 @@ function buildSteps(ctx) {
   const repair = direct && ctx.mode === "repair";
   const missing = repair && ctx.device?.apps && !(ctx.debugBuild ? ctx.device.apps.nuvioDebug : ctx.device.apps.nuvioStable);
   const target = direct ? nuvioName : "SideStore";
+  // Android (see forAndroid below): this phone is the host. Shared copy names the host with these.
+  const android = ctx.platform === "android";
+  const HERE = android ? "this phone" : "this computer";
+  const CLICK = android ? "Tap" : "Click";
   const installText = { download: `Getting ${target} ready…`, sign: `Signing and sending ${target}… ${Math.round(install.fraction * 100)}%`, pairing: `Adding ${target}’s connection file…` }[install.stage];
 
   const all = [
@@ -211,7 +215,7 @@ function buildSteps(ctx) {
     watch: (d) => d.developerMode === true,
     links: [{ label: "It’s not in the list", action: "revealDeveloperMode" }],
     alternates: [
-      ["Developer Mode isn’t in the list", ["Click <b>It’s not in the list</b> below: this computer asks the iPhone to show it. Then look again.", "Close System Settings completely and reopen it."]],
+      ["Developer Mode isn’t in the list", [`${CLICK} <b>It’s not in the list</b> below: ${HERE} asks the iPhone to show it. Then look again.`, "Close System Settings completely and reopen it."]],
       ["The iPhone restarted but nothing asked me", ["Unlock it and wait a few seconds.", "If nothing appears, open <span class=path>System Settings › Privacy & Security › Developer Mode</span> and check the switch is on."]],
     ],
   },
@@ -227,7 +231,7 @@ function buildSteps(ctx) {
     buttons: [{ label: "I’ve trusted it" }],
     alternates: [
       ["There’s no Developer App section", [`${target} may not have finished installing. Check its icon is on the Home Screen, then reopen System Settings.`, "Make sure you opened <b>VPN & Device Management</b>, not <b>VPN</b>."]],
-      ["The email shown isn’t mine", ["Tap the one that matches the account you signed in with on this computer."]],
+      ["The email shown isn’t mine", [`Tap the one that matches the account you signed in with on ${HERE}.`]],
     ],
   },
   {
@@ -270,20 +274,20 @@ function buildSteps(ctx) {
       { art: Art.appForm({ title: "Keep Nuvio Z working", fields: [EMAIL, "••••••••••"], cta: "Renew now", hl: 2 }), n: 2, cap: "Sign in and tap Renew now", sub: "Nuvio Z shows this first, before anything else" },
     ],
     liveStatus: (d) => d.nuvioPairing === false
-      ? { kind: "warn", text: `${nuvioName} is missing its connection file.`, sub: "Keep the iPhone plugged in and click Add it again below." }
+      ? { kind: "warn", text: `${nuvioName} is missing its connection file.`, sub: `Keep the iPhone plugged in and ${CLICK.toLowerCase()} Add it again below.` }
       : null,
     buttons: [{ label: "Next" }],
     links: [{ label: "Add it again", action: "placeNuvioPairing" }],
     alternates: [
       [`${nuvioName} won’t open (“Untrusted Developer”)`, ["Go back to “Trust your Apple Account” and trust it in System Settings."]],
       ["Nuvio Z didn’t show “Keep Nuvio Z working”", ["It’s also in Nuvio Z’s own settings, under Keep Nuvio Z working."]],
-      [`${nuvioName} says it can’t reach the iPhone`, ["Open LocalDevVPN and check it says Connected, then try again.", "Keep the iPhone plugged in here and click <b>Add it again</b>."]],
+      [`${nuvioName} says it can’t reach the iPhone`, ["Open LocalDevVPN and check it says Connected, then try again.", `Keep the iPhone plugged in here and ${CLICK.toLowerCase()} <b>Add it again</b>.`]],
     ],
   },
   {
     id: "automation",
     title: "Set up the daily refresh",
-    lead: "On the iPhone, in the Shortcuts app. One automation renews Nuvio Z every day, so it keeps opening without this computer. Click Next as you go.",
+    lead: `On the iPhone, in the Shortcuts app. One automation renews Nuvio Z every day, so it keeps opening without ${HERE}. ${CLICK} Next as you go.`,
     // One automation holding the actions itself, not a shared shortcut: a shared one would name the action by the
     // sharer's bundle id, which ends with their own team id. Shown here, not in Nuvio Z: the person is in Shortcuts.
     // A walkthrough, one tap per step (the maintainer found three taps per picture unclear). Drawn from iOS 26.5
@@ -363,7 +367,7 @@ function buildSteps(ctx) {
     done: true,
     title: `${direct ? nuvioName : "Nuvio Z"} is on your iPhone`,
     lead: direct
-      ? "You can unplug it now. The daily refresh renews Nuvio Z every day, so it keeps opening without this computer."
+      ? `You can unplug it now. The daily refresh renews Nuvio Z every day, so it keeps opening without ${HERE}.`
       : "You can unplug it now. Apps from a free Apple Account need a refresh every 7 days; set up daily auto-refresh once and your iPhone handles it.",
     layout: "wide",
     cards: [{ art: Art.icon("nuvio", { done: true, bare: true }) }],
@@ -380,11 +384,108 @@ function buildSteps(ctx) {
   },
   ];
 
-  if (!repair) return all.filter((s) => s.id !== "repaired");
+  const steps = android ? forAndroid(all, ctx) : all;
+  if (!repair) return steps.filter((s) => s.id !== "repaired");
   // Repair: the phone checks (Developer Mode included) before signing in, then straight to "repaired".
-  const step = Object.fromEntries(all.map((s) => [s.id, s]));
+  const step = Object.fromEntries(steps.map((s) => [s.id, s]));
   return [
-    ...["welcome", "drivers", "drivers-slow", "connect", "trust", "trust-help", "devmode", "signin", "twofa", "signin-blocked", "installing", "repaired"].map((id) => step[id]),
+    ...["welcome", "drivers", "drivers-slow", "connect", "usb-allow", "trust", "trust-help", "devmode", "signin", "twofa", "signin-blocked", "installing", "repaired"]
+      .map((id) => step[id]).filter(Boolean),
     { ...step.automation, side: true, backTo: "repaired", nextTo: "repaired" },
   ];
+}
+
+// Android: the same screens, adapted for installing from an Android phone instead of a computer. This phone is the
+// USB host, so there is no Apple software to install; Android asks once before the app may use the iPhone; and the
+// installer sends the Trust request itself (on a computer, Apple's own service does). After Developer Mode's
+// restart only re-plugging the cable at this phone's end brought USB back (Galaxy S25+ and iPhone 15 Pro,
+// 2026-10-23). Only the email is remembered here, never the password: one Android phone may set up many iPhones.
+// Each override is merged over the desktop step of the same id; anything not named stays as on desktop.
+function forAndroid(all, ctx) {
+  const d = ctx.device || {};
+  const asked = ["denied", "timedOut", "locked"];
+  const lock = `<div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> This phone never keeps it; “Remember” saves only your email.</span></div>`;
+  const savedForm = ctx.savedEmail && !ctx.useOtherAccount;
+  const password = `<label>Password<input id="password" type="password" autocomplete="current-password" value="${esc(ctx.live ? ctx.pendingPassword || "" : "password12")}"${ctx.signingIn ? " disabled" : ""}></label>`;
+  const usbAllow = {
+    id: "usb-allow",
+    title: "Let the installer use your iPhone",
+    lead: "Android asks once before an app can talk to something plugged into the phone.",
+    layout: "wide",
+    cards: [{ art: Art.androidDialog({ message: "Allow Nuvio Z Installer to access iPhone?", check: "Always open Nuvio Z Installer when iPhone is connected", buttons: [{ label: "Cancel" }, { label: "OK", hl: 1 }] }), n: 1, cap: "Tap OK" }],
+    status: { kind: "wait", text: "Waiting for Android…", sub: "continues by itself" },
+    liveStatus: (s) => s.usbDenied ? { kind: "warn", text: "Android didn’t give the installer access.", sub: "Tap Ask again, then OK." } : null,
+    buttons: d.usbDenied ? [{ label: "Ask again", action: "requestUsb" }] : [],
+    watch: (s) => s.usbPermission === true,
+    alternates: [
+      ["No message appeared", ["Pull down Android’s notifications: it may be waiting there.", "Unplug the cable from this phone and plug it back in."]],
+      ["I tapped Cancel", ["Tap <b>Ask again</b> below, then <b>OK</b>."]],
+    ],
+  };
+  const over = {
+    welcome: () => ({
+      lead: "You’ll need the iPhone, a cable that connects it to this phone, and your Apple Account. Every step shows exactly what to tap.",
+      links: [],
+    }),
+    connect: () => ({
+      title: "Plug your iPhone into this phone",
+      lead: undefined,
+      layout: "plain",
+      cards: [
+        { art: Art.twoPhones(), n: 1, cap: "Connect the two phones with the cable", sub: "USB-C to USB-C, or USB-C to Lightning" },
+        { art: Art.glyph("lockOpen"), n: 2, cap: "Unlock the iPhone and keep its screen on" },
+      ],
+      liveStatus: undefined,
+      buttons: [],
+      alternates: [
+        ["Nothing happens", ["Try a different cable. Many cables only charge and carry no data.", "Make sure the iPhone is unlocked."]],
+        ["The iPhone charges this phone instead", ["Pull down Android’s notifications and tap the USB one.", "Under <b>USB controlled by</b>, choose <b>This device</b>."]],
+        ["The iPhone says “Allow accessory to connect?”", ["Tap <b>Allow</b>."]],
+      ],
+    }),
+    trust: () => ({
+      lead: "This lets this phone install apps on it. You only do this once.",
+      liveStatus: (s) => s.trustState === "denied" ? { kind: "bad", text: "The iPhone said Don’t Trust.", sub: "Unplug it, plug it back in, then tap Ask again." }
+        : s.trustState === "timedOut" ? { kind: "warn", text: "Trust wasn’t tapped in time.", sub: "Unlock the iPhone and tap Ask again." }
+        : s.trustState === "locked" ? { kind: "warn", text: "The iPhone is locked.", sub: "Unlock it and tap Ask again." }
+        : null,
+      buttons: asked.includes(d.trustState) ? [{ label: "Ask again", action: "pairAgain" }] : [],
+      alternates: [
+        ["No “Trust” message appeared", ["Unlock the iPhone and keep its screen on.", "Unplug the cable from this phone, plug it back in, then tap <b>Ask again</b> if it shows."]],
+        ["I tapped “Don’t Trust”", ["Unplug the iPhone, plug it back in and tap <b>Ask again</b>: it asks again.", "If it doesn’t, on the iPhone open <span class=path>System Settings › General › Transfer or Reset iPhone › Reset › Reset Location & Privacy</span>, then plug in again."]],
+        ["It asks for a passcode I don’t know", ["It’s the code you use to unlock the iPhone, not your Apple Account password."]],
+      ],
+    }),
+    signin: () => ({
+      center: savedForm
+        ? `<form class="form${ctx.signingIn ? " busy" : ""}"><div class="saved-account"><div class="avatar">${esc(ctx.savedEmail[0].toUpperCase())}</div><b>${esc(ctx.savedEmail)}</b><small>Remembered on this phone</small></div>
+          ${password}${lock}</form>`
+        : `<form class="form${ctx.signingIn ? " busy" : ""}">
+          <label>Apple Account email<input id="email" type="email" autocomplete="username" spellcheck="false" value="${esc(ctx.live ? ctx.typedEmail || "" : "you@icloud.com")}"${ctx.signingIn ? " disabled" : ""}></label>
+          ${password}
+          <label class="check"><input id="remember" type="checkbox"${ctx.remember === false ? "" : " checked"}${ctx.signingIn ? " disabled" : ""}> Remember my email on this phone</label>
+          ${lock}</form>`,
+      buttons: [{ label: "Sign in", action: savedForm ? "signInSaved" : "signIn" }],
+    }),
+    twofa: (s) => ({
+      cards: [{ ...s.cards[0], art: Art.alert({ title: "Apple Account Sign-In Requested", message: "Your Apple Account is being used to sign in on a device near you.", buttons: [{ label: "Don’t Allow" }, { label: "Allow", bold: true, hl: 1 }] }) }, ...s.cards.slice(1)],
+    }),
+    installing: () => ({
+      lead: "Keep the phones plugged together and the iPhone unlocked. This phone needs the internet. A minute or two.",
+    }),
+    devmode: (s) => ({
+      status: { kind: "wait", text: "Waiting for Developer Mode…", sub: "After the iPhone restarts, unplug the cable from this phone and plug it back in." },
+      alternates: [
+        ...s.alternates,
+        ["This phone doesn’t see the iPhone after the restart", ["Unplug the cable from this phone, not from the iPhone, and plug it back in.", "Tap <b>OK</b> if Android asks for access again."]],
+      ],
+    }),
+  };
+  const out = [];
+  for (const s of all) {
+    if (s.id === "drivers" || s.id === "drivers-slow") continue;
+    out.push(over[s.id] ? { ...s, ...over[s.id](s) } : s);
+    if (s.id === "connect") out.push(usbAllow);
+  }
+  return out;
 }

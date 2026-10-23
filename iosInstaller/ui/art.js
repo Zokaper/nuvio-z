@@ -111,6 +111,17 @@ const Art = {
     return `<div class="progress-icon${busy ? " busy" : ""}"><svg class="ring" viewBox="0 0 200 200"><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--panel-line)" stroke-width="5"/>${busy ? `<circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c * 0.22} ${c}"/>` : ""}</svg><div class="appicon devices">${Icons.monitor}<span class="phone">${Icons.smartphone}</span></div></div>`;
   },
 
+  /** Android's own USB access dialog, drawn as Material 3 draws it. buttons: [{ label, hl }] */
+  androidDialog({ message, check, buttons }) {
+    const btns = buttons.map((b) => `<span ${cls(b.hl && "hl")}>${esc(b.label)}${badge(b.hl)}</span>`).join("");
+    return `<div class="panel android"><div class="adlg"><p>${esc(message)}</p>${check ? `<div class="chk"><i></i><span>${esc(check)}</span></div>` : ""}<div class="ab">${btns}</div></div></div>`;
+  },
+
+  /** The iPhone plugged into this phone (the Android installer). */
+  twoPhones() {
+    return `<div class="panel plain glyph pair"><span class="ph">${Icons.smartphone}<small>iPhone</small></span><span class="wire"></span><span class="ph">${Icons.smartphone}<small>This phone</small></span></div>`;
+  },
+
   /** An app icon inside a progress ring. */
   progress(kind, fraction) {
     const r = 96, c = 2 * Math.PI * r;

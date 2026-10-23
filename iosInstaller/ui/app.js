@@ -8,7 +8,11 @@ if (params.get("theme")) document.documentElement.dataset.theme = params.get("th
 const tauri = window.__TAURI__;
 // target: "nuvio" installs Nuvio Z itself (the normal path), "sidestore" the fallback. channel: SideStore's build.
 // mode: "install" or "repair", picked on the welcome screen.
-const ctx = { live: Boolean(tauri) && !params.has("step"), target: "nuvio", channel: "stable", debugBuild: false, mode: "install", isMac: params.get("platform") === "mac" || /Mac/.test(navigator.platform) };
+// platform: "android" in the Android installer (its bridge sets window.NuvioAndroid), or `?platform=android|mac`
+// in previews; otherwise the desktop installer on Windows or macOS.
+const platform = params.get("platform") || (window.NuvioAndroid ? "android" : /Mac/.test(navigator.platform) ? "mac" : "windows");
+document.documentElement.dataset.platform = platform;
+const ctx = { live: Boolean(tauri) && !params.has("step"), target: "nuvio", channel: "stable", debugBuild: false, mode: "install", platform, isMac: platform === "mac", isAndroid: platform === "android" };
 // Previews only: `?saved=1` shows the sign-in screen for a remembered account.
 if (params.get("saved")) ctx.savedEmail = "you@icloud.com";
 // Previews only: `?certs=1` shows the "out of certificates" chooser.
@@ -53,8 +57,8 @@ const SIGN_IN_ERRORS = {
   wrongCode: "That code didn’t work. Send a new one and use the newest.",
   serverUnavailable: "Apple’s sign-in service is busy. Try again in a minute.",
   certificateLimit: "This Apple Account is out of signing certificates. Try again and pick one to revoke when the installer asks.",
-  tryAgain: "Apple couldn’t finish the sign-in. Check the email is spelled right, wait a minute, then click Sign in again.",
-  network: "This computer can’t reach Apple. Check the internet connection.",
+  tryAgain: `Apple couldn’t finish the sign-in. Check the email is spelled right, wait a minute, then ${ctx.isAndroid ? "tap" : "click"} Sign in again.`,
+  network: `${ctx.isAndroid ? "This phone" : "This computer"} can’t reach Apple. Check the internet connection.`,
   cancelled: "Sign-in was cancelled.",
 };
 const describe = (e) => SIGN_IN_ERRORS[e?.kind] || `Something went wrong: ${e?.summary || String(e)}`;
@@ -115,7 +119,7 @@ function helpSheet() {
     <p>Stuck? Copy a report and send it to whoever gave you this installer. It has no password, no email and no iPhone name.</p>
     <div class="help-actions"><button class="btn" data-action="copyReport" style="min-width:0">Copy report</button>
     <button class="btn secondary" data-action="resetSignIn" style="min-width:0">Reset sign-in data</button></div>
-    <p class="fine"><b>Reset sign-in data</b> is for when Apple says “This action could not be completed. Try again.” The next sign-in looks like a new computer to Apple, so it asks for a code again. Your remembered account stays.</p>
+    <p class="fine"><b>Reset sign-in data</b> is for when Apple says “This action could not be completed. Try again.” The next sign-in looks like a new ${ctx.isAndroid ? "device" : "computer"} to Apple, so it asks for a code again. Your remembered account stays.</p>
     ${ctx.helpNote ? status(ctx.helpNote) : ""}
     <div class="close-row"><button class="btn secondary" data-action="closeHelp" style="min-width:0">Done</button></div></aside>`;
 }
@@ -140,7 +144,9 @@ async function buildReport() {
     "Nuvio Z iOS Installer report",
     `Installer ${d.installer} on ${d.os}, ${new Date().toISOString()}`,
     `Screen: ${current}. Installing: ${what}${d.localIpa ? ` from ${d.localIpa.file}` : ctx.target === "sidestore" ? "" : " from the hosted build"}`,
-    `Computer: Apple software ${yes(dev.usbmuxdReachable)}, iPhones on USB ${dev.usbDevices ?? 0}`,
+    ctx.isAndroid
+      ? `Android: USB host ${yes(dev.usbHost)}, iPhones on USB ${dev.usbDevices ?? 0}, USB access ${yes(dev.usbPermission)}`
+      : `Computer: Apple software ${yes(dev.usbmuxdReachable)}, iPhones on USB ${dev.usbDevices ?? 0}`,
     `iPhone: trusted ${yes(dev.trusted)}, iOS ${dev.iosVersion || "?"}, Developer Mode ${yes(dev.developerMode)}`,
     `Apps: LocalDevVPN ${apps.localDevVpn ? "yes" : "no"}, Nuvio Z ${apps.nuvioStable?.version || "no"}, Nuvio Z Debug ${apps.nuvioDebug?.version || "no"}, SideStore ${apps.sidestore ? "yes" : "no"}`,
     `Connection files: Nuvio Z ${yes(dev.nuvioPairing)}, SideStore ${dev.pairing}`,
@@ -215,10 +221,12 @@ function render() {
   const email = document.getElementById("email");
   email?.addEventListener("input", () => { ctx.typedEmail = email.value; });
   const password = document.getElementById("password");
-  password?.addEventListener("keydown", (e) => e.key === "Enter" && act("signIn", step, index));
+  password?.addEventListener("keydown", (e) => e.key === "Enter" && act(ctx.savedEmail && !ctx.useOtherAccount ? "signInSaved" : "signIn", step, index));
   const code = document.getElementById("code");
   code?.addEventListener("input", () => code.value.replace(/\D/g, "").length === 6 && act("submitCode", step, index));
-  (email && !email.value ? email : email ? password : code)?.focus();
+  (email && !email.value ? email : email || !code ? password : code)?.focus();
+  // No keyboard shortcut on a phone: seven quick taps on the welcome title stand in for Ctrl+Shift+D.
+  if (ctx.isAndroid && step.id === "welcome") document.querySelector(".head h1")?.addEventListener("click", tapForDebug);
 }
 
 async function act(action, step, index) {
@@ -308,9 +316,11 @@ async function act(action, step, index) {
     case "signIn": {
       const saved = action === "signInSaved";
       const email = saved ? ctx.savedEmail : document.getElementById("email").value.trim();
-      const password = saved ? null : document.getElementById("password").value;
+      // Android never remembers the password, so a remembered account still types it.
+      const typed = !saved || ctx.isAndroid;
+      const password = typed ? document.getElementById("password").value : null;
       const remember = saved || Boolean(document.getElementById("remember")?.checked);
-      if (!email || (!saved && !password)) return fail("Enter your Apple Account email and password.");
+      if (!email || (typed && !password)) return fail(saved ? "Enter your Apple Account password." : "Enter your Apple Account email and password.");
       // The form stays on screen, greyed out, until Apple answers.
       Object.assign(ctx, { signingIn: true, typedEmail: email, pendingPassword: password, remember });
       busy("Signing in to Apple…");
@@ -322,7 +332,7 @@ async function act(action, step, index) {
       } catch (e) {
         Object.assign(ctx, { signingIn: false, pendingPassword: null });
         if (e?.kind === "refused") return goTo("signin-blocked");
-        if (saved && e?.kind === "wrongPassword") { ctx.savedEmail = null; }
+        if (saved && !ctx.isAndroid && e?.kind === "wrongPassword") { ctx.savedEmail = null; }
         ctx.lastErrorKind = e?.kind;
         current = "signin";
         return fail(describe(e));
@@ -361,6 +371,14 @@ async function act(action, step, index) {
         flash = { kind: "ok", text: "Done. Close Nuvio Z fully and open it again." };
         return render();
       } catch (e) { return fail(`Couldn’t add it: ${e}`); }
+    // Android: ask again for USB access, or send the iPhone a new Trust request.
+    case "requestUsb":
+      try { await invoke("request_usb"); } catch (e) { return fail(String(e)); }
+      return render();
+    case "pairAgain":
+      busy("Asking the iPhone…");
+      try { await invoke("pair_device"); flash = null; } catch (e) { return fail(String(e)); }
+      return render();
     case "placePairing":
       busy("Adding SideStore’s connection files…");
       try {
@@ -447,19 +465,30 @@ if (ctx.live) {
   }, 2500);
 }
 
+function toggleDebug() {
+  if (ctx.debugBuild) {
+    ctx.debugBuild = false;
+    flash = { kind: "ok", text: "Stable build: installs Nuvio Z." };
+  } else {
+    ctx.debugWarning = true;
+  }
+  render();
+}
+
+let debugTaps = [];
+function tapForDebug() {
+  const now = Date.now();
+  debugTaps = [...debugTaps.filter((t) => now - t < 3000), now];
+  if (debugTaps.length < 7) return;
+  debugTaps = [];
+  toggleDebug();
+}
+
 // Arrow keys walk the screens in previews. Ctrl+Shift+D picks the Debug build of Nuvio Z (with a warning);
 // Ctrl+Shift+N switches the SideStore fallback between stable and Nightly (testing only, until the hosted config
 // decides).
 document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "d") {
-    if (ctx.debugBuild) {
-      ctx.debugBuild = false;
-      flash = { kind: "ok", text: "Stable build: installs Nuvio Z." };
-    } else {
-      ctx.debugWarning = true;
-    }
-    return render();
-  }
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "d") return toggleDebug();
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
     ctx.channel = ctx.channel === "stable" ? "nightly" : "stable";
     flash = { kind: "ok", text: `SideStore build: ${ctx.channel}` };

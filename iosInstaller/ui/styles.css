@@ -398,3 +398,55 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 .sc-search { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding: 8px 12px; border-radius: 10px; background: var(--ios-cell); }
 .sc-search svg { width: 16px; height: 16px; color: var(--ios-fg-2); flex: none; }
 .sc-search .q { color: var(--ios-fg-2); }
+
+/* ---------- Android pieces (the Android installer), drawn as Material 3 draws them ---------- */
+.panel.android { background: radial-gradient(120% 90% at 30% 0%, #2c2340 0%, transparent 62%), #121016; }
+.adlg { width: 100%; max-width: 300px; background: #2b2930; color: #e6e0e9; border-radius: 28px; padding: 22px 20px 12px; text-align: left; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+.adlg p { margin: 0 4px 14px; font-size: 16.5px; line-height: 1.4; }
+.adlg .chk { display: flex; gap: 12px; align-items: flex-start; margin: 0 4px; font-size: 14px; line-height: 1.4; color: #cac4d0; }
+.adlg .chk i { width: 18px; height: 18px; flex: none; border: 2px solid #cac4d0; border-radius: 3px; margin-top: 1px; }
+.adlg .ab { display: flex; justify-content: flex-end; gap: 4px; margin-top: 14px; }
+.adlg .ab > span { position: relative; padding: 9px 14px; border-radius: 999px; color: #d0bcff; font-weight: 600; font-size: 14.5px; }
+.adlg .ab > span.hl { border-radius: 999px; outline-offset: 0; }
+.panel.glyph.pair { display: flex; align-items: center; justify-content: center; }
+.panel.glyph.pair .ph { display: grid; justify-items: center; gap: 8px; }
+.panel.glyph.pair svg { width: 54px; height: 54px; }
+.panel.glyph.pair small { color: var(--fg-2); font-size: 13px; font-weight: 600; }
+.panel.glyph.pair .wire { width: 46px; height: 14px; margin: 0 2px 26px; border: 2px solid var(--fg-2); border-top: 0; border-radius: 0 0 14px 14px; }
+
+/* ---------- a phone screen (the Android installer; the desktop window never gets this narrow) ---------- */
+@media (max-width: 600px) {
+  body { overflow-x: hidden; overflow-y: auto; }
+  .app { height: auto; min-height: 100vh; min-height: 100dvh; padding: 0 16px; }
+  .top { height: 48px; }
+  .eyebrow { font-size: 13px; margin-bottom: 6px; }
+  h1 { font-size: 27px; }
+  .lead { font-size: 15.5px; margin-top: 8px; }
+  .cards { --art-h: 232px; flex-direction: column; align-items: stretch; gap: 22px; margin: 22px 0 6px; }
+  .cards, .guide, .choices { align-self: start; }
+  .cards.wide { --art-h: auto; }
+  .cards.wide .panel { min-height: 232px; }
+  .card, .cards.wide .card { width: 100%; gap: 12px; }
+  .fit { zoom: .8; }
+  .foot { position: sticky; bottom: 0; z-index: 3; gap: 10px; padding: 18px 0 calc(16px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--bg) 20px); }
+  .status { min-height: 0; font-size: 14.5px; }
+  .actions { flex-direction: column; width: 100%; }
+  .btn { min-width: 0; width: 100%; }
+  .links { flex-wrap: wrap; justify-content: center; gap: 2px 22px; }
+  .choices { width: 100%; margin: 24px 0; }
+  .choice { flex-direction: row; text-align: left; gap: 14px; padding: 18px 16px; }
+  .choice-icon { width: 52px; height: 52px; border-radius: 15px; flex: none; }
+  .choice-icon svg { width: 26px; height: 26px; }
+  .choice-text b { font-size: 17.5px; }
+  .choice-text small { margin-top: 4px; font-size: 13.5px; }
+  .choice-chev { display: block; margin-left: auto; color: var(--fg-3); }
+  .choice-chev svg { width: 20px; height: 20px; }
+  .guide { --guide-h: 230px; grid-template-columns: 1fr; gap: 14px; margin: 18px 0 6px; }
+  .guide-list { max-height: 40vh; }
+  .form { width: 100%; }
+  .saved-account { padding: 18px 24px; }
+  .scrim { position: fixed; }
+  .sheet { position: fixed; left: 0; right: 0; top: auto; bottom: 0; transform: none; width: 100%; max-height: 86%;
+    border-radius: 22px 22px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom)); }
+  .help-actions { flex-direction: column; }
+}
