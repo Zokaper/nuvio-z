@@ -13,8 +13,8 @@ android {
         applicationId = "com.nuvio.app.z.usbprobe"
         minSdk = 24
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "phase1-0.1"
+        versionCode = 2
+        versionName = "phase1-0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -50,6 +50,7 @@ androidComponents.onVariants(androidComponents.selector().withBuildType("debug")
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:core:1.7.0")
     androidTestImplementation(libs.androidx.testExt.junit)

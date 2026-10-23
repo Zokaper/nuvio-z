@@ -1,7 +1,6 @@
 package com.nuvio.usbprobe;
 
 import android.app.Activity;
-import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -39,9 +38,9 @@ public final class UsbProbeActivity extends Activity {
     private LinearLayout devices;
     private boolean nativeLoaded;
     private boolean probing;
-    private boolean permissionPending;
+    private UsbPermissionController permission;
     private int activeDeviceId = -1;
-    private String permissionAction;
+    private String lastStage = "";
     private String nativeReport = "";
 
     private final Runnable progressPoll = new Runnable() {
@@ -55,32 +54,22 @@ public final class UsbProbeActivity extends Activity {
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            if (permissionAction.equals(intent.getAction())) {
-                permissionPending = false;
-                UsbDevice device = deviceExtra(intent);
-                if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                        && device != null && usb.hasPermission(device)) {
-                    note("USB permission granted");
-                    startProbe(device);
-                } else {
-                    note("USB permission denied or device removed. Tap the device to retry.");
-                    scan();
-                }
-            } else {
-                UsbDevice device = deviceExtra(intent);
-                if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction())
-                        && device != null && device.getDeviceId() == activeDeviceId) {
-                    note("Active USB device detached; native probe will release its descriptor on error/deadline.");
-                }
-                scan();
+            UsbDevice device = UsbPermissionReceiver.deviceExtra(intent);
+            note("usb_event: " + intent.getAction() + " device="
+                    + (device == null ? "missing" : UsbPermissionReceiver.snapshot(device)));
+            if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction()) && device != null) permission.detached(device);
+            if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction())
+                    && device != null && device.getDeviceId() == activeDeviceId) {
+                stage("usb_disconnected_during_probe", "Active USB instance removed; native call will release its descriptor on error/deadline.");
             }
+            permission.devicesChanged();
+            scan();
         }
     };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         usb = (UsbManager) getSystemService(USB_SERVICE);
-        permissionAction = getPackageName() + ".USB_PERMISSION";
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         int padding = (int) (20 * getResources().getDisplayMetrics().density);
@@ -108,7 +97,7 @@ public final class UsbProbeActivity extends Activity {
         content.addView(devices);
         button(content, "Scan attached devices", this::scan);
         button(content, "Native self-test (no USB access)", () -> {
-            if (probing || permissionPending || !nativeLoaded) return;
+            if (probing || permission.pending() || !nativeLoaded) return;
             runNative(null);
         });
         button(content, "Copy diagnostic report", () -> {
@@ -119,7 +108,7 @@ public final class UsbProbeActivity extends Activity {
         reportView = new TextView(this);
         reportView.setTextIsSelectable(true);
         content.addView(reportView);
-        note("Android " + Build.VERSION.RELEASE + "; SDK " + Build.VERSION.SDK_INT
+        note("Probe phase1-0.2; Android " + Build.VERSION.RELEASE + "; SDK " + Build.VERSION.SDK_INT
                 + "; ABIs " + TextUtils.join(",", Build.SUPPORTED_ABIS));
         try {
             note("Native loaded: " + NativeUsbProbe.version());
@@ -127,12 +116,16 @@ public final class UsbProbeActivity extends Activity {
         } catch (LinkageError error) {
             note("BLOCKER native_load: " + error.getMessage());
         }
-        IntentFilter filter = new IntentFilter(permissionAction);
-        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        permission = new UsbPermissionController(this, usb, new UsbPermissionController.Listener() {
+            @Override public void state(String stage, String message) { UsbProbeActivity.this.stage(stage, message); }
+            @Override public void granted(UsbDevice device) { if (!isDestroyed()) startProbe(device); }
+        });
+        IntentFilter filter = new IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(receiver, filter);
         scan();
+        permission.resume();
     }
 
     private void button(LinearLayout parent, String label, Runnable action) {
@@ -151,8 +144,9 @@ public final class UsbProbeActivity extends Activity {
         }
         int appleCount = 0;
         for (UsbDevice device : usb.getDeviceList().values()) {
-            String descriptor = String.format(java.util.Locale.ROOT, "USB %04x:%04x; interfaces=%d",
-                    device.getVendorId(), device.getProductId(), device.getInterfaceCount());
+            String descriptor = String.format(java.util.Locale.ROOT, "USB %04x:%04x; instance=%s interfaces=%d hasPermission=%s",
+                    device.getVendorId(), device.getProductId(), UsbPermissionReceiver.key(device),
+                    device.getInterfaceCount(), usb.hasPermission(device));
             note(descriptor);
             if (device.getVendorId() != 0x05ac) continue;
             appleCount++;
@@ -165,29 +159,17 @@ public final class UsbProbeActivity extends Activity {
             button(devices, String.format(java.util.Locale.ROOT, "Probe Apple device %04x", device.getProductId()),
                     () -> requestProbe(device));
         }
-        if (appleCount == 0 && !probing) {
+        if (appleCount == 0 && !probing && lastStage.isEmpty()) {
             status.setText("No Apple USB device detected. Connect a data cable, unlock the iPhone, and ensure the Galaxy controls USB.");
-        } else if (!probing && !permissionPending) {
+        } else if (appleCount > 0 && !probing && !permission.pending() && lastStage.isEmpty()) {
             status.setText("Apple USB device detected. Tap Probe to grant USB access.");
         }
     }
 
     private void requestProbe(UsbDevice device) {
-        if (probing || permissionPending || !nativeLoaded) return;
-        if (usb.hasPermission(device)) startProbe(device);
-        else {
-            permissionPending = true;
-            note("Requesting Android USB permission");
-            Intent permission = new Intent(permissionAction).setPackage(getPackageName());
-            PendingIntent pending = PendingIntent.getBroadcast(this, device.getDeviceId(), permission,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            try {
-                usb.requestPermission(device, pending);
-            } catch (RuntimeException error) {
-                permissionPending = false;
-                note("BLOCKER usb_permission: " + error.getMessage());
-            }
-        }
+        if (probing || !nativeLoaded) return;
+        if (!permission.pending()) nativeReport = "";
+        permission.request(device);
     }
 
     private void startProbe(UsbDevice device) {
@@ -197,26 +179,41 @@ public final class UsbProbeActivity extends Activity {
 
     private void runNative(UsbDevice device) {
         probing = true;
+        nativeReport = "";
         activeDeviceId = device == null ? -1 : device.getDeviceId();
-        note(device == null ? "Running native negative-FD self-test" : "Opening granted USB connection");
+        note(device == null ? "Running native negative-FD self-test" : "android_open_begin: " + UsbPermissionReceiver.snapshot(device));
         status.setText("Starting native probe…");
         main.postDelayed(progressPoll, 400);
         worker.execute(() -> {
             String result;
+            String failedAt = "native_selftest";
             try {
                 if (device == null) result = NativeUsbProbe.probe(-1);
                 else {
+                    failedAt = "android_device_lookup";
+                    UsbDevice current = UsbPermissionController.find(usb.getDeviceList(), UsbPermissionReceiver.key(device));
+                    if (current == null) throw new IllegalStateException("usb_disconnected_before_open: selected instance is gone");
+                    if (current.getVendorId() != device.getVendorId() || current.getProductId() != device.getProductId())
+                        throw new IllegalStateException("usb_identity_changed_before_open: VID/PID changed at the selected USB address");
+                    failedAt = "android_permission_check";
+                    if (!usb.hasPermission(current)) throw new SecurityException("permission_lost_before_open: hasPermission=false");
                     // Keep Java's descriptor alive throughout JNI; Rust duplicates it before use.
-                    UsbDeviceConnection connection = usb.openDevice(device);
-                    if (connection == null) throw new IllegalStateException("openDevice returned null; permission or attachment changed");
+                    failedAt = "android_open";
+                    UsbDeviceConnection connection = usb.openDevice(current);
+                    if (connection == null) throw new IllegalStateException("android_open_failed: openDevice returned null; currentPresent="
+                            + (UsbPermissionController.find(usb.getDeviceList(), UsbPermissionReceiver.key(current)) != null)
+                            + " hasPermission=" + usb.hasPermission(current));
                     try {
+                        Log.i(TAG, "android_open_success: fd=" + connection.getFileDescriptor() + "; starting native adoption/claim/mux");
+                        main.post(() -> { if (!isDestroyed()) note("android_open_success: Java USB connection opened; starting native claim/mux"); });
+                        failedAt = "native_probe";
                         result = NativeUsbProbe.probe(connection.getFileDescriptor());
                     } finally {
                         connection.close();
                     }
                 }
             } catch (Exception | LinkageError error) {
-                result = "BLOCKER android_open_or_jni: " + error.getClass().getSimpleName() + ": " + error.getMessage();
+                result = "BLOCKER " + failedAt + ": " + error.getClass().getSimpleName() + ": " + error.getMessage();
             }
             String finished = result;
             main.post(() -> {
@@ -233,15 +230,15 @@ public final class UsbProbeActivity extends Activity {
         });
     }
 
-    @SuppressWarnings("deprecation")
-    private static UsbDevice deviceExtra(Intent intent) {
-        if (Build.VERSION.SDK_INT >= 33) return intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice.class);
-        return intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+    private void stage(String stage, String message) {
+        lastStage = stage;
+        note(stage + ": " + message);
+        status.setText(stage + "\n" + message);
     }
 
     private void note(String message) {
         Log.i(TAG, message);
-        journal.add(message);
+        journal.add(android.os.SystemClock.elapsedRealtime() + "ms " + message);
         if (journal.size() > 120) journal.remove(0);
         if (reportView != null) reportView.setText(report());
     }
@@ -249,6 +246,7 @@ public final class UsbProbeActivity extends Activity {
     String report() { return TextUtils.join("\n", journal) + "\n\n" + nativeReport; }
 
     @Override protected void onDestroy() {
+        permission.stop();
         unregisterReceiver(receiver);
         main.removeCallbacks(progressPoll);
         worker.shutdown(); // Do not close a borrowed USB FD underneath a running native call.

@@ -2,7 +2,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const VERSION: &str = "nuvio-usb-probe/0.1.0 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+pub const VERSION: &str = "nuvio-usb-probe/0.2.0 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
 pub const INFO_KEYS: [&str; 4] = [
     "DeviceClass",
     "ProductType",

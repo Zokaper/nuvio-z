@@ -4,6 +4,7 @@
     <!-- No Internet permission: this probe cannot contact Apple or anisette services. -->
     <application android:allowBackup="false" android:label="Nuvio Z USB Probe"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <receiver android:name=".UsbPermissionReceiver" android:exported="false" />
         <activity android:name=".UsbProbeActivity" android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>

@@ -136,23 +136,30 @@ async fn probe(fd: i32, report: &mut ProbeReport) -> Result<(), (&'static str, S
             );
         }
     }
-    event(
-        report,
-        "usb_mux",
-        "Claiming mux interface and exchanging mux version/setup packets (8s limit)",
-    );
+    let mut transport_stage = "usb_open";
     let device = timeout(
         STEP_TIMEOUT,
-        UsbDevice::new(AnyDeviceInfo::AndroidOpened(usb), 1),
+        UsbDevice::new_with_progress(AnyDeviceInfo::AndroidOpened(usb), 1, |stage| {
+            transport_stage = stage;
+            let message = match stage {
+                "usb_open" => "Adopting the permission-granted nusb handle",
+                "usb_claim" => {
+                    "Selecting USB configuration and claiming the mux interface/endpoints"
+                }
+                _ => "Exchanging mux version/setup packets",
+            };
+            event(report, stage, message);
+        }),
     )
     .await
     .map_err(|_| {
         (
-            "usb_mux",
-            "Mux handshake timed out; check cable, unlock iPhone and Galaxy USB host role".into(),
+            transport_stage,
+            "USB transport step timed out; check cable, unlock iPhone and Galaxy USB host role"
+                .into(),
         )
     })?
-    .map_err(|e| ("usb_mux", e.to_string()))?;
+    .map_err(|e| (transport_stage, e.to_string()))?;
     report.mux_connected = true;
     event(report, "usb_mux", "Mux version/setup exchange succeeded");
     // Do not use watch_usb_daemon or preflight: those can pair automatically.

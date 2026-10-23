@@ -20,6 +20,10 @@ Only these upstream files are adapted:
    the current USB configuration before considering another one, avoiding unnecessary changes.
 4. `src/handler/mod.rs`: define an inaccessible Android sentinel for the unused daemon pairing
    path so the library compiles. This is NOT Android pairing support.
+5. `src/device/usb.rs`: add an optional progress callback around handle adoption, endpoint
+   selection/configuration/claim and mux version/setup. The existing constructor delegates with
+   a no-op callback. Protocol operations and framing are unchanged. This lets a granted Android
+   permission followed by a claim failure be reported as `usb_claim`, independently of `usb_mux`.
 
 The mux handshake, framing, packet router and provider are upstream code. No new mux protocol
 implementation is introduced. The harness calls `UsbDevice::new` directly, never the daemon,

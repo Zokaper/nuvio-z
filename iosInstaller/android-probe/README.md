@@ -8,6 +8,14 @@ stable and debug Nuvio Z without changing their data. The launcher is **Nuvio Z 
 The native code reuses idevice **0.1.68** and a narrowly adapted rusbmux **0.3.0** with nusb
 **0.2.8**. See [VENDOR.md](VENDOR.md) for the exact adaptation and upstream provenance.
 
+**Current test build: phase1-0.2 (versionCode 2, native 0.2.0).** The original 0.1 harness incorrectly
+used an immutable USB permission PendingIntent and treated missing result extras as denial.
+Android supplies those extras through `PendingIntent.send` fill-in; immutable intents discard them.
+0.2 uses a mutable explicit one-shot callback to a private receiver, and validates the selected live
+USB instance and its actual permission before attempting an open. No unsafe implicit-intent flag
+or exported permission receiver is used. References: [PendingIntent API](https://developer.android.com/reference/android/app/PendingIntent)
+and [Android USB permission implementation](https://android.googlesource.com/platform/frameworks/base/+/6acb1cfda8d2/services/usb/java/com/android/server/usb/UsbUserPermissionManager.java).
+
 ## Build on Windows
 
 Prerequisites: repository JDK/SDK, Android NDK **28.2.13676358**, Rust, and:
@@ -29,7 +37,7 @@ The opt-in flag is required to even include this module. Ordinary app builds hav
 
 ```powershell
 cargo test --locked --manifest-path iosInstaller/android-probe/native/Cargo.toml -p nuvioz-usb-probe --lib
-.\gradlew.bat '-Pnuvio.androidIosUsbProbe=true' '-Pnuvio.android.distribution=full' :androidUsbProbe:connectedDebugAndroidTest :androidUsbProbe:lintDebug --max-workers=4 --console=plain
+.\gradlew.bat '-Pnuvio.androidIosUsbProbe=true' '-Pnuvio.android.distribution=full' :androidUsbProbe:testDebugUnitTest :androidUsbProbe:connectedDebugAndroidTest :androidUsbProbe:lintDebug --max-workers=4 --console=plain
 ```
 
 The host tests run the real idevice GetValue client against a framed fake Lockdown peer and
@@ -47,7 +55,9 @@ and Activity startup. Emulator results do **not** verify physical USB or ARM64 r
    try a USB-C OTG adapter on the Galaxy with an appropriate data cable. No developer options,
    root, Developer Mode or pre-existing pairing file are required by this probe.
 3. Tap **Scan attached devices**. An Apple device (`05ac:…`) should appear. Tap its **Probe** button
-   and allow Android's USB permission dialog. A denial must leave the app usable; tap Probe to retry.
+   and allow Android's USB permission dialog. The report now includes the request, callback field
+   presence, current USB address/instance and `hasPermission()`. A denial must leave the app usable;
+   tap Probe to retry. A changed USB instance requires selecting that new instance again.
 4. Keep both phones unlocked and this screen open. Completion is bounded by a 45-second native
    deadline plus cleanup. The report separates `muxConnected`, `lockdownConnected`, `deviceInfo`,
    per-stage events and `blocker`.
@@ -75,9 +85,15 @@ adb logcat -v threadtime -s NuvioUsbProbe AndroidRuntime
 | --- | --- |
 | `native_load` | APK ABI/JNI loading failed; not an Apple protocol result. |
 | No Apple USB device | Check data cable, iPhone unlock/accessory policy and Galaxy host role. |
-| `usb_permission` / `android_open_or_jni` | Android permission/attachment problem, before mux. |
+| `permission_denied` | Android explicitly returned false, the selected instance remains present, and `hasPermission()` is false. |
+| `permission_callback_incomplete` / `permission_callback_timeout` | Missing result fields/callback; not labeled as a denial. |
+| `permission_grant_lost` | Android reported a grant, but the live instance no longer has permission. |
+| `usb_disconnected` / `usb_reenumerated` / `usb_identity_changed` | Selected device vanished or its identity changed; replacement devices are never automatically opened. |
+| `permission_callback_missing_recovered` | Callback missing, but the same live instance has independently confirmed Android permission. |
+| `android_open` / `android_permission_check` / `android_device_lookup` | Separate Java open, permission-loss or device-removal failure before JNI. |
 | `file_descriptor` / `descriptors` | Android FD adoption or descriptor access failed. |
-| `usb_mux` | Interface selection/claim/configuration or mux version/setup exchange failed. |
+| `usb_claim` | USB configuration/interface/endpoint claim failed after permission and opening succeeded. |
+| `usb_mux` | Version/setup exchange failed after the interface claim succeeded. |
 | `muxConnected: true`, `lockdown` blocker | Raw mux works; port connection/protocol remains unresolved. |
 | Both flags true, `device_info` refusal | Mux/Lockdown connection works; unpaired information request refused. Do not silently pair. |
 | `ok: true` | Phase 1 transport/info pass on that device/cable/OS combination only. |
@@ -85,7 +101,21 @@ adb logcat -v threadtime -s NuvioUsbProbe AndroidRuntime
 Proceed to Phase 2 only after reviewing the actual device report. Phase 1 does not establish
 fresh trust pairing, TLS sessions, remote pairing, large transfers, authentication or installation.
 
-## Recorded verification (2026-10-23)
+## Current 0.2 verification (2026-10-23)
+
+- Real Galaxy S25+ / Android 16 / ARM64: **10 Android tests pass**, including actual Android
+  PendingIntent delivery preserving Allow/Deny extras to the private receiver, reproduction of the
+  old immutable bug, stale-request rejection, native execution and FD ownership. No USB permission
+  is requested in these synthetic callback tests, and no iPhone is paired or modified.
+- **15 JVM permission-state tests and 5 Rust protocol tests pass**. Both native ABIs build.
+- Lint: **0 errors, 13 prototype warnings**. APK signature and ZIP/ELF 16 KB alignment verified.
+- User's real iPhone detection, Android permission prompt and ARM64 native loading are confirmed.
+  The new real permission-dialog → open → claim → mux/Lockdown flow still needs a reconnect test.
+
+Updated APK: `Nuvio-Z-USB-Probe-phase1-0.2.apk`, 7,599,395 bytes. SHA-256:
+`245990059cd1e9badc9bbbef4e3f88fadb2b17b42327746431465b1724e4c5cb`.
+
+## Historical initial 0.1 verification (2026-10-23)
 
 - Windows Rust 1.99.0 / NDK 28.2.13676358: ARM64 and x86_64 libraries, debug APK and test APK build.
 - Rust host tests: **5 passed**, zero failures.

@@ -5,15 +5,46 @@ Last updated: 2026-10-23
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK only | Phase 1 ARM64/x86_64 build, 5 Rust + 5 emulator tests pass; real Galaxy/iPhone USB validation pending |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Permission callback fixed; 15 JVM + 10 Galaxy Android 16 + 5 Rust tests pass; real iPhone grant→mux retest pending |
 
 ## Android-to-iPhone USB experiment (2026-10-23)
+
+**Permission follow-up (APK 0.2):** maintainer's Galaxy S25+ / Android 16 loads JNI, detects
+Apple `05ac:12a8` including mux interface `ff/fe/02`, displays the permission dialog, and the
+maintainer explicitly taps Allow. The harness then reports a combined denial/disconnection.
+Saved filtered logs confirm the iPhone is still enumerated immediately after that message.
+The initial PendingIntent is immutable, which drops Android's fill-in result extras; the handler
+misclassifies missing extras as denial. Fixed with a mutable, explicit, one-shot PendingIntent to
+an unexported manifest receiver. Request UUIDs and private pending/result storage survive Activity
+recreation; system attach/detach notifications stay on a separate NOT_EXPORTED dynamic receiver.
+The controller checks the live USB instance + VID/PID and `hasPermission()` before opening it.
+Missing callback/extras, explicit false, stale/wrong device, detach, re-enumeration and permission
+loss have distinct diagnostics. Similar VID/PID never grants access to a replacement instance.
+Missing callbacks time out after 120 s, with recovery only when the same current instance already
+has permission. Java open, native FD adoption, interface configuration/claim, mux and Lockdown are
+reported separately. No pairing/signing/installation changes were made.
+
+**0.2 verification on the real Galaxy:** **10/10 Android instrumentation tests**, zero failures/skips,
+on SM-S936B / Android 16 ARM64. Tests reproduce the original immutable intent losing Android fill-in
+extras, prove the corrected private mutable callback preserves true/false results without an Activity,
+reject stale requests, verify JNI/FD ownership and check debug/no-network isolation. These synthetic
+callbacks do not request access to an actual USB device. **15/15 JVM permission-state tests** cover
+denial, missing extras/callback, timeout, permission loss, device replacement and restart; **5/5 Rust
+protocol tests** still pass. Both ABIs build. Lint **0 errors, 13 prototype warnings**; signature and
+16 KB APK/ELF alignment verified. Final logs: `build/usb-permission-fix/final-{phone-verification,rust-tests}.log`.
+The connected test runner emits an unrelated optional test-services appops warning; all assertions pass.
+
+Updated artifact: `Nuvio Z/release-artifacts/android-ios-usb-phase1/Nuvio-Z-USB-Probe-phase1-0.2.apk`,
+7,599,395 bytes; SHA-256 `245990059cd1e9badc9bbbef4e3f88fadb2b17b42327746431465b1724e4c5cb`.
+Install over the existing test package. A real iPhone permission grant followed by open/claim/mux/
+unpaired Lockdown is still awaiting the maintainer's reconnect test; physical re-enumeration and
+detach during a probe remain unverified. No Phase 2 work has begun.
 
 Authorized scope: a debug-only ARM64 Android harness for permission, raw USB mux and unpaired
 Lockdown device-info reads. No Apple login, signing, pairing or installation. Isolated worktree:
 `.codex-worktrees/android-ios-usb-phase1`; normal Android, desktop and iOS behavior stays unchanged.
-The maintainer confirms the existing desktop install / iPhone self-refresh flow works. No Android
-USB hardware result is reported yet; the available iPhone is approximately a 13/14, exact iOS TBD.
+The maintainer confirms the existing desktop install / iPhone self-refresh flow works. The available
+iPhone is approximately a 13/14, exact iOS TBD; Android hardware observations are recorded above.
 Implemented `iosInstaller/android-probe/`: optional `:androidUsbProbe`, separate debug-only package
 `com.nuvio.app.z.usbprobe` (no release variant or Internet permission), USB permission/attachment UI,
 JNI descriptor adoption, direct rusbmux handshake and four unpaired GetValue queries. No production
@@ -26,7 +57,7 @@ installer), and define a deliberately unusable path for unused pairing code. No 
 pairing path is called. `VENDOR.md` records the archive hash and exact changed files. nusb 0.2.8 is
 unmodified. Routing identity is a Phase 1 placeholder; it must not be used for Phase 2 pairing.
 
-**Verified locally on 2026-10-23:** ARM64 + x86_64 optimized Rust JNI libraries and the debug APK build;
+**Historical initial APK 0.1 verification (before phone tests):** ARM64 + x86_64 optimized Rust JNI libraries and the debug APK build;
 host Rust **5/5** (real idevice protocol against fake Lockdown peer, refusal and timeout included);
 Android API 34 x86_64 emulator **5/5**, zero failures/skips (JNI load, invalid/non-USB FD diagnostics,
 Java FD ownership, debug/no-network isolation, Activity startup). Lint **0 errors, 11 warnings**

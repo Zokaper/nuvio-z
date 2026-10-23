@@ -127,15 +127,27 @@ impl UsbDevice {
     }
 
     pub async fn new(info: AnyDeviceInfo, id: u64) -> Result<Arc<Self>, RusbmuxError> {
+        Self::new_with_progress(info, id, |_| {}).await
+    }
+
+    // Nuvio probe: distinguish handle adoption/endpoint configuration+claim from mux handshake errors.
+    pub async fn new_with_progress(
+        info: AnyDeviceInfo,
+        id: u64,
+        mut progress: impl FnMut(&'static str),
+    ) -> Result<Arc<Self>, RusbmuxError> {
         debug!(device_id = id, "Creating new device");
         let udid = info
             .udid()
             .ok_or(RusbmuxError::InvalidData("USB device has no serial number"))?
             .into_owned();
+        progress("usb_open");
         let device_handle = info.open().await?;
 
+        progress("usb_claim");
         let (mut end_in, mut end_out) = device_handle.endpoint().await?;
 
+        progress("usb_mux");
         let version_packet = UsbDevicePacket::builder()
             .header_version()
             .payload_version(2, 0)

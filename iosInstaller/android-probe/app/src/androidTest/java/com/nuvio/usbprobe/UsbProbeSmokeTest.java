@@ -34,7 +34,7 @@ public final class UsbProbeSmokeTest {
 
     @Test public void activityStartsAndReportsNativeLoadWithoutAnAttachedIphone() {
         try (ActivityScenario<UsbProbeActivity> scenario = ActivityScenario.launch(UsbProbeActivity.class)) {
-            scenario.onActivity(activity -> assertTrue(activity.report().contains("Native loaded: nuvio-usb-probe/0.1.0")));
+            scenario.onActivity(activity -> assertTrue(activity.report().contains("Native loaded: nuvio-usb-probe/0.2.0")));
         }
     }
 
