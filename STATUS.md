@@ -5,9 +5,27 @@ Last updated: 2026-10-23
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Permission callback fixed; 15 JVM + 10 Galaxy Android 16 + 5 Rust tests pass; real iPhone grant→mux retest pending |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
 
 ## Android-to-iPhone USB experiment (2026-10-23)
+
+**Real-device 0.2 pass (20:17:41 local):** pulled the maintainer's Galaxy log over adb after
+reconnecting it to the computer. The permission callback contains both expected extras and
+`granted=true`; the same live USB instance has permission. Java open and native nusb descriptor
+adoption succeed. rusbmux switches configuration **1 -> 3**, claims mux interface **1** with
+endpoints **0x85 IN / 0x04 OUT**, exchanges mux **2.0** version/setup, connects Lockdown port **62078**,
+and reads all four allowlisted fields without pairing or StartSession: `DeviceClass=iPhone`,
+`ProductType=iPhone15,2`, `ProductVersion=26.5`, `BuildVersion=23F77`. Final report has `ok=true`,
+`muxConnected=true`, `lockdownConnected=true`, `blocker=null`; transport/info work completes in
+about **90 ms** after Java open begins. Normal mux shutdown completes; a later physical detach is
+logged at 20:18:03. This satisfies the core Phase 1 transport/info acceptance on this device pair.
+
+Evidence saved locally (ignored): `build/usb-permission-fix/phone-retest-0.2.log` and extracted
+`phone-retest-0.2-report.json`. This is one successful physical probe, not a reliability campaign.
+Repeated reconnect/reprobe, real denial/retry, unplug during an active probe and physical
+re-enumeration remain unverified. Recommend a short Phase 1 recovery sweep before Phase 2;
+fresh pairing, TLS, signing, large transfers and installation remain outside this result.
+No Phase 2 work was started. No APK rebuild or code change was needed for this evidence update.
 
 **Permission follow-up (APK 0.2):** maintainer's Galaxy S25+ / Android 16 loads JNI, detects
 Apple `05ac:12a8` including mux interface `ff/fe/02`, displays the permission dialog, and the
@@ -36,9 +54,9 @@ The connected test runner emits an unrelated optional test-services appops warni
 
 Updated artifact: `Nuvio Z/release-artifacts/android-ios-usb-phase1/Nuvio-Z-USB-Probe-phase1-0.2.apk`,
 7,599,395 bytes; SHA-256 `245990059cd1e9badc9bbbef4e3f88fadb2b17b42327746431465b1724e4c5cb`.
-Install over the existing test package. A real iPhone permission grant followed by open/claim/mux/
-unpaired Lockdown is still awaiting the maintainer's reconnect test; physical re-enumeration and
-detach during a probe remain unverified. No Phase 2 work has begun.
+The updated package was installed over the existing test package. The real permission grant ->
+open -> claim -> mux -> unpaired Lockdown path subsequently passed, as recorded above. Recovery
+and physical re-enumeration checks remain pending. No Phase 2 work has begun.
 
 Authorized scope: a debug-only ARM64 Android harness for permission, raw USB mux and unpaired
 Lockdown device-info reads. No Apple login, signing, pairing or installation. Isolated worktree:
