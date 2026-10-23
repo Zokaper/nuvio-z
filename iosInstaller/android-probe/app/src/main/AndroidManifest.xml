@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
-    <!-- No Internet permission: this probe cannot contact Apple or anisette services. -->
+    <!-- Experimental signing/install proof: Apple, anisette and pinned official IPA download. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application android:allowBackup="false" android:label="Nuvio Z USB Probe"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <receiver android:name=".UsbPermissionReceiver" android:exported="false" />

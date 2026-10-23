@@ -1,12 +1,16 @@
-//! Isolated USB transport/pairing experiment. No Apple account, signing or installation operations.
+//! Isolated Android USB installer experiment. Credentials never enter diagnostics.
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const VERSION: &str = "nuvio-usb-probe/0.4.0 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+pub const VERSION: &str = "nuvio-usb-probe/0.5.2 isideload/0.4.6+android rustls-platform-verifier/0.7.1 rusbmux/0.3.0+nuvio idevice/0.1.68 nusb/0.2.8";
+#[cfg(target_os = "android")]
+mod android_network;
 #[cfg(target_os = "android")]
 mod android_store;
 #[cfg(any(target_os = "android", test))]
 mod control;
+mod installer;
+mod installer_vfs;
 mod paired_tls;
 mod pairing;
 #[cfg(test)]
@@ -57,6 +61,8 @@ pub struct ProbeReport {
     pub blocker: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pairing: Option<pairing::PairingReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installation: Option<installer::InstallReport>,
 }
 
 impl Default for ProbeReport {
@@ -71,6 +77,7 @@ impl Default for ProbeReport {
             events: Vec::new(),
             blocker: None,
             pairing: None,
+            installation: None,
         }
     }
 }
@@ -87,7 +94,7 @@ impl ProbeReport {
         self.blocker = Some(format!("{stage}: {detail}"));
         self.event(
             stage,
-            "Stopped; see blocker. No Apple authentication, signing or installation performed.",
+            "Stopped; see blocker and per-stage results. No secrets are included in this report.",
         );
     }
 }

@@ -83,6 +83,9 @@ final class UsbProbeSession {
     }
 
     boolean start(UsbDevice device, int mode) {
+        return start(device, mode, null);
+    }
+    boolean start(UsbDevice device, int mode, InstallRequest install) {
         if (busy()) return false;
         final long id = NativeUsbProbe.nextAttempt();
         attempt = id;
@@ -111,8 +114,9 @@ final class UsbProbeSession {
                     try {
                         main.post(() -> note("attempt=" + id + " android_open_success"));
                         failedAt = "native_probe";
-                        result = NativeUsbProbe.run(connection.getFileDescriptor(), id, mode,
-                                mode >= 3 ? new PairingStore(context) : null);
+                        PairingStore pairStore = mode >= 3 ? new PairingStore(context) : null;
+                        result = mode == 6 ? NativeUsbProbe.install(connection.getFileDescriptor(), id, pairStore, install)
+                                : NativeUsbProbe.run(connection.getFileDescriptor(), id, mode, pairStore);
                     } finally {
                         // Never close this FD underneath JNI. Rust closes only its own duplicate.
                         connection.close();
@@ -125,6 +129,8 @@ final class UsbProbeSession {
                             + (mode >= 3 ? ": sensitive details withheld" : ": " + error.getMessage()));
                 } catch (org.json.JSONException impossible) { throw new IllegalStateException(impossible); }
                 result = failure.toString();
+            } finally {
+                if (install != null) install.erase();
             }
             final String finished = result;
             main.post(() -> finish(id, mode, finished));
@@ -195,6 +201,7 @@ final class UsbProbeSession {
         Log.i("NuvioUsbProbe", result);
         setStatus("Attempt " + id + ": " + outcome + ". Connection released. "
                 + (waitingForReboot ? "Pairing retained: complete the iPhone reboot, reconnect and tap Saved pairing."
+                : mode == 6 && ok ? "Nuvio Z Debug installed. Open it on the iPhone and trust its developer profile if iOS asks."
                 : mode >= 3 && ok ? "Authenticated pairing connection passed." : "Ready to retry."));
     }
 }

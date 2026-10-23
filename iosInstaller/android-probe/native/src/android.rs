@@ -2,8 +2,8 @@ use crate::{ProbeReport, VERSION, control::Cancellation, read_device_info};
 use idevice::{IdeviceService, lockdown::LockdownClient};
 use jni::{
     JNIEnv,
-    objects::{JClass, JObject},
-    sys::{jint, jlong, jstring},
+    objects::{JClass, JObject, JString},
+    sys::{jboolean, jint, jlong, jstring},
 };
 use rusbmux::{device::usb::UsbDevice, provider::RusbmuxProvider, usb_backend::AnyDeviceInfo};
 use std::{
@@ -67,8 +67,20 @@ impl Write for LogWriter {
 fn init() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
-        std::panic::set_hook(Box::new(|_| {
-            log("Native panic; sensitive details withheld")
+        std::panic::set_hook(Box::new(|panic| {
+            let location = panic
+                .location()
+                .map(|l| {
+                    format!(
+                        "{}:{}",
+                        l.file().rsplit(['/', '\\']).next().unwrap_or("native"),
+                        l.line()
+                    )
+                })
+                .unwrap_or_default();
+            log(&format!(
+                "Native panic at {location}; sensitive message withheld"
+            ));
         }));
         // Vendor logs can include packet payloads even at ERROR. Emit only our safe stage events.
         let _ = tracing_subscriber::fmt()
@@ -84,11 +96,14 @@ fn init() {
 
 fn event(report: &mut ProbeReport, stage: &str, message: impl Into<String>) {
     let message = message.into();
+    notice(stage, &message);
+    report.event(stage, message);
+}
+pub(crate) fn notice(stage: &str, message: &str) {
     log(&format!("{stage}: {message}"));
     if let Ok(mut status) = PROGRESS.lock() {
         *status = format!("{stage}: {message}");
     }
-    report.event(stage, message);
 }
 
 async fn probe(
@@ -96,6 +111,7 @@ async fn probe(
     mode: i32,
     report: &mut ProbeReport,
     store: Option<&mut dyn crate::pairing::Store>,
+    install: Option<crate::installer::Request>,
 ) -> Result<(), (&'static str, String)> {
     if mode == 2 {
         event(
@@ -199,7 +215,7 @@ async fn probe(
             let result = crate::pairing::authenticate(
                 &provider,
                 store,
-                mode == 3,
+                mode == 3 || mode == 6,
                 mode == 5,
                 &mut pairing,
                 |stage, message| {
@@ -212,6 +228,22 @@ async fn probe(
             .await;
             report.pairing = Some(pairing);
             report.device_info = result.map_err(|(stage, message)| (stage, message.to_string()))?;
+            if mode == 6 {
+                let request = install.ok_or((
+                    "install_input",
+                    "Enter Apple credentials directly in the app".to_string(),
+                ))?;
+                let mut installed = crate::installer::InstallReport::default();
+                let result =
+                    crate::installer::perform(&provider, store, request, &mut installed).await;
+                if let Some(pairing) = &mut report.pairing {
+                    pairing.self_refresh_ready = installed.pairing_handoff
+                        && installed.remote_pairing_handoff
+                        && installed.signing_key_handoff;
+                }
+                report.installation = Some(installed);
+                result.map_err(|(stage, message)| (stage, message.to_string()))?;
+            }
             return Ok(());
         }
         if mode == 1 {
@@ -254,7 +286,13 @@ async fn probe(
     result
 }
 
-fn run(fd: i32, attempt: u64, mode: i32, store: Option<&mut dyn crate::pairing::Store>) -> String {
+fn run(
+    fd: i32,
+    attempt: u64,
+    mode: i32,
+    store: Option<&mut dyn crate::pairing::Store>,
+    install: Option<crate::installer::Request>,
+) -> String {
     init();
     let mut report = ProbeReport::default();
     if BUSY
@@ -279,7 +317,7 @@ fn run(fd: i32, attempt: u64, mode: i32, store: Option<&mut dyn crate::pairing::
                 tokio::select! {
                     biased;
                     _ = CANCEL.wait(attempt) => Err("probe_cancelled"),
-                    result = timeout(Duration::from_secs(if mode >= 3 { 180 } else { 45 }), probe(fd, mode, &mut report, store)) =>
+                    result = timeout(Duration::from_secs(if mode == 6 { 1200 } else if mode >= 3 { 180 } else { 45 }), probe(fd, mode, &mut report, store, install)) =>
                         result.map_err(|_| "deadline"),
                 }
             });
@@ -289,7 +327,9 @@ fn run(fd: i32, attempt: u64, mode: i32, store: Option<&mut dyn crate::pairing::
                     event(
                         &mut report,
                         "complete",
-                        if mode >= 3 {
+                        if mode == 6 {
+                            "Signed Nuvio Z Debug installed with self-refresh handoff"
+                        } else if mode >= 3 {
                             "Authenticated information read succeeded; no Apple authentication, signing or installation"
                         } else {
                             "Device information read successfully; no pairing performed"
@@ -348,23 +388,38 @@ pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_execute<'local>(
     attempt: jlong,
     mode: jint,
     store: JObject<'local>,
+    request: JObject<'local>,
 ) -> jstring {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let install = if request.is_null() {
+            None
+        } else {
+            match crate::installer::Request::from_java(&mut env, request) {
+                Ok(request) => Some(request),
+                Err((stage, message)) => {
+                    let _ = env.exception_clear();
+                    let mut report = ProbeReport::default();
+                    report.fail(stage, message);
+                    return serde_json::to_string_pretty(&report).unwrap();
+                }
+            }
+        };
         if store.is_null() {
-            run(fd, attempt as u64, mode, None)
+            run(fd, attempt as u64, mode, None, install)
         } else {
             let mut bridge = crate::android_store::AndroidStore {
                 env: &mut env,
                 object: store,
             };
-            run(fd, attempt as u64, mode, Some(&mut bridge))
+            run(fd, attempt as u64, mode, Some(&mut bridge), install)
         }
     }))
     .unwrap_or_else(|_| {
         let mut report = ProbeReport::default();
         report.fail(
             "native_panic",
-            "Sensitive details withheld; no signing or installation performed",
+                if mode == 6 { "Native operation failed; sensitive details withheld. Installation may have started; inspect the iPhone before retrying" }
+                else { "Native operation failed; sensitive details withheld" },
         );
         serde_json::to_string_pretty(&report).unwrap()
     });
@@ -380,6 +435,77 @@ pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_cancel(
     if attempt > 0 {
         CANCEL.cancel(attempt as u64);
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_answerChallenge(
+    mut env: JNIEnv,
+    _: JClass,
+    input: JString,
+) -> jboolean {
+    use zeroize::Zeroize;
+    let mut text: String = match env.get_string(&input) {
+        Ok(text) => text.into(),
+        Err(_) => return 0,
+    };
+    let accepted = crate::installer::answer(&text);
+    text.zeroize();
+    accepted as jboolean
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_certificateChoices(
+    env: JNIEnv,
+    _: JClass,
+) -> jstring {
+    string(&env, crate::installer::certificate_choices())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_nuvio_usbprobe_NativeUsbProbe_networkCheck(
+    env: JNIEnv,
+    _: JClass,
+) -> jstring {
+    init();
+    let outcome = std::panic::catch_unwind(|| {
+        let runtime = tokio::runtime::Runtime::new().map_err(|_| "runtime")?;
+        let result = runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(30), async {
+                use isideload::anisette::AnisetteProvider;
+                let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).build().map_err(|_| "https_init")?;
+                client.get("https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/ios-installer/nuvio.json")
+                    .send().await.map_err(|_| "https_request")?.error_for_status().map_err(|_| "https_status")?;
+                let provider = isideload::anisette::remote_v3::RemoteV3AnisetteProvider::default().map_err(|_| "anisette_init")?
+                    .set_url("https://new.ani.sidestore.io");
+                let info = provider.get_client_info().await.map_err(|_| "anisette_request")?;
+                // Exercise the exact Apple client builder and public URL lookup used by login,
+                // without an account, password, anisette provisioning or an authentication call.
+                isideload::auth::grandslam::GrandSlam::build_reqwest_client(false, None)
+                    .map_err(|_| "apple_http_builder")?;
+                isideload::auth::grandslam::GrandSlam::new(info, false, None).await
+                    .map_err(|e| {
+                        // Only fixed classifications leave this no-account diagnostic.
+                        let detail = format!("{e:?}").to_lowercase();
+                        if detail.contains("extra certs") { "apple_extra_roots" }
+                        else if detail.contains("unknownissuer") || detail.contains("unknown issuer") { "apple_tls_unknown_issuer" }
+                        else if detail.contains("certificate") { "apple_tls_certificate" }
+                        else if detail.contains("parse url bag") { "apple_lookup_plist" }
+                        else if detail.contains("missing 'urls'") { "apple_lookup_missing_urls" }
+                        else if detail.contains("invalid http header") { "apple_lookup_header" }
+                        else if detail.contains("failed to fetch url bag") { "apple_lookup_request" }
+                        else { "apple_client_setup" }
+                    })?;
+                Ok::<_, &'static str>(())
+            }).await.map_err(|_| "network_timeout")?
+        });
+        runtime.shutdown_timeout(Duration::from_secs(2)); result
+    }).unwrap_or(Err("network_panic"));
+    string(
+        &env,
+        outcome
+            .map(|_| "ok")
+            .unwrap_or_else(|error| error)
+            .to_string(),
+    )
 }
 
 #[unsafe(no_mangle)]

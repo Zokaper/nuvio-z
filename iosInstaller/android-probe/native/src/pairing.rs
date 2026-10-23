@@ -29,10 +29,44 @@ pub struct PairingReport {
 
 // Raw mux routing uses a non-identifying placeholder. Authenticated services use the actual,
 // privately verified device identity and the record bound to it, without enabling daemon preflight.
-struct IdentifiedProvider<'a> {
+pub(crate) struct IdentifiedProvider<'a> {
+    pub raw: &'a dyn IdeviceProvider,
+    pub udid: String,
+    pub record: PairingFile,
+}
+
+pub(crate) async fn saved_provider<'a>(
     raw: &'a dyn IdeviceProvider,
-    udid: String,
-    record: PairingFile,
+    store: &mut dyn Store,
+) -> Result<IdentifiedProvider<'a>, Failure> {
+    let mut lockdown = bounded("device_identity", LockdownClient::connect(raw)).await?;
+    let value = bounded(
+        "device_identity",
+        lockdown.get_value(Some("UniqueDeviceID"), None),
+    )
+    .await?;
+    let udid = value
+        .as_string()
+        .filter(|s| {
+            (16..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+        })
+        .ok_or(("device_identity", "Invalid private device identity"))?
+        .to_string();
+    let mut bytes = store.load(&udid)?.ok_or((
+        "pairing_record_missing",
+        "Pair the iPhone before installation",
+    ))?;
+    let record = PairingFile::from_bytes(&bytes);
+    bytes.fill(0);
+    let record =
+        record.map_err(|_| ("pairing_record_invalid", "Cannot read saved pairing record"))?;
+    if record.udid.as_deref() != Some(udid.as_str()) {
+        return Err((
+            "pairing_identity_mismatch",
+            "Saved record belongs to another phone",
+        ));
+    }
+    Ok(IdentifiedProvider { raw, udid, record })
 }
 impl std::fmt::Debug for IdentifiedProvider<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

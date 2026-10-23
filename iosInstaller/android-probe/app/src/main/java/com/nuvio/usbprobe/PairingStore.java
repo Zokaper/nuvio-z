@@ -174,4 +174,28 @@ final class PairingStore {
         } catch (Failure failure) { throw failure; }
         catch (Exception error) { throw new Failure("store_unreadable"); }
     }
+
+    private static String secretName(String key) throws Exception {
+        if (key.length() > 1024) throw new Failure("invalid_secret_key");
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));
+        StringBuilder result = new StringBuilder("secret-");
+        for (byte b : hash) result.append(String.format(java.util.Locale.ROOT, "%02x", b & 255));
+        return result.toString();
+    }
+    synchronized byte[] getSecret(String key) {
+        try {
+            JSONObject value = read(secretName(key));
+            return value == null ? null : Base64.decode(value.getString("value"), Base64.NO_WRAP);
+        } catch (Failure failure) { throw failure; }
+        catch (Exception error) { throw new Failure("store_unreadable"); }
+    }
+    synchronized void putSecret(String key, byte[] bytes) {
+        try { write(secretName(key), new JSONObject().put("value", Base64.encodeToString(bytes, Base64.NO_WRAP))); }
+        catch (Failure failure) { throw failure; }
+        catch (Exception error) { throw new Failure("store_unreadable"); }
+    }
+    synchronized void deleteSecret(String key) {
+        try { new AtomicFile(new File(directory, secretName(key) + ".sealed")).delete(); }
+        catch (Exception error) { throw new Failure("storage_unavailable"); }
+    }
 }

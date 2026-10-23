@@ -142,6 +142,17 @@ public final class PairingStoreTest {
         assertArrayEquals(RECORD, store.loadRecord(DEVICE));
     }
 
+    @Test public void signingSecretsAreEncryptedAndSurviveRecreation() throws Exception {
+        store.putSecret("synthetic-account/key", RECORD);
+        assertArrayEquals(RECORD, new PairingStore(context, namespace).getSecret("synthetic-account/key"));
+        for (File file : directory.listFiles()) {
+            String content = new String(Files.readAllBytes(file.toPath()), StandardCharsets.ISO_8859_1);
+            assertFalse(content.contains(new String(RECORD, StandardCharsets.UTF_8)));
+        }
+        store.deleteSecret("synthetic-account/key");
+        assertNull(store.getSecret("synthetic-account/key"));
+    }
+
     @Test public void jniBridgeClearsJavaExceptionsAndReturnsOnlyAFixedCode() throws Exception {
         initialize();
         KeyStore keys = KeyStore.getInstance("AndroidKeyStore"); keys.load(null);

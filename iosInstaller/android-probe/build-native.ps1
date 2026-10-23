@@ -1,6 +1,7 @@
 param(
     [string]$OutputDirectory = "$PSScriptRoot/app/build/generated/jniLibs",
-    [string]$AndroidSdk = $env:ANDROID_HOME
+    [string]$AndroidSdk = $env:ANDROID_HOME,
+    [switch]$Arm64Only
 )
 $ErrorActionPreference = 'Stop'
 if (-not $AndroidSdk) { $AndroidSdk = "$env:LOCALAPPDATA/Android/Sdk" }
@@ -12,7 +13,8 @@ $rustup = Join-Path $env:USERPROFILE '.cargo/bin/rustup.exe'
 $env:PATH = "$(Split-Path $cargo);$toolchain;$env:PATH"
 $env:CARGO_TARGET_DIR = Join-Path $PSScriptRoot 'native/build/target'
 $installedTargets = & $rustup target list --installed
-foreach ($target in @('aarch64-linux-android', 'x86_64-linux-android')) {
+$probeTargets = if ($Arm64Only) { @('aarch64-linux-android') } else { @('aarch64-linux-android', 'x86_64-linux-android') }
+foreach ($target in $probeTargets) {
     if ($installedTargets -notcontains $target) { throw "Run: rustup target add $target" }
     $abi = if ($target -eq 'aarch64-linux-android') { 'arm64-v8a' } else { 'x86_64' }
     $envKey = $target.Replace('-', '_')

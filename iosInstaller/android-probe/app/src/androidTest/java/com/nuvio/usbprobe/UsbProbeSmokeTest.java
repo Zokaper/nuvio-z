@@ -24,17 +24,17 @@ public final class UsbProbeSmokeTest {
         assertTrue(report.toString(), report.getString("blocker").startsWith("file_descriptor:"));
     }
 
-    @Test public void experimentIsDebuggableAndHasNoInternetPermission() throws Exception {
+    @Test public void experimentIsDebuggableAndHasSigningNetworkPermission() throws Exception {
         android.content.Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         assertEquals("com.nuvio.app.z.usbprobe", context.getPackageName());
         assertTrue((context.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0);
-        assertEquals(PackageManager.PERMISSION_DENIED,
+        assertEquals(PackageManager.PERMISSION_GRANTED,
                 context.checkCallingOrSelfPermission("android.permission.INTERNET"));
     }
 
     @Test public void activityStartsAndReportsNativeLoadWithoutAnAttachedIphone() {
         try (ActivityScenario<UsbProbeActivity> scenario = ActivityScenario.launch(UsbProbeActivity.class)) {
-            scenario.onActivity(activity -> assertTrue(activity.report().contains("Native loaded: nuvio-usb-probe/0.4.0")));
+            scenario.onActivity(activity -> assertTrue(activity.report().contains("Native loaded: nuvio-usb-probe/0.5.2")));
         }
     }
 
@@ -56,5 +56,10 @@ public final class UsbProbeSmokeTest {
         }
         int after = new java.io.File("/proc/self/fd").list().length;
         assertTrue("FDs before=" + before + " after=" + after, after <= before + 3);
+    }
+
+    @Test public void androidHttpsAndAnisetteWorkWithSystemCertificateVerification() {
+        NativeUsbProbe.initialize(InstrumentationRegistry.getInstrumentation().getTargetContext().getApplicationContext());
+        assertEquals("ok", NativeUsbProbe.networkCheck());
     }
 }

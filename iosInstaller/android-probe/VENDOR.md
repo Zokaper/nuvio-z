@@ -1,4 +1,4 @@
-# Phase 1 USB dependency patch
+# Experimental dependency patches
 
 `native/vendor/rusbmux` contains the `src/`, original Cargo manifest and both licenses from
 the published **rusbmux 0.3.0** crate:
@@ -49,3 +49,36 @@ TLS wrapping through public socket APIs, with exact paired-device certificate pi
 rustls TLS 1.2/1.3 signature verification. Remaining Pair/GetValue/StartService/StopSession behavior
 uses idevice. No idevice crate or production installer files are patched. Details and acceptance
 limits: [PHASE2-DESIGN.md](PHASE2-DESIGN.md).
+
+
+## isideload 0.4.6: Android HTTPS client (0.5.2)
+
+`native/vendor/isideload` retains `src/`, `Cargo.toml`, `Cargo.toml.orig` and README from the
+published **isideload 0.4.6** crate, the same version used by the desktop installer.
+
+- Source: https://static.crates.io/crates/isideload/isideload-0.4.6.crate
+- Archive SHA-256: `473bde4da71c72bcf5f1cf77acfffdf4b879b65ef989c19f8cb4c3e9ea758a76`
+- Upstream: https://github.com/nab138/isideload
+- Published crate's VCS revision: `8ca39b6203263e539408986e546c42e7c1cc3699` (`isideload/`).
+- MIT license. The crate archive omits LICENSE; it is retained here from the same revision's
+  [repository LICENSE](https://github.com/nab138/isideload/blob/8ca39b6203263e539408986e546c42e7c1cc3699/LICENSE).
+
+Two files are adapted:
+
+1. **`src/auth/grandslam.rs`**: on Android only, configure rustls with the public WebPKI root set
+   plus the same bundled Apple root. reqwest 0.13/rustls-platform-verifier 0.7.1 cannot add roots
+   on Android; omitting the Apple root failed the public GrandSlam lookup with `UnknownIssuer` on
+   the real Galaxy. This adapter uses rustls' standard certificate-chain, hostname and signature
+   verification, not a custom permissive verifier. Other native targets retain upstream behavior.
+2. **`Cargo.toml`**: Android-only rustls 0.23 (ring/std/TLS 1.2) and webpki-roots 1.0.11 dependencies.
+
+The experiment always supplies `debug=false`. No signing, authentication, installation or
+certificate-revocation protocol is changed. The production installer still resolves its original
+registry dependency and lockfile. This copy is excluded from the experiment workspace members and
+used solely as a path dependency.
+
+The separate `android_network.rs` initializes rustls-platform-verifier through its official JNI
+0.22 API. Its matching Java support is `org.rustls:rustls-platform-verifier:0.2.0` from the
+[official Maven archive](https://github.com/rustls/rustls-platform-verifier/tree/maven-archive/android-release-support/maven).
+No trust-all network fallback is used. The no-password instrumentation test builds the SDK's Apple
+client and fetches its public URL bag after verified HTTPS/anisette client-info requests.

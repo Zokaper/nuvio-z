@@ -1,14 +1,57 @@
-# Android → iPhone USB and pairing experiment
+# Android → iPhone installer experiment
 
 An opt-in **debug-only** Android application, `com.nuvio.app.z.usbprobe`, built from the Nuvio Z
-repository. It has no release variant, no Internet permission, no production-app dependencies,
-and no Apple authentication, signing or IPA installation behavior. It installs beside
-stable and debug Nuvio Z without changing their data. The launcher is **Nuvio Z USB Probe**.
+repository. It installs beside stable/debug Android Nuvio Z. The launcher is **Nuvio Z USB Probe**.
+The maintainer now authorizes real Apple sign-in/signing/install proof after the validated
+transport/pairing work. Version 0.5 adds those operations with Internet permission and the same
+isideload 0.4.6 pin as desktop; no release variant or production application dependency is added.
+
+## Direct install proof (0.5.2)
+
+The immediate goal is a real sign-and-install attempt, not more repetition of passed USB checks.
+ARM64 Galaxy build only. Keep Android online and both phones unlocked; after an iPhone restart,
+re-seat the **Galaxy end** of the cable if detection does not return.
+
+1. Enter the Apple Account email/password directly in this Android test app, never in chat.
+2. Connect the iPhone and tap **Sign and install Nuvio Z Debug**. Allow USB access if asked.
+3. The app first downloads official **Debug 112** (~104 MB) and verifies SHA-256. Apple sign-in starts
+   after that download. Complete Trust/Apple 2FA using the in-app code/Send to devices/SMS controls.
+4. It then signs through isideload, installs via
+   this USB connection, and places the existing pairing/signing-key handoff in Nuvio Z's Documents.
+   Use the account previously used for this Debug app when updating it. Stable iOS uses a separate
+   base bundle ID. The Debug copy may be updated if already installed under the same account/team.
+5. If Apple has no free signing-certificate slot, the app displays an explicit choice. Revoking one
+   can stop other apps using that certificate; Cancel leaves those certificates alone. No automatic
+   certificate revocation or app removal is performed.
+6. Open Nuvio Z Debug on the iPhone. If iOS requires developer-profile trust, complete it in Settings.
+   Return the Galaxy to adb for filtered stage logs. Passwords, 2FA codes, keys and account/device
+   identifiers must not enter diagnostic reports. Actual install/refresh success must be recorded
+   separately from compiler/unit checks.
+
+The input password is erased from the edit field and temporary arrays; it is not saved. Anisette
+state and signing keys use encrypted Keystore/no-backup storage. SDK temporary files stay in app
+cache through a VFS adapter. Updates must use `adb install -r`; do not uninstall this paired app.
+The complete operation has a 20-minute cap, with progress and cancellation. An interrupted iOS
+installation may finish on the iPhone; inspect actual device state before retrying.
+
+The initial 0.5 attempt exposed missing Android HTTPS verifier initialization before Apple sign-in.
+0.5.1 adds the official rustls-platform-verifier Android support AAR and initializes its JVM/context
+at Activity startup. The actual 0.5.1 retry downloaded/verified the IPA but could not build the SDK's
+Apple HTTPS client: its extra-root API is unsupported by Android's verifier. 0.5.2 uses a narrow
+experimental isideload patch to configure standard rustls verification with public WebPKI roots
+plus the same bundled Apple CA. That CA is required by Apple's endpoint; omitting it failed the
+no-password lookup on the Galaxy. Certificate/hostname/signature verification stays enabled. The no-password Galaxy test now covers the real
+Apple client builder and public URL-bag lookup. No real sign-in/install success is claimed from
+compiler/synthetic tests. Keep the paired app's data when updating.
+
+Follow-up preference: desktop and Android should share the Tauri/web-UI framework and portable Rust
+installer logic, with platform adapters. That interface consolidation is deferred until after this
+proof, per the maintainer; avoid turning this temporary native form into a second full installer.
 
 The native code reuses idevice **0.1.68** and a narrowly adapted rusbmux **0.3.0** with nusb
 **0.2.8**. See [VENDOR.md](VENDOR.md) for the exact adaptation and upstream provenance.
 
-**Current test build: phase2-0.4 (versionCode 4, native 0.4.0).** Phase 1's requested physical
+**Validated pairing build: phase2-0.4 (versionCode 4, native 0.4.0).** Phase 1's requested physical
 repeat/reconnect/denial/unplug tests now pass. Phase 2 adds explicit **Pair iPhone / Trust**, encrypted
 record persistence, pinned authenticated TLS, saved-record reconnection and expected Developer Mode
 reboot recovery. Fresh Trust, saved-record reconnection after Android process restart and normal

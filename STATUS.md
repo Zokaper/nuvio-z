@@ -1,13 +1,64 @@
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.4 installed | Phase 1/2 pairing + TLS + persistence/reboot reconnect pass with Android-end cable re-seat after reboot; maintainer now authorizes moving directly to signing and installation proof |
+| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.5.2 installed | Phase 1/2 physically pass; real signing/install proof in progress; fixing Android Apple HTTPS setup, no authenticated sign-in/install success yet |
 
 ## Android-to-iPhone USB experiment (2026-10-23)
+
+**Current signing/install proof (0.5.2):** experimental ARM64 implementation now downloads official
+Debug 112 with pinned SHA-256, accepts Apple account/password and 2FA directly in the Android app,
+uses the same isideload 0.4.6/idevice 0.1.68 pins as desktop, offers explicit certificate-revocation
+choice, signs/installs over USB, and writes the existing merged Lockdown+remote-pairing and signing
+key handoff. Stable/debug iOS bundle IDs remain separate. No production source/dependencies changed.
+Credentials and raw SDK errors are excluded from diagnostics; signing/anisette state uses encrypted
+Keystore/no-backup storage, password input is ephemeral, and SDK temporary files use app cache via
+VFS. The whole operation has a 20-minute deadline and cancellation. Do not uninstall/clear data.
+
+**Actual attempts, distinct from automated checks:** 0.5 physically passed saved-pair reconnect but
+its install tap panicked at download start, before Apple sign-in. Cause: missing Android JVM/context
+bootstrap and Java support for reqwest 0.13's rustls-platform-verifier. 0.5.1 adds official
+`org.rustls:rustls-platform-verifier:0.2.0` and JNI initialization. Its two focused Galaxy checks
+(verified HTTPS/anisette client-info and Activity startup) passed. The maintainer then retried:
+**downloadVerified=true**, paired preflight PASS, but **appleAuthenticated=false**, appInstalled=false
+and all handoffs false. Five Apple client-setup attempts failed before authentication. Evidence:
+ignored `build/android-install-proof/{first-attempt,signin-attempt}{.log,-reports.json}`.
+
+**0.5.2 Android SDK fix:** the pinned SDK's Apple client adds an extra Apple CA; reqwest 0.13's
+Android system verifier rejects extra roots. A narrowly patched, independently vendored isideload
+0.4.6 supplies a rustls configuration **on Android only**, using public WebPKI roots plus the same
+bundled Apple root, retaining standard certificate/hostname/signature verification and `debug=false`.
+An intermediate no-password diagnostic proved that omitting the Apple CA builds but fails the actual
+lookup with `UnknownIssuer`; the CA is required, not redundant. Non-Android behavior is unchanged.
+Provenance/license/two-file patch are in `iosInstaller/android-probe/VENDOR.md`. The expanded
+on-device no-password test exercises the actual GrandSlam client builder and Apple's public URL-bag
+lookup, in addition to HTTPS/anisette. No actual Apple authentication, signing, installation
+or self-refresh success is claimed yet. Panic output includes only source basename/line.
+
+**0.5.2 final automated results:** Rust **17/17**, JVM permission suite **15/15**; final native
+ARM64/APK/test APK builds pass, lint **0 errors / 18 prototype warnings**. Three focused checks
+pass on the real Galaxy under direct instrumentation (JNI version, Activity startup and verified
+HTTPS + anisette + actual Apple client/public lookup), without Apple credentials or an iPhone.
+These are automated phone tests, not a successful real sign-in or installation. Final `adb install -r`
+preserves pairing/signing data; installed/open version `install-proof-0.5.2`, code 7. APK signature
+and 16 KB ZIP/native alignment pass (not a 16 KB runtime claim). Artifact:
+`Nuvio Z/release-artifacts/android-ios-install-proof/Nuvio-Z-Android-Installer-proof-0.5.2.apk`,
+**19,974,261 bytes**, SHA-256
+`3edd251490e2cbe0b37158cccd3a9dbeb98396b414fd62316a1683c22b465835`.
+Ignored evidence `build/android-install-proof/0.5.2-{final-build,final-rust,final-galaxy-checks,
+signature,alignment}.log` plus earlier diagnostic failures. The maintainer has been asked for one
+actual sign/install retry; waiting on that outcome. Never rerun passed USB edge cases as its gate.
+
+Release asset verified through GitHub's public release API: `debug-v0.5.4-z3.112`, asset
+`Nuvio-Z-iOS-0.5.4-z3-112-debug-unsigned.ipa`, 104,244,655 bytes, SHA-256
+`46c8f82b0dacd326cde2a0115779669a0f7258c8892cf7f826597a5fff7f7991`.
+0.5 host checks: **17/17**; four focused Galaxy checks (encrypted signing KV, JNI failure path,
+Activity startup, Internet permission) passed. APK 0.5.1 signature and 16 KB ZIP/ELF alignment pass;
+10,439,261 bytes, SHA-256 `a4a5f73ff9a644549d5b86c5f78dbfc59999854b155e44e00604e79a12cc3ce9`.
+Artifacts are ignored under parent `release-artifacts/android-ios-install-proof/`.
 
 **Latest checkpoint / scope expansion:** Phase 2 physical reports are **3 -> 4 -> 5 -> 4**, all PASS:
 fresh pairing; saved-pair reconnect after force-stopping/reopening the Android app; prepare expected
@@ -26,6 +77,15 @@ signing/installation scope restriction for this experiment. Reuse the existing i
 Apple account/password/2FA must be entered directly in the Android app, never chat/logs. Keep all
 work isolated from production; preserve the existing paired app data and signing/self-refresh handoff.
 Do not repeat passed connection tests or run Gradle connected tests that uninstall this paired app.
+
+**Follow-up architecture preference (not a prerequisite for this proof):** maintainer wants desktop
+and Android installers to look and act mostly the same, adapted to their platforms, so updates are
+easy. Prefer reusing desktop's Tauri/web-UI framework if practical, plus one Rust install/signing
+core with transport/storage/callback seams. Keep platform-specific USB access, Android permissions,
+secure storage and desktop integration as adapters. Do not duplicate two independent installer
+products or spend this proof migrating the interface; the immediate priority remains real signing/
+installation on Android. Desktop already uses Tauri; check its current Android/mobile integration
+before planning that consolidation.
 
 **Phase 2 / APK 0.4:** explicit Pair/Trust, encrypted private persistence, certificate-pinned
 authenticated Lockdown/TLS, saved-record reconnect and an expected Developer Mode reboot workflow

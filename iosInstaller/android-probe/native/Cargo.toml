@@ -1,6 +1,6 @@
 [package]
 name = "nuvioz-usb-probe"
-version = "0.4.0"
+version = "0.5.2"
 edition = "2024"
 license = "GPL-3.0-only"
 publish = false
@@ -8,6 +8,7 @@ publish = false
 # Intentionally independent: experimental dependencies cannot change the desktop/iOS lockfile.
 [workspace]
 members = ["vendor/rusbmux"]
+exclude = ["vendor/isideload"]
 resolver = "2"
 
 [lib]
@@ -15,8 +16,8 @@ name = "nuvioz_usb_probe"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Same device protocol pin as ../../Cargo.toml; no installer core/signing/authentication linked.
-idevice = { version = "=0.1.68", default-features = false, features = ["tcp", "rustls", "ring", "pair", "amfi"] }
+# Same device/signing pins as ../../Cargo.toml; this workspace does not change production dependencies.
+idevice = { version = "=0.1.68", default-features = false, features = ["tcp", "rustls", "ring", "pair", "amfi", "house_arrest", "remote_pairing"] }
 rusbmux = { path = "vendor/rusbmux", default-features = false, features = ["nusb"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 serde = { version = "1", features = ["derive"] }
@@ -24,9 +25,17 @@ serde_json = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
 plist = "1"
+isideload = { path = "vendor/isideload", version = "=0.4.6", default-features = false, features = ["install", "tokio-mt"] }
+rootcause = "0.12"
+reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls-no-provider", "http2", "charset", "system-proxy"] }
+sha2 = "0.11"
+zeroize = "1"
+isideload-vfs = "=0.0.1"
+jni = "=0.21.1"
 
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "=0.21.1"
+jni22 = { package = "jni", version = "=0.22.4" }
+rustls-platform-verifier = "=0.7.1"
 nusb = { version = "=0.2.8", features = ["tokio"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
