@@ -3,8 +3,31 @@ Last updated: 2026-10-24
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 133 (published) | Device Setup redesign + banner/Discord feedback on top of 132; see the first section |
-| Mobile | `claude/social-v2` | 114 (published) | Device Setup redesign + banner feedback on top of 113; see the first section |
+| Desktop | `claude/social-v2-design` | 134 (dispatched) | Setup-upload fix on top of 133 (Device Setup); see the first section |
+| Mobile | `claude/social-v2` | 115 (dispatched) | Setup-upload fix on top of 114 (Device Setup); see the first section |
+
+## Finishing setup cancelled its own upload (2026-10-24, debug 134 / 115)
+
+Maintainer's first Device Setup round on 133/114 (new profile made on desktop, then opened on the phone):
+"New settings available" followed a whole Initial Setup, and the phone ran **Initial Setup** instead of
+Device Setup's Welcome back. One cause, from the desktop Debug log at 18:07:32:
+`pushCurrentProfileToRemote() - FAILED ... CancellationException: rememberCoroutineScope left the composition`.
+`SetupWizardScreen.complete()` writes the revision (which drops a gating run's gate at the next frame and
+disposes the wizard), then pushed on the wizard's own scope and deferred `onFinished` until the push
+settled (Codex `f89098227`, 2026-09-30). The push was cancelled and `onFinished` never ran, so the debug
+offer was never marked answered; the server kept a mid-setup desktop blob (revision 0), so the phone's
+`CrossFamilySettingsImport` found nothing importable; and Home's full pull re-applied that blob over the
+wizard's last steps on desktop.
+**Fix (shared, byte-identical):** the push runs on a process-lifetime `setupUploadScope`, launched before
+`onFinished`, which now runs at once. Desktop `2e5951249`, mobile cherry-pick `f6639d151`.
+Verified: desktop setup + sync tests **272/272** (`build/setup-complete-fix.log`); mobile
+`:androidApp:compileFullDebugKotlin` + setup/sync host tests **226/226** (`build/setup-complete-fix-mobile.log`).
+No UI regression test: the gate teardown needs the real repositories.
+Also clarified to the maintainer: Initial Setup *ends with* the device steps (no separate Device Setup
+after it); "This computer" is skipped when the machine already answered it.
+**Retest needs a brand-new profile**: the 133 test profile now has a mobile blob, so it can never arrive
+from desktop again. Untested so far: update over 132/113, "Not now", per-device quality (items 1, 4, 5).
+Dispatched: desktop 134 (run 40107250703), mobile 115 (run 40107962513).
 
 ## Device Setup redesign (2026-10-24, debug 133 / 114)
 
