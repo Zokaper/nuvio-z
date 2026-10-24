@@ -29,10 +29,15 @@ Existing SideStore installs retain their update path. The matching iOS build is 
 IPA that `publish` attaches to the same GitHub release, together with the SideStore
 `source.json` feed update. Self-signing releases carry `<!-- nuvio-ios:self-signing -->`;
 the workflow also updates the checksum-pinned `distribution/ios-installer/nuvio.json` on main.
-Installer downloads use the separate `ios-setup-v*` / `ios-setup-vlatest` prereleases.
-The new Mac package is universal (Intel + Apple Silicon, macOS 11+), ad-hoc signed and
-not notarized. Both Windows and Mac builds must pass before installer publication;
-the rolling Mac zip is replaced with the new installer when Installer 3 publishes.
+Since 2026-10-24 the installer is maintained and released separately in
+[`Zokaper/nuviozinstaller`](https://github.com/Zokaper/nuviozinstaller). Its `v<version>` releases
+publish Windows x64, universal Mac (Intel + Apple Silicon, macOS 11+) and signed Android arm64
+packages together, with `SHA256SUMS.txt`, marked latest for the installer's self-update checks.
+All three platform builds must pass before publication. The Mac app is ad-hoc signed and not
+notarized. The old mobile-repository `ios-setup-v*` / `ios-setup-vlatest` releases are frozen.
+Nuvio Z's iOS app pins the installer's signer by commit in `signer/Cargo.toml`; updating the
+installer alone does not change the iPhone app's signer. Installer release notes live on GitHub;
+the mobile/desktop changelog is a separate release surface.
 TestFlight and an Apple Developer account are **not** release
 requirements; the TestFlight job stays in the workflow, parked (`if: false`), for a possible later
 App Store route. Store rules may later require a platform build number to advance on only one

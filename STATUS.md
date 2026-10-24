@@ -1,4 +1,4 @@
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
 
 | Repository | Active branch | Released debug | Current work |
@@ -6,6 +6,7 @@ Last updated: 2026-10-23
 | Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
 | Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
 | Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
+| Installer | `Zokaper/nuviozinstaller:main` | `3.1.0-alpha.1` (published) | Separate repository; all-platform Release build passed; self-update device tests deferred by maintainer |
 
 ## The installer has its own repository (2026-10-24)
 
@@ -17,8 +18,25 @@ the four `ios-installer-*.yml` workflows are removed; the iOS app's signer comes
 Cargo git dependency pinned to installer commit `c3595229`, whose `core/`+`ffi/` trees are byte-identical to what
 main shipped, so the next release gets no false signing-changed marker). `signer/build.sh` builds and stages it for
 Gradle; debug-release, android-release and now ios-test-build link it. `ios-release-markers.sh` compares the signer
-by tree hash across both repos. **Not merged to main yet**; verify with a build-only ios-test-build run first.
+by tree hash across both repos. **Merged to main on 2026-10-24** by fast-forward to `fb63bbd26`, after the
+pinned-signer iOS build (`40041440923`), test IPA (`40041441881`) and CI (`40041440940`) all passed at that
+exact commit. The maintainer authorized the merge and installer publication with agent-written GitHub notes.
 Other branches that still carry `iosInstaller/` keep building with it until they merge main.
+
+Installer Release build-only `40040796201` passed Windows, universal Mac and signed Android at `674b6ef`.
+[v3.1.0-alpha.1](https://github.com/Zokaper/nuviozinstaller/releases/tag/v3.1.0-alpha.1) is published and
+marked latest with those exact packages, GitHub release notes and `SHA256SUMS.txt`. Publication promoted
+the existing CI artifacts through GitHub CLI; the build-only run's Publish job remains skipped.
+Android's release certificate, package version/alignment and all uploaded asset digests were checked.
+No local builds were restarted. Real self-update replacement/restart
+tests remain unverified and are deferred by the maintainer (older Windows build stopped for memory;
+older Android build hit a Windows file lock).
+
+**Apple sign-in check (2026-10-24):** latest published isideload `0.5.0` (October 19) adds extension
+profile reuse; its diff from `0.4.6` contains no authentication changes. iLoader `2.4.0` changes its default
+anisette server, with subsequent login/2FA reports still open. No confirmed general fix was found;
+the maintainer reports app sign-in works. Both installer and mobile signer pins remain unchanged.
+Sources and follow-up: `nuviozinstaller/STATUS.md`; isideload issue 27 and iLoader release `v2.4.0`.
 
 ## Android-to-iPhone USB experiment (2026-10-23)
 
