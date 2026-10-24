@@ -113,10 +113,11 @@ internal fun SocialAudiencePage(
     wide: Boolean,
     onBack: () -> Unit,
     onSet: (mode: SocialAudienceMode, members: List<String>?) -> Unit,
+    busy: Boolean = false,
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    var picking by remember { mutableStateOf<SocialAudienceMode?>(null) }
+    var picking by remember(setting) { mutableStateOf<SocialAudienceMode?>(null) }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(Res.string.social_back)) }
@@ -138,7 +139,7 @@ internal fun SocialAudiencePage(
                     modifier = Modifier.fillMaxWidth()
                         .then(if (selected) Modifier.border(1.5.dp, Color.White.copy(alpha = 0.8f), shape) else Modifier)
                         .clip(shape)
-                        .clickable(role = Role.RadioButton) {
+                        .clickable(enabled = !busy, role = Role.RadioButton) {
                             val listed = when (mode) {
                                 SocialAudienceMode.Except -> audience.except
                                 SocialAudienceMode.Only -> audience.only
@@ -175,7 +176,7 @@ internal fun SocialAudiencePage(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                SocialPillButton(stringResource(Res.string.social_audience_edit), { picking = mode })
+                                SocialPillButton(stringResource(Res.string.social_audience_edit), { if (!busy) picking = mode })
                             }
                         }
                     }
@@ -322,7 +323,13 @@ internal fun isValidSocialBannerUrl(url: String): Boolean {
 
 /** The banner link, set like a custom avatar: paste a link, or leave it empty for recent titles. */
 @Composable
-internal fun SocialBannerDialog(current: String?, onDismiss: () -> Unit, onSave: (String?) -> Unit) {
+internal fun SocialBannerDialog(
+    current: String?,
+    onDismiss: () -> Unit,
+    onSave: (String?) -> Unit,
+    busy: Boolean = false,
+    error: String? = null,
+) {
     var draft by remember { mutableStateOf(current.orEmpty()) }
     val invalid = draft.isNotBlank() && !isValidSocialBannerUrl(draft)
     AlertDialog(
@@ -335,6 +342,7 @@ internal fun SocialBannerDialog(current: String?, onDismiss: () -> Unit, onSave:
                     value = draft,
                     onValueChange = { draft = it },
                     singleLine = true,
+                    enabled = !busy,
                     isError = invalid,
                     placeholder = { Text(stringResource(Res.string.social_banner_placeholder)) },
                     modifier = Modifier.fillMaxWidth(),
@@ -342,6 +350,7 @@ internal fun SocialBannerDialog(current: String?, onDismiss: () -> Unit, onSave:
                 if (invalid) {
                     Text(stringResource(Res.string.social_banner_invalid), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (!invalid && draft.isNotBlank()) {
                     Box(Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(12.dp))) {
                         SocialArtwork(listOf(draft.trim()), draft, Modifier.fillMaxWidth().height(120.dp))
@@ -350,7 +359,7 @@ internal fun SocialBannerDialog(current: String?, onDismiss: () -> Unit, onSave:
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(draft.trim().ifBlank { null }) }, enabled = !invalid) {
+            TextButton(onClick = { onSave(draft.trim().ifBlank { null }) }, enabled = !invalid && !busy) {
                 Text(stringResource(Res.string.social_banner_save))
             }
         },

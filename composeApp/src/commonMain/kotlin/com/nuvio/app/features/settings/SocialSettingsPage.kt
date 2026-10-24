@@ -34,6 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.social.SocialAvatar
+import com.nuvio.app.features.social.SocialAudiencePage
+import com.nuvio.app.features.social.SocialAudienceSetting
+import com.nuvio.app.features.social.SocialBannerDialog
+import com.nuvio.app.features.social.socialAudienceSummary
+import com.nuvio.app.features.social.titleRes
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.social.SocialIdentityBody
 import com.nuvio.app.features.social.SocialPillButton
@@ -63,6 +68,11 @@ import nuvio.composeapp.generated.resources.social_handle_friends
 import nuvio.composeapp.generated.resources.social_handle_save_failed
 import nuvio.composeapp.generated.resources.social_hidden_from
 import nuvio.composeapp.generated.resources.social_hidden_from_desc
+import nuvio.composeapp.generated.resources.social_audience_failed
+import nuvio.composeapp.generated.resources.social_banner_title
+import nuvio.composeapp.generated.resources.social_banner_recent
+import nuvio.composeapp.generated.resources.social_banner_custom
+import nuvio.composeapp.generated.resources.social_banner_failed
 import nuvio.composeapp.generated.resources.social_join_any
 import nuvio.composeapp.generated.resources.social_join_ask_first
 import nuvio.composeapp.generated.resources.social_join_no_one
@@ -140,6 +150,36 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
     var handleDraft by rememberSaveable { mutableStateOf("") }
     var handleBusy by remember { mutableStateOf(false) }
     var handleMessage by remember { mutableStateOf<String?>(null) }
+    var audienceSetting by remember(socialProfileId) { mutableStateOf<SocialAudienceSetting?>(null) }
+    var showBannerDialog by remember(socialProfileId) { mutableStateOf(false) }
+    var privacyMessage by remember(socialProfileId) { mutableStateOf<String?>(null) }
+    var privacyBusy by remember(socialProfileId) { mutableStateOf(false) }
+
+    val selectedAudience = audienceSetting
+    val audiences = socialState.audiences
+    if (selectedAudience != null && audiences != null && (preferences.enabled || inSocialTab)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SocialAudiencePage(
+                setting = selectedAudience,
+                audience = audiences[selectedAudience],
+                friends = socialState.friends,
+                wide = isTablet,
+                busy = privacyBusy,
+                onBack = { audienceSetting = null; privacyMessage = null },
+                onSet = { mode, members ->
+                    privacyBusy = true
+                    privacyMessage = null
+                    scope.launch {
+                        SocialRepository.setAudience(selectedAudience, mode, members)
+                            .onFailure { privacyMessage = getString(Res.string.social_audience_failed) }
+                        privacyBusy = false
+                    }
+                },
+            )
+            privacyMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+        return
+    }
 
     /**
      * Turning social off, in the right order.
@@ -218,44 +258,65 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                                 },
                             )
                         }
+                        if (audiences != null) {
+                            SettingsGroupDivider(isTablet = isTablet)
+                            SettingsNavigationRow(
+                                title = stringResource(Res.string.social_banner_title),
+                                description = stringResource(if (me.bannerUrl.isNullOrBlank()) Res.string.social_banner_recent else Res.string.social_banner_custom),
+                                isTablet = isTablet,
+                                onClick = { privacyMessage = null; showBannerDialog = true },
+                            )
+                        }
                     }
                 }
             }
 
             SettingsSection(title = stringResource(Res.string.social_privacy), isTablet = isTablet) {
                 SettingsGroup(isTablet = isTablet) {
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_social_share_watching),
-                        description = stringResource(Res.string.settings_social_share_watching_description),
-                        checked = me?.shareWatchingNow ?: true,
-                        enabled = me != null,
-                        isTablet = isTablet,
-                        onCheckedChange = { share ->
-                            scope.launch {
-                                SocialRepository.setPrivacy(
-                                    shareWatchingNow = share,
-                                    shareRecentlyWatched = me?.shareRecentlyWatched ?: true,
-                                )
-                            }
-                        },
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_social_share_recent),
-                        description = stringResource(Res.string.settings_social_share_recent_description),
-                        checked = me?.shareRecentlyWatched ?: true,
-                        enabled = me != null,
-                        isTablet = isTablet,
-                        onCheckedChange = { share ->
-                            scope.launch {
-                                SocialRepository.setPrivacy(
-                                    shareWatchingNow = me?.shareWatchingNow ?: true,
-                                    shareRecentlyWatched = share,
-                                )
-                            }
-                        },
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
+                    if (audiences != null) {
+                        SocialAudienceSetting.entries.forEach { setting ->
+                            SettingsNavigationRow(
+                                title = stringResource(setting.titleRes),
+                                description = socialAudienceSummary(audiences[setting], socialState.friends),
+                                isTablet = isTablet,
+                                onClick = { privacyMessage = null; audienceSetting = setting },
+                            )
+                            SettingsGroupDivider(isTablet = isTablet)
+                        }
+                    } else {
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_social_share_watching),
+                            description = stringResource(Res.string.settings_social_share_watching_description),
+                            checked = me?.shareWatchingNow ?: true,
+                            enabled = me != null,
+                            isTablet = isTablet,
+                            onCheckedChange = { share ->
+                                scope.launch {
+                                    SocialRepository.setPrivacy(
+                                        shareWatchingNow = share,
+                                        shareRecentlyWatched = me?.shareRecentlyWatched ?: true,
+                                    )
+                                }
+                            },
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_social_share_recent),
+                            description = stringResource(Res.string.settings_social_share_recent_description),
+                            checked = me?.shareRecentlyWatched ?: true,
+                            enabled = me != null,
+                            isTablet = isTablet,
+                            onCheckedChange = { share ->
+                                scope.launch {
+                                    SocialRepository.setPrivacy(
+                                        shareWatchingNow = me?.shareWatchingNow ?: true,
+                                        shareRecentlyWatched = share,
+                                    )
+                                }
+                            },
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                    }
                     // Three values that all fit on one line: chips rather than a row that cycles on tap.
                     SettingsChoiceRow(
                         title = stringResource(Res.string.settings_social_join_policy),
@@ -274,7 +335,7 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                     val hiddenFrom = socialState.friends.filter { friend ->
                         socialState.friendPrefs.any { it.friendProfileId == friend.profileId && it.hideActivity }
                     }
-                    if (socialState.socialV2Backend && hiddenFrom.isNotEmpty()) {
+                    if (audiences == null && socialState.socialV2Backend && hiddenFrom.isNotEmpty()) {
                         SettingsGroupDivider(isTablet = isTablet)
                         SettingsNavigationRow(
                             title = stringResource(Res.string.social_hidden_from),
@@ -331,6 +392,25 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
                 }
             }
         }
+    }
+
+    if (showBannerDialog) {
+        SocialBannerDialog(
+            current = me?.bannerUrl,
+            busy = privacyBusy,
+            error = privacyMessage,
+            onDismiss = { if (!privacyBusy) showBannerDialog = false },
+            onSave = { url ->
+                privacyBusy = true
+                privacyMessage = null
+                scope.launch {
+                    SocialRepository.setBanner(url)
+                        .onSuccess { showBannerDialog = false }
+                        .onFailure { privacyMessage = getString(Res.string.social_banner_failed) }
+                    privacyBusy = false
+                }
+            },
+        )
     }
 
     if (confirmTurnOff) {

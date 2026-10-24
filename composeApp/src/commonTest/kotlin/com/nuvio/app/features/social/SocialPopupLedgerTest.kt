@@ -84,6 +84,18 @@ class SocialPopupLedgerTest {
         assertEquals(listOf("notice:x"), ledger.take(state(listOf(request("x"))), now).map { it.key })
     }
 
+    @Test fun notifyAudienceOverridesLegacyFriendSwitches() {
+        val ledger = Store().ledger()
+        ledger.take(state(), now)
+        val onlyQuiet = state(inbox = listOf(watching("f"), watching("q", actor = quiet))).copy(
+            audiences = SocialAudiences(notify = SocialAudience(SocialAudienceMode.Only, only = listOf(quiet.profileId))),
+        )
+        assertEquals(listOf("inbox:q"), ledger.take(onlyQuiet, now).map { it.key })
+        assertTrue(ledger.take(state(inbox = listOf(watching("new"))).copy(
+            audiences = SocialAudiences(notify = SocialAudience(SocialAudienceMode.Nobody)),
+        ), now).isEmpty())
+    }
+
     @Test fun switchingProfilesKeepsEachProfilesOwnHistory() {
         val store = Store()
         val ledger = store.ledger()

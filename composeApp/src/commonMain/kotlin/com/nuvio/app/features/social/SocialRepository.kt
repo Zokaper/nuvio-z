@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
@@ -143,6 +144,7 @@ object SocialRepository {
     private var recovery: Job? = null
     private var recoveryTriggers: Job? = null
     private val recoveryLock = Mutex()
+    private val audienceLock = Mutex()
     @Volatile
     private var capabilitiesLoaded = false
 
@@ -222,6 +224,7 @@ object SocialRepository {
                 friendPrefs = cached?.friendPrefs.orEmpty(),
                 inbox = cached?.inbox.orEmpty(),
                 socialV2Backend = cached?.inbox != null,
+                audiences = cached?.audiences,
                 isOfflineCache = cached != null,
                 isLoading = true,
             ) }
@@ -563,15 +566,16 @@ object SocialRepository {
         setting: SocialAudienceSetting,
         change: (SocialAudience) -> SocialAudience,
         call: suspend () -> PostgrestResult,
-    ): Result<Unit> {
-        val before = _uiState.value.audiences ?: return Result.failure(IllegalStateException("Audiences need a newer backend"))
+    ): Result<Unit> = owned { audienceLock.withLock {
+        checkAuthority()
+        val before = _uiState.value.audiences ?: return@withLock Result.failure(IllegalStateException("Audiences need a newer backend"))
         publish { it.copy(audiences = before.with(setting, change(before[setting]))) }
-        return socialCall {
+        socialCall {
             val saved = call().decodeAs<SocialAudiences>()
             publish { it.copy(audiences = saved) }
             refresh(false)
         }.onFailure { publish { it.copy(audiences = before) } }
-    }
+    } }
 
     /** The profile page's banner (2026-10-24): an https picture, or null for the strip of recent titles. */
     suspend fun setBanner(url: String?): Result<Unit> = socialMutation("social_set_banner") {

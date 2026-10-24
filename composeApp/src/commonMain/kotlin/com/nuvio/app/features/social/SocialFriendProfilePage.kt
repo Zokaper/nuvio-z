@@ -118,6 +118,7 @@ import nuvio.composeapp.generated.resources.social_remove_friend
 import nuvio.composeapp.generated.resources.social_remove_friend_body
 import nuvio.composeapp.generated.resources.social_remove_title
 import nuvio.composeapp.generated.resources.social_watched_together
+import nuvio.composeapp.generated.resources.social_try_again
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -180,16 +181,19 @@ internal fun SocialFriendProfilePage(
     }
     val loadEarlier: () -> Unit = {
         val cursor = next
-        if (cursor != null && !loadingMore) {
+        if ((cursor != null || failed) && !loadingMore) {
             loadingMore = true
             scope.launch {
                 loadHistory(friend.profileId, cursor)
                     .onSuccess { page ->
+                        if (cursor == null) runs.clear()
                         runs.addAll(page.runs.filter { new -> runs.none { it.runId == new.runId } })
                         next = page.next
+                        failed = false
                     }
                     .onFailure { failed = true }
                 loadingMore = false
+                loaded = true
             }
         }
     }
@@ -511,9 +515,9 @@ private fun ProfileHistory(
                 }
             }
         }
-        if (canLoadEarlier) {
+        if (canLoadEarlier || failed) {
             Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-                SocialPillButton(stringResource(Res.string.social_profile_show_earlier), onLoadEarlier, compact = false, enabled = !loadingMore)
+                SocialPillButton(stringResource(if (failed) Res.string.social_try_again else Res.string.social_profile_show_earlier), onLoadEarlier, compact = false, enabled = !loadingMore)
             }
         }
     }

@@ -10,6 +10,14 @@ class SocialAudienceAndHistoryTest {
 
     @Test fun everyoneLetsEveryFriendIn() = assertTrue(everyone.allows("b"))
 
+    @Test fun bannerRequiresHttpsAndAllowsTrimming() {
+        assertTrue(isValidSocialBannerUrl(" https://example.test/banner.jpg "))
+        assertFalse(isValidSocialBannerUrl("http://example.test/banner.jpg"))
+        assertFalse(isValidSocialBannerUrl("https://"))
+        assertFalse(isValidSocialBannerUrl("https://example.test/a b.jpg"))
+        assertFalse(isValidSocialBannerUrl("https://example.test/" + "x".repeat(2048)))
+    }
+
     @Test fun exceptKeepsItsListOut() {
         val audience = SocialAudience(SocialAudienceMode.Except, except = listOf("b"))
         assertFalse(audience.allows("b"))
