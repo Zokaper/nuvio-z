@@ -3,10 +3,27 @@ Last updated: 2026-10-24
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
-| Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
+| Desktop | `claude/social-v2-design` | 131 (dispatched) | Completing friend profile + audience privacy from 078bffea5; compile/render/debug verification pending |
+| Mobile | `claude/social-v2` | 112 (dispatched) | Friend profile + audiences ported; Android Social tests/APK in progress |
 | Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
 | Installer | `Zokaper/nuviozinstaller:main` | `3.1.0-alpha.1` (published) | Separate repository; all-platform Release build passed; self-update device tests deferred by maintainer |
+
+## Friend profile and audience privacy continuation (2026-10-24)
+
+Resumed desktop `078bffea5` after the previous session stopped. Both branches now carry the full
+profile page, month history, three audience settings with separately remembered lists, and the
+HTTPS banner dialog, reachable from Social settings. Saves show failures and prevent duplicate
+submission; audience mutations serialize and cannot publish across profile changes; cached state
+restores audiences; failed history loads have Retry. Narrow desktop Now cards preserve their titles.
+Mobile: strings `d41da3433`, original port `d06bb8e03`, wiring/recovery `352e64257`, card layout
+`6b6826b54`. Desktop counterparts `c9d340ff4`, `44a74ca04`; new render/recovery coverage `137408500`.
+All eight changed shared production files and the Social V2 strings block match across repos.
+Desktop compilation passes; nine pure groups pass 1,088 checks. Focused desktop Social tests,
+production renders, Android Social host tests and debug APK are in progress. Debug publication
+waits for those checks. No new installed-device testing is claimed. Backend `8164eaf` / migration
+`202610240001` was already deployed by the previous session (551/551 pgTAP); this continuation
+makes no backend changes. S13/S14 record the new scope in `Docs/Z-FEATURES.md`.
+
 
 ## The installer has its own repository (2026-10-24)
 
