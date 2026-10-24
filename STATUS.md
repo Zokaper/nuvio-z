@@ -4,7 +4,7 @@ Last updated: 2026-10-24
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
 | Desktop | `claude/social-v2-design` | 132 (published) | Friend profile + audience settings complete; final desktop tests/renders 184/184; live settings/profile smoke passed |
-| Mobile | `claude/social-v2` | 113 (APK built; IPA building) | Friend profile + audiences ported; final Android Social tests 179/179 and debug APK pass |
+| Mobile | `claude/social-v2` | 113 (published) | Friend profile + audiences complete; Android Social tests 179/179, APK + unsigned IPA published |
 | Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
 | Installer | `Zokaper/nuviozinstaller:main` | `3.1.0-alpha.1` (published) | Separate repository; all-platform Release build passed; self-update device tests deferred by maintainer |
 
@@ -23,7 +23,8 @@ zero failures/errors/skips, Gradle exit 0; `build/profile-audience-final.log`), 
 tests **179/179** and `assembleFullDebug` (Gradle exit 0; `build/profile-audience-mobile-final.log`),
 and nine pure groups **1,088/1,088**. Renders inspected at 320/411 px phones and 1140/1920 desktop,
 including both phone tabs and audience pages. Desktop debug **132** is published (MSI + arm64 DMG, nonempty with SHA-256 digests verified);
-mobile **113** has built its APK and is waiting for the unsigned iOS IPA.
+mobile **113** is published (APK + unsigned IPA + checksums + debug feed, all nonempty with
+SHA-256 digests verified).
 Hot Reload semantic smoke passed: the gear exposes all three audience rows and the banner; the
 Watching Now page opens its four choices, the friend picker selects and cancels without saving,
 the banner opens/cancels, and the profile loads real month history/together stats and switches to
@@ -35,8 +36,9 @@ makes no backend changes. S13/S14 record the new scope in `Docs/Z-FEATURES.md`.
 
 Debug workflows: [desktop 132](https://github.com/Zokaper/NuvioZDesktop/actions/runs/40050520980)
 at `847da5a26` (pre-created exact tag), [mobile 113](https://github.com/Zokaper/nuvio-z/actions/runs/40050524988)
-at `2527ace71`. Desktop publication succeeded; mobile publication awaits iOS.
+at `2527ace71`. Both workflows and every package/publication job succeeded.
 Desktop release: https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.1.26-alpha-z2.132
+Mobile release: https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.5.4-z3.113
 The full Android CI run `40049174316` is green. Full Linux desktop CI `40049154239` is still running
 (after 27 minutes installing Linux media dependencies); its clean Windows MSI job is green.
 The local counts above are focused Social checks, not a claim that the full desktop suite was rerun.
