@@ -65,6 +65,11 @@ import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.material.icons.rounded.Devices
+import com.nuvio.app.features.setup.DeviceSetupLauncher
+import nuvio.composeapp.generated.resources.zsettings_device_setup_desktop
+import nuvio.composeapp.generated.resources.zsettings_device_setup_mobile
+import nuvio.composeapp.generated.resources.zsettings_device_setup_description
 
 // String keys by wildcard: this file reads about forty, most of them upstream's own row copy.
 
@@ -344,6 +349,15 @@ internal fun LazyListScope.zSettingsRootContent(
                         onClick = onRunSetupAgainClick,
                     )
                 }
+                // Device Setup on demand (2026-10-24): the per-device steps, for this profile, here.
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(if (isDesktop) Res.string.zsettings_device_setup_desktop else Res.string.zsettings_device_setup_mobile),
+                    description = stringResource(Res.string.zsettings_device_setup_description),
+                    icon = Icons.Rounded.Devices,
+                    isTablet = isTablet,
+                    onClick = DeviceSetupLauncher::open,
+                )
                 if (onWhatsNewClick != null) {
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(

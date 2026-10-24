@@ -169,6 +169,19 @@ them as moved and `FloatingNavigationBar.android.kt` as rewritten - keep `common
 the shared dialog / sheet / menu components were taken from mobile upstream ahead of desktop
 upstream, so desktop's next sync should find them already identical.
 
+### 2026-10-24 Device Setup redesign note
+
+Both repositories (Social V2 branches). Device Setup became a fixed, per-profile-per-device setup type
+(`Z-FEATURES.md` W13); almost all of it is in Z-owned `features/setup/`, `core/sync/DeviceOwnedSettings.kt`
+and `features/whatsnew/NewSettingsOffer.kt`. Upstream-owned files touched, and why:
+
+- `AppGate.kt` - the first-launch seeding (`deviceSetupSeed`), the "First time on this device" pop-up and
+  its on-demand Device run, the `DeviceSetupLauncher` collector, and holding "New settings available" to
+  the next launch when the pop-up was shown. `setupWizardRun` lost its device-revision arguments.
+- `ProfileSettingsSync.kt` - `applyRemoteBlob` drops the device-owned keys from the theme and player
+  payloads, and skips episode alerts, once the active profile has set this device up.
+- `SetupDiagram.kt` is Z-owned; nothing else upstream changed.
+
 ### 2026-09-29 setup + settings architecture note
 
 Branch `claude/setup-settings-architecture`, both repositories. The pass reorganises Settings at the

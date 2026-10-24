@@ -24,6 +24,23 @@ import nuvio.composeapp.generated.resources.social_notifications
 import nuvio.composeapp.generated.resources.social_notifications_switch
 import nuvio.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.nuvio.app.features.setup.AdvancedSetupExtensions
+import com.nuvio.app.features.setup.AdvancedSetupPlatformArea
+import com.nuvio.app.features.setup.SetupToggleRow
+import nuvio.composeapp.generated.resources.advanced_setup_off
+import nuvio.composeapp.generated.resources.advanced_setup_on
 
 /**
  * Which Social alerts this phone shows (2026-10-18): the phone's counterpart of the desktop's Pop-ups
@@ -64,9 +81,13 @@ internal object PhoneSocialAlerts {
     val state: StateFlow<PhoneSocialAlertsState> = _state.asStateFlow()
     val current: PhoneSocialAlertsState get() = _state.value
 
-    /** Registers the Social settings section. Called once at startup, on both phones. */
+    /**
+     * Registers the Social settings section, and the same switches in Advanced Setup's Notifications
+     * area and Device Setup's notifications step (2026-10-24). Called once at startup, on both phones.
+     */
     fun install() {
         SocialSettingsExtensions.platformSections = { isTablet -> PhoneSocialAlertsSection(isTablet) }
+        AdvancedSetupExtensions.alerts = PhoneSocialAlertsAdvancedSetup
     }
 
     fun update(transform: (PhoneSocialAlertsState) -> PhoneSocialAlertsState) {
@@ -131,6 +152,70 @@ private fun PhoneSocialAlertsSection(isTablet: Boolean) {
         }
     }
 }
+
+/** The phone's Social alerts in Advanced Setup and Device Setup: the switches above, over a banner. */
+private val PhoneSocialAlertsAdvancedSetup = AdvancedSetupPlatformArea(
+    summary = {
+        val alerts by PhoneSocialAlerts.state.collectAsState()
+        stringResource(Res.string.social_notifications) + " " +
+            stringResource(if (alerts.enabled) Res.string.advanced_setup_on else Res.string.advanced_setup_off).lowercase()
+    },
+    controls = {
+        val alerts by PhoneSocialAlerts.state.collectAsState()
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SetupToggleRow(
+                title = stringResource(Res.string.social_notifications_switch),
+                description = phoneSocialAlertsDescription,
+                checked = alerts.enabled,
+                onCheckedChange = { on -> PhoneSocialAlerts.update { it.copy(enabled = on) } },
+            )
+            // The kinds only mean something while alerts are on, so they follow the switch.
+            if (alerts.enabled) {
+                SetupToggleRow(
+                    title = stringResource(Res.string.social_alert_watching),
+                    checked = alerts.friendWatching,
+                    onCheckedChange = { on -> PhoneSocialAlerts.update { it.copy(friendWatching = on) } },
+                )
+                SetupToggleRow(
+                    title = stringResource(Res.string.social_alert_parties),
+                    checked = alerts.parties,
+                    onCheckedChange = { on -> PhoneSocialAlerts.update { it.copy(parties = on) } },
+                )
+                SetupToggleRow(
+                    title = stringResource(Res.string.social_alert_friend_requests),
+                    checked = alerts.friendRequests,
+                    onCheckedChange = { on -> PhoneSocialAlerts.update { it.copy(friendRequests = on) } },
+                )
+                SetupToggleRow(
+                    title = stringResource(Res.string.social_alert_recs),
+                    checked = alerts.recommendations,
+                    onCheckedChange = { on -> PhoneSocialAlerts.update { it.copy(recommendations = on) } },
+                )
+            }
+        }
+    },
+    preview = { _ ->
+        Box(
+            Modifier.fillMaxSize()
+                .background(Brush.linearGradient(listOf(Color(0xFF243B55), Color(0xFF141E30), Color(0xFF3A1C4A))))
+                .padding(14.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            SocialPopupCard(SamplePhoneAlert, Modifier.widthIn(max = 440.dp), compact = true)
+        }
+    },
+)
+
+private val SamplePhoneAlert = SocialPopup(
+    key = "sample",
+    kind = SocialPopupKind.FriendWatching,
+    person = SocialProfileSummary(profileId = "sample", handle = "friend", displayName = "A friend", avatarColorHex = "#8E6CF0"),
+    line = "is watching",
+    title = "something good",
+    meta = null,
+    art = SocialArtRef(title = "sample", contentType = null, contentId = null, poster = null, videoId = null, season = null, episode = null),
+    target = SocialNavigationTarget.Inbox,
+)
 
 /** What the master switch covers here: Android also has system notifications, iOS only the in-app ones. */
 internal expect val phoneSocialAlertsDescription: String
