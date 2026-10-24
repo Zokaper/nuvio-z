@@ -3,8 +3,8 @@ Last updated: 2026-10-24
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 133 (dispatched) | Device Setup redesign + banner/Discord feedback on top of 132; see the first section |
-| Mobile | `claude/social-v2` | 114 (dispatched) | Device Setup redesign + banner feedback on top of 113; see the first section |
+| Desktop | `claude/social-v2-design` | 133 (published) | Device Setup redesign + banner/Discord feedback on top of 132; see the first section |
+| Mobile | `claude/social-v2` | 114 (published) | Device Setup redesign + banner feedback on top of 113; see the first section |
 
 ## Device Setup redesign (2026-10-24, debug 133 / 114)
 
@@ -34,6 +34,8 @@ pop-up (420/1280), desktop Notifications and This computer, phone Notifications 
 update over 113 (no pop-up, nothing re-asked); second profile (pop-up; no machine questions); "Not now";
 Settings row; change quality on one device and confirm another device of the same family keeps its own.
 A low-memory reap killed one test run mid-way (no failure); leftover daemons were stopped before rerunning.
+
+Published: desktop [133](https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.1.26-alpha-z2.133) (run 40099445746, tag at `18b057faf`; MSI + arm64 DMG) and mobile [114](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.5.4-z3.114) (run 40099447644; APK + unsigned IPA + checksums + SideStore feed). Every job succeeded.
 
 ## Debug 132/113 feedback: banner, Discord in New settings, debug re-offer (2026-10-24)
 
