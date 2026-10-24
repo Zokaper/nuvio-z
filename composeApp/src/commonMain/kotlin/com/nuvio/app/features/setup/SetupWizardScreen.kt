@@ -144,6 +144,8 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -427,7 +429,7 @@ fun SetupWizardScreen(
         }
     }
 
-    fun complete(afterUpload: () -> Unit = onFinished) {
+    fun complete() {
         // ⚠ `playback_mode_selector_seen` used to be written here too. It is gone: nothing had
         // read it since the setup wizard replaced the standalone selector, and it was being
         // kept alive only to spare a 0.4.x downgrade one extra prompt. The key survives as a
@@ -449,22 +451,27 @@ fun SetupWizardScreen(
         // line above. Nothing else changes a setting right after setup, so the remote went on
         // answering with the old revision indefinitely and the pull re-gated the app with it.
         // `exportSettingsBlob` exports the whole blob, so this carries every choice the wizard
-        // made too. Keep the gate up until the first upload settles, so another device opened
-        // immediately afterward can see the completed setup. A failed push still lets this device
-        // proceed; the other device treats transport failure separately from an absent blob.
-        scope.launch {
+        // made too. Launched before `onFinished`, so it normally reaches the sync lock before the full pull
+        // that Home starts, which then finds the remote matching instead of rolling the last steps back.
+        // ⚠ **Not on this screen's scope, and `onFinished` is not deferred until it settles.** The
+        // revision written above drops a gating run's gate at the next frame, which disposes this
+        // screen and cancelled the push mid-flight ("rememberCoroutineScope left the composition",
+        // 2026-10-24): another device then pulled an unfinished setup and ran Initial Setup again,
+        // and `onFinished` never ran, so the gate's bookkeeping (the debug settings offer, the
+        // device-setup flag) was left stale and "New settings available" followed a whole setup.
+        // A failed push still lets this device proceed; the other device treats transport failure
+        // separately from an absent blob.
+        setupUploadScope.launch {
             kotlinx.coroutines.withTimeoutOrNull(8_000L) {
                 ProfileSettingsSync.pushCurrentProfileToRemote()
             }
-            afterUpload()
         }
+        onFinished()
     }
 
     fun completeThenOpenAdvancedSetup() {
-        complete {
-            onFinished()
-            onOpenAdvancedSetup?.invoke()
-        }
+        complete()
+        onOpenAdvancedSetup?.invoke()
     }
 
     fun advance() {
@@ -1065,6 +1072,9 @@ private fun SetupWelcomeSurface(
         }
     }
 }
+
+/** The finished wizard's upload: it must outlive the wizard, which finishing disposes. */
+private val setupUploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
 /**
  * How wide the intro card is on desktop.
