@@ -57,6 +57,26 @@
         {
           "category": "feature",
           "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Friend profiles",
+          "body": "Each friend now has a profile that shows what they've watched this month and what you've watched together."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Choose who sees what you watch",
+          "body": "You decide who sees what you're watching, your recently watched and your watching notifications: all friends, everyone except a few, or only the friends you pick."
+        },
+        {
+          "category": "feature",
+          "platforms": [
             "desktop"
           ],
           "title": "Runs in the tray",
@@ -70,7 +90,17 @@
             "desktop"
           ],
           "title": "A better Social tab",
-          "body": "Friends who are watching show as big cards, and each friend has a profile."
+          "body": "Friends who are watching show as big cards."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Set up each device",
+          "body": "Nuvio Z now asks a few quick questions the first time you use a profile on a new phone or computer, so quality, navigation and alerts can be different on each one."
         },
         {
           "category": "improvement",
@@ -102,6 +132,15 @@
           ],
           "title": "Updated to Nuvio 0.6.2 / 0.1.31",
           "body": "Jellyfin and Emby libraries, MDBList, and more."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Opening a profile on a second device no longer asks you to set it up again"
         },
         {
           "category": "fix",
