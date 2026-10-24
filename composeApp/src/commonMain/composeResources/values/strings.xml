@@ -3881,6 +3881,65 @@
         <item quantity="one">Invite %1$d friend</item>
         <item quantity="other">Invite %1$d friends</item>
     </plurals>
+    <!-- 2026-10-24: friend profile page, audience privacy, profile banner. -->
+    <string name="social_profile_history">History</string>
+    <string name="social_profile_you_two">You two</string>
+    <string name="social_profile_now">Now</string>
+    <string name="social_profile_stat_together">together</string>
+    <string name="social_profile_see_all">See all</string>
+    <string name="social_profile_show_less">Show less</string>
+    <string name="social_profile_show_earlier">Show earlier</string>
+    <string name="social_profile_earlier">Earlier</string>
+    <string name="social_profile_between">Between you two</string>
+    <string name="social_profile_sees_now">Sees what I'm watching</string>
+    <string name="social_profile_sees_recent">Sees what I've watched</string>
+    <string name="social_profile_notify">Tell me when %1$s starts watching</string>
+    <string name="social_profile_history_failed">Couldn't load their history</string>
+    <string name="social_profile_more">More</string>
+    <string name="social_profile_with_you">With you</string>
+    <string name="social_audience_everyone">All my friends</string>
+    <string name="social_audience_except">All my friends, except…</string>
+    <string name="social_audience_only">No one, except…</string>
+    <string name="social_audience_nobody">No one</string>
+    <string name="social_audience_everyone_desc">Every friend, now and later</string>
+    <string name="social_audience_except_desc">Pick who doesn't</string>
+    <string name="social_audience_only_desc">Pick who does</string>
+    <string name="social_audience_nobody_desc">Nobody</string>
+    <string name="social_audience_except_names">All my friends, except %1$s</string>
+    <string name="social_audience_only_names">No one, except %1$s</string>
+    <string name="social_audience_names_two">%1$s and %2$s</string>
+    <string name="social_audience_names_more">%1$s, %2$s +%3$d</string>
+    <string name="social_audience_edit">Edit</string>
+    <string name="social_audience_watching_title">Who sees what I'm watching</string>
+    <string name="social_audience_watching_desc">Your Watching Now card on their Social tab and Home, and their pop-ups.</string>
+    <string name="social_audience_recent_title">Who sees what I've watched</string>
+    <string name="social_audience_recent_desc">Your Recently watched on their Social tab and on your profile.</string>
+    <string name="social_audience_notify_title">Tell me when friends start watching</string>
+    <string name="social_audience_notify_desc">Pop-ups and Inbox notes when a friend starts something.</string>
+    <string name="social_audience_pick_except">All my friends, except the ones you tick.</string>
+    <string name="social_audience_pick_only">No one, except the friends you tick.</string>
+    <string name="social_audience_no_friends">Add friends first, then pick from them here.</string>
+    <string name="social_audience_failed">Couldn't save that. Try again.</string>
+    <plurals name="social_audience_done">
+        <item quantity="one">Done · %1$d friend</item>
+        <item quantity="other">Done · %1$d friends</item>
+    </plurals>
+    <plurals name="social_profile_month_titles">
+        <item quantity="one">%1$d title</item>
+        <item quantity="other">%1$d titles</item>
+    </plurals>
+    <plurals name="social_profile_stat_parties">
+        <item quantity="one">party</item>
+        <item quantity="other">parties</item>
+    </plurals>
+    <string name="social_banner_title">Profile banner</string>
+    <string name="social_banner_desc">Paste an image link, or leave this empty to show a mix of your recent titles.</string>
+    <string name="social_banner_placeholder">https://example.com/banner.jpg</string>
+    <string name="social_banner_invalid">Enter a valid https:// image link.</string>
+    <string name="social_banner_recent">A mix of your recent titles</string>
+    <string name="social_banner_custom">Your picture</string>
+    <string name="social_banner_save">Save</string>
+    <string name="social_banner_failed">Couldn't save the banner</string>
     <!-- /Nuvio Z: Social V2 strings. -->
     <!-- Nuvio Z: a login lost by itself while the app runs on cached profiles. -->
     <string name="z_auth_signed_out_notice">You're signed out of your Nuvio account. Social, Watch Together and sync are off until you sign in again.</string>
