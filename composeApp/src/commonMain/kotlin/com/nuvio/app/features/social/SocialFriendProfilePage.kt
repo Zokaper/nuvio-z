@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -340,40 +341,45 @@ private fun NowCard(
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Box(
-                Modifier.width(if (wide) 220.dp else 120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
-                    .clickable(role = Role.Button) { onDetails(item) },
-            ) {
-                SocialArtwork(
-                    SocialArtRef(item.title, item.contentType, item.contentId, item.poster, listOf(item.background, item.episodeThumbnail),
-                        item.videoId, item.season, item.episode).artwork(),
-                    item.title,
-                    Modifier.matchParentSize(),
-                )
-                SocialProgressEdge(item.progressFraction, Modifier.align(Alignment.BottomStart))
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(SocialLiveColor))
-                    Text(
-                        stringResource(Res.string.social_profile_now).uppercase(),
-                        color = SocialLiveColor,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
+        BoxWithConstraints {
+            // The history column is much narrower than the window beside "You two". Keep the title
+            // readable there by putting the actions below it until this card has room for all three.
+            val inlineActions = wide && maxWidth >= 760.dp
+            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    Modifier.width(if (wide) 220.dp else 120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
+                        .clickable(role = Role.Button) { onDetails(item) },
+                ) {
+                    SocialArtwork(
+                        SocialArtRef(item.title, item.contentType, item.contentId, item.poster, listOf(item.background, item.episodeThumbnail),
+                            item.videoId, item.season, item.episode).artwork(),
+                        item.title,
+                        Modifier.matchParentSize(),
                     )
+                    SocialProgressEdge(item.progressFraction, Modifier.align(Alignment.BottomStart))
                 }
-                Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                item.socialMeta().takeIf(String::isNotBlank)?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(SocialLiveColor))
+                        Text(
+                            stringResource(Res.string.social_profile_now).uppercase(),
+                            color = SocialLiveColor,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                        )
+                    }
+                    Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    item.socialMeta().takeIf(String::isNotBlank)?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (!inlineActions) {
+                        Spacer(Modifier.height(6.dp))
+                        NowActions(item, affordance, wide = false, onJoin, onCancelRequest, onDetails)
+                    }
                 }
-                if (!wide) {
-                    Spacer(Modifier.height(6.dp))
-                    NowActions(item, affordance, wide = false, onJoin, onCancelRequest, onDetails)
-                }
+                if (inlineActions) NowActions(item, affordance, wide = true, onJoin, onCancelRequest, onDetails)
             }
-            if (wide) NowActions(item, affordance, wide = true, onJoin, onCancelRequest, onDetails)
         }
     }
 }
