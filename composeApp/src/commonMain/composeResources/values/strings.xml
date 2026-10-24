@@ -3374,11 +3374,11 @@
     <string name="download_library_delete_watched_body">Remove %1$d watched episodes of %2$s from this device? This frees %3$s.</string>
     <!-- Nuvio Z: setup + settings architecture pass (2026-09-29). -->
     <string name="setup_welcome_back_title">Welcome back</string>
-    <string name="setup_welcome_back_subtitle">Your Nuvio Z preferences came with you.</string>
-    <string name="setup_welcome_back_body">We brought over your Nuvio Z preferences from your other device. A few things belong to this device, and the next steps ask only those.</string>
-    <string name="setup_welcome_back_body_nothing_left">We brought over your Nuvio Z preferences from your other device. There is nothing else to set up here.</string>
-    <string name="setup_welcome_back_continue">Continue with these settings</string>
-    <string name="setup_welcome_back_review">Review setup</string>
+    <string name="setup_welcome_back_subtitle">Picking up where you left off.</string>
+    <string name="setup_welcome_back_body">Playback, downloads, Social and your theme came over from your other device. A few settings are kept separately on each device, and Device Setup asks about those next.</string>
+    <string name="setup_welcome_back_body_nothing_left">Playback, downloads, Social and your theme came over from your other device. There is nothing else to set up here.</string>
+    <string name="setup_welcome_back_continue">Continue</string>
+    <string name="setup_welcome_back_review">Do the full setup instead</string>
     <string name="setup_welcome_back_theme">Theme</string>
     <string name="setup_import_retry_body">Couldn't reach your settings from your other device.</string>
     <string name="setup_import_retry_action">Try again</string>
