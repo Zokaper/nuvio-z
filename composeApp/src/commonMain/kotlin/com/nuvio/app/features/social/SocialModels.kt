@@ -29,7 +29,108 @@ data class SocialProfileSummary(
     @SerialName("share_watching_now") val shareWatchingNow: Boolean = true,
     @SerialName("share_recently_watched") val shareRecentlyWatched: Boolean = true,
     @SerialName("default_join_policy") val defaultJoinPolicy: WatchJoinPolicy = WatchJoinPolicy.approval,
+    /** An https picture the profile page shows instead of the strip of recent titles (2026-10-24). */
+    @SerialName("banner_url") val bannerUrl: String? = null,
 )
+
+/**
+ * Who a setting reaches (2026-10-24), Snapchat-style: all my friends, all my friends except a list,
+ * only a list, or no one. The server applies the same rule (`social_audience_allows`).
+ */
+@Serializable
+enum class SocialAudienceMode {
+    @SerialName("everyone") Everyone,
+    @SerialName("except") Except,
+    @SerialName("only") Only,
+    @SerialName("nobody") Nobody,
+}
+
+/** The three audience settings and their wire names. */
+enum class SocialAudienceSetting(val wire: String) {
+    /** Who sees my Watching Now. */
+    WatchingNow("watching_now"),
+    /** Who sees my Recently watched. */
+    Recent("recent"),
+    /** Whose starting-to-watch I am told about. */
+    Notify("notify"),
+}
+
+/**
+ * One setting's audience. Both lists are kept whichever mode is on, so moving between "except" and
+ * "only" never turns one list into the other.
+ */
+@Serializable
+data class SocialAudience(
+    val mode: SocialAudienceMode = SocialAudienceMode.Everyone,
+    val except: List<String> = emptyList(),
+    val only: List<String> = emptyList(),
+) {
+    fun allows(friendProfileId: String): Boolean = when (mode) {
+        SocialAudienceMode.Everyone -> true
+        SocialAudienceMode.Nobody -> false
+        SocialAudienceMode.Except -> friendProfileId !in except
+        SocialAudienceMode.Only -> friendProfileId in only
+    }
+
+    /** The list [mode] reads; empty for everyone and nobody. */
+    val members: List<String>
+        get() = when (mode) {
+            SocialAudienceMode.Except -> except
+            SocialAudienceMode.Only -> only
+            else -> emptyList()
+        }
+
+    /**
+     * [mode], with [members] replacing that mode's list when given. Mirrors `social_set_audience`: an
+     * emptied except list is everyone, an emptied only list is nobody.
+     */
+    fun withMode(mode: SocialAudienceMode, members: List<String>? = null): SocialAudience {
+        val next = when {
+            members == null -> copy(mode = mode)
+            mode == SocialAudienceMode.Except -> copy(mode = mode, except = members.distinct())
+            mode == SocialAudienceMode.Only -> copy(mode = mode, only = members.distinct())
+            else -> copy(mode = mode)
+        }
+        return next.normalized()
+    }
+
+    /** One friend let in or kept out under the current mode. Mirrors `social_set_audience_member`. */
+    fun withMember(friendProfileId: String, allowed: Boolean): SocialAudience = when (mode) {
+        SocialAudienceMode.Everyone ->
+            if (allowed) this else copy(mode = SocialAudienceMode.Except, except = listOf(friendProfileId))
+        SocialAudienceMode.Nobody ->
+            if (allowed) copy(mode = SocialAudienceMode.Only, only = listOf(friendProfileId)) else this
+        SocialAudienceMode.Except ->
+            copy(except = if (allowed) except - friendProfileId else (except + friendProfileId).distinct()).normalized()
+        SocialAudienceMode.Only ->
+            copy(only = if (allowed) (only + friendProfileId).distinct() else only - friendProfileId).normalized()
+    }
+
+    private fun normalized(): SocialAudience = when {
+        mode == SocialAudienceMode.Except && except.isEmpty() -> copy(mode = SocialAudienceMode.Everyone)
+        mode == SocialAudienceMode.Only && only.isEmpty() -> copy(mode = SocialAudienceMode.Nobody)
+        else -> this
+    }
+}
+
+@Serializable
+data class SocialAudiences(
+    @SerialName("watching_now") val watchingNow: SocialAudience = SocialAudience(),
+    val recent: SocialAudience = SocialAudience(),
+    val notify: SocialAudience = SocialAudience(),
+) {
+    operator fun get(setting: SocialAudienceSetting): SocialAudience = when (setting) {
+        SocialAudienceSetting.WatchingNow -> watchingNow
+        SocialAudienceSetting.Recent -> recent
+        SocialAudienceSetting.Notify -> notify
+    }
+
+    fun with(setting: SocialAudienceSetting, audience: SocialAudience): SocialAudiences = when (setting) {
+        SocialAudienceSetting.WatchingNow -> copy(watchingNow = audience)
+        SocialAudienceSetting.Recent -> copy(recent = audience)
+        SocialAudienceSetting.Notify -> copy(notify = audience)
+    }
+}
 
 @Serializable
 data class FriendRequest(
@@ -213,6 +314,8 @@ data class SocialStatePayload(
     @SerialName("friend_prefs") val friendPrefs: List<SocialFriendPrefs>? = null,
     val inbox: List<SocialInboxEvent>? = null,
     @SerialName("sent_party_invites") val sentPartyInvites: List<SentPartyInvite>? = null,
+    /** This profile's own audiences (2026-10-24); null on a backend that predates them. */
+    val audiences: SocialAudiences? = null,
 )
 
 data class SocialUiState(
@@ -240,6 +343,8 @@ data class SocialUiState(
     val sentPartyInvites: List<SentPartyInvite>? = null,
     /** When [sentPartyInvites] arrived, the base for their `cooldownSeconds`. */
     val sentPartyInvitesAtMs: Long = 0L,
+    /** This profile's own audiences; null on a backend that predates them. */
+    val audiences: SocialAudiences? = null,
 ) {
     val unreadCount: Int get() = (if (capabilities.partyContractVersion>=2) {
         notifications.count { it.readAt==null && it.availableActions.isNotEmpty() }
@@ -259,6 +364,9 @@ data class SocialUiState(
 
 @Serializable
 data class SocialActivityCursor(val lastEventTime: String, val runId: String)
+
+/** One page of a friend's Recently watched for their profile; [next] is null on the last page. */
+data class FriendHistoryPage(val runs: List<RecentActivityRun>, val next: SocialActivityCursor?)
 
 @Serializable
 data class SocialPresencePublish(

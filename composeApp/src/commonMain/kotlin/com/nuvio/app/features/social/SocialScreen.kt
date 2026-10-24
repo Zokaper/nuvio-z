@@ -396,10 +396,11 @@ fun SocialScreen(
             onCancelFriendRequest = { id -> scope.launch { SocialRepository.cancelFriendRequest(id) } },
             onNavigationConsumed = SocialNavigation::consume,
             onMarkInboxRead = { ids -> scope.launch { SocialRepository.markInboxRead(ids) } },
-            onSetFriendPrefs = { friend, hide, notify ->
-                scope.launch { SocialRepository.setFriendPrefs(friend, hideActivity = hide, notifyWhenWatching = notify) }
-            },
             onLoadTogetherStats = { friend -> SocialRepository.togetherStats(friend).getOrNull() },
+            onSetAudienceMember = { setting, friend, allowed ->
+                scope.launch { SocialRepository.setAudienceMember(setting, friend, allowed) }
+            },
+            onLoadFriendHistory = { friend, before -> SocialRepository.friendHistory(friend, before) },
         ),
         listState = listState,
         topChromePadding = topChromePadding,
@@ -466,9 +467,11 @@ internal class SocialFeedActions(
     val onCancelFriendRequest: (String) -> Unit = {},
     val onNavigationConsumed: (SocialNavigationTarget) -> Unit = {},
     val onMarkInboxRead: (Set<String>) -> Unit = {},
-    /** Social V2 per-friend switches; null leaves one as it is. */
-    val onSetFriendPrefs: (friendProfileId: String, hide: Boolean?, notify: Boolean?) -> Unit = { _, _, _ -> },
     val onLoadTogetherStats: suspend (friendProfileId: String) -> SocialTogetherStats? = { null },
+    /** A friend's profile switch: let them in, or keep them out, of one of this profile's audiences. */
+    val onSetAudienceMember: (SocialAudienceSetting, friendProfileId: String, allowed: Boolean) -> Unit = { _, _, _ -> },
+    val onLoadFriendHistory: suspend (friendProfileId: String, before: SocialActivityCursor?) -> Result<FriendHistoryPage> =
+        { _, _ -> Result.success(FriendHistoryPage(emptyList(), null)) },
 )
 
 /**
@@ -685,29 +688,29 @@ internal fun SocialFeed(
                             ?: groupWatchingNowByParty(state.watchingNow).firstOrNull { item ->
                                 item.partyCompanions.any { it.profileId == friend.profileId }
                             }
-                        SocialSheet(wide = wide, onDismiss = { overlay = null }) {
-                            var stats by remember(friend.profileId) { mutableStateOf<SocialTogetherStats?>(null) }
-                            if (state.socialV2Backend) {
-                                LaunchedEffect(friend.profileId) { stats = actions.onLoadTogetherStats(friend.profileId) }
-                            }
-                            SocialProfileContent(
-                                friend = friend,
-                                prefs = state.prefsFor(friend.profileId).takeIf { state.socialV2Backend },
-                                stats = stats,
-                                onSetPrefs = { hide, notify -> actions.onSetFriendPrefs(friend.profileId, hide, notify) },
-                                watching = watching,
-                                affordance = watching?.let(model.joinAffordance) ?: WatchingNowJoinAffordance.None,
-                                groups = model.activityGroups.filter { group -> group.friends.any { it.profileId == friend.profileId } },
-                                nowMs = model.activityNowMs,
-                                onOpenWatching = openWatching,
-                                onWatchingDetails = openDetails,
-                                onOpenContent = actions.onOpenContent,
-                                onRemove = {
-                                    actions.onRemoveFriend(friend.profileId)
-                                    overlay = null
-                                },
-                            )
-                        }
+                        val nowMs = remember { currentEpochMs() }
+                        SocialFriendProfilePage(
+                            friend = friend,
+                            friends = state.friends,
+                            audiences = state.audiences,
+                            watching = watching,
+                            affordance = watching?.let(model.joinAffordance) ?: WatchingNowJoinAffordance.None,
+                            wide = wide,
+                            topInset = topInset,
+                            utcOffsetMs = socialUtcOffsetMs(nowMs),
+                            onBack = { overlay = null },
+                            onJoin = actions.onStartParty,
+                            onCancelRequest = actions.onCancelJoinRequest,
+                            onWatchingDetails = openDetails,
+                            onOpenContent = actions.onOpenContent,
+                            onSetAudienceMember = actions.onSetAudienceMember,
+                            onRemove = {
+                                actions.onRemoveFriend(friend.profileId)
+                                overlay = null
+                            },
+                            loadStats = { id -> if (state.socialV2Backend) actions.onLoadTogetherStats(id) else null },
+                            loadHistory = actions.onLoadFriendHistory,
+                        )
                     }
                 }
                 is SocialOverlay.Join -> {
@@ -1729,142 +1732,6 @@ internal fun SocialJoinSheetContent(
             }
             SocialPillButton(stringResource(Res.string.social_details), onDetails, Modifier.weight(1f), compact = false)
         }
-    }
-}
-
-/**
- * A friend: who they are, what they are doing now, what they have shared lately, and removing them.
- * The together stat, per-friend privacy and Recommend land with the Stage 2 backend.
- */
-@Composable
-internal fun SocialProfileContent(
-    friend: SocialProfileSummary,
-    /** Null on a backend without Social V2: the switches are not drawn rather than drawn dead. */
-    prefs: SocialFriendPrefs?,
-    stats: SocialTogetherStats?,
-    onSetPrefs: (hide: Boolean?, notify: Boolean?) -> Unit,
-    watching: WatchingNowItem?,
-    affordance: WatchingNowJoinAffordance,
-    groups: List<FriendActivityGroup>,
-    nowMs: Long,
-    onOpenWatching: (WatchingNowItem) -> Unit,
-    onWatchingDetails: (WatchingNowItem) -> Unit,
-    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
-    onRemove: () -> Unit,
-) {
-    var confirmRemove by remember { mutableStateOf(false) }
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val live = watching?.state == SocialPlaybackState.playing
-    Column {
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
-                if (live) Box(Modifier.fillMaxSize().border(2.5.dp, SocialLiveColor, CircleShape))
-                SocialAvatar(friend.displayName, friend.avatarUrl, friend.avatarColorHex, 70.dp)
-            }
-            Column(Modifier.weight(1f)) {
-                Text(friend.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("@${friend.handle}", style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        if (watching != null) {
-            Spacer(Modifier.height(16.dp))
-            SocialWatchingCard(
-                item = watching,
-                affordance = affordance,
-                onClick = { onOpenWatching(watching) },
-                onDetails = { onWatchingDetails(watching) },
-                modifier = Modifier.fillMaxWidth(),
-                height = 150.dp,
-            )
-        }
-        // Quiet on purpose: a fun fact, not a scoreboard.
-        stats?.takeIf { it.parties > 0 }?.let { together ->
-            Text(
-                pluralStringResource(Res.plurals.social_together_line, together.parties, socialTogetherDuration(together.seconds), together.parties),
-                style = MaterialTheme.typography.labelMedium,
-                color = muted,
-                modifier = Modifier.padding(top = 10.dp),
-            )
-        }
-        Spacer(Modifier.height(16.dp))
-        SocialSectionLabel(stringResource(Res.string.social_recently_watched_label))
-        if (groups.isEmpty()) {
-            Text(
-                stringResource(Res.string.social_nothing_shared),
-                style = MaterialTheme.typography.bodyMedium,
-                color = muted,
-                modifier = Modifier.padding(vertical = 6.dp),
-            )
-        } else {
-            groups.take(6).forEach { group ->
-                FriendActivityStillRow(
-                    group = group,
-                    nowMs = nowMs,
-                    onOpen = { onOpenContent(group.contentType, group.contentId, group.title) },
-                    showNames = false,
-                )
-            }
-        }
-        stats?.titles?.takeIf { it.isNotEmpty() }?.let { titles ->
-            SocialSectionLabel(stringResource(Res.string.social_watched_together), modifier = Modifier.padding(top = 12.dp))
-            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                titles.take(3).forEach { together ->
-                    Column(
-                        Modifier.weight(1f).then(
-                            if (together.contentId != null && together.contentType != null) {
-                                Modifier.clickable { onOpenContent(together.contentType, together.contentId, together.title) }
-                            } else {
-                                Modifier
-                            },
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        SocialArtwork(
-                            SocialArtRef(together.title, together.contentType, together.contentId, together.poster).artwork(),
-                            together.title,
-                            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
-                        )
-                        Text(together.title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            pluralStringResource(Res.plurals.social_party_count, together.parties, together.parties),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = muted,
-                        )
-                    }
-                }
-                repeat(3 - titles.take(3).size) { Spacer(Modifier.weight(1f)) }
-            }
-        }
-        if (prefs != null) {
-            SocialSectionLabel(stringResource(Res.string.social_privacy), modifier = Modifier.padding(top = 12.dp))
-            SocialSwitchRow(stringResource(Res.string.social_hide_from, friend.displayName), prefs.hideActivity) { onSetPrefs(it, null) }
-            SocialSwitchRow(stringResource(Res.string.social_notify_when, friend.displayName), prefs.notifyWhenWatching) { onSetPrefs(null, it) }
-        }
-        TextButton(onClick = { confirmRemove = true }, modifier = Modifier.padding(top = 8.dp)) {
-            Text(stringResource(Res.string.social_remove_friend), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-        }
-    }
-    if (confirmRemove) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = { Text(stringResource(Res.string.social_remove_title, friend.displayName)) },
-            text = { Text(stringResource(Res.string.social_remove_friend_body)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmRemove = false
-                    onRemove()
-                }) { Text(stringResource(Res.string.social_remove), color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(Res.string.social_cancel)) } },
-        )
-    }
-}
-
-@Composable
-private fun SocialSwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 12.dp))
-        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

@@ -28,7 +28,7 @@ internal data class SocialPopup(
 
 /**
  * Everything in [state] that could pop, each with when it happened (epoch ms, 0 when unreadable): pending
- * actionable notices, and unread friend-started-watching events from friends with Notify on.
+ * actionable notices, and unread friend-started-watching events from friends this profile hears about.
  */
 internal fun socialPopupCandidates(state: SocialUiState): List<Pair<SocialPopup, Long>> {
     val popups = mutableListOf<Pair<SocialPopup, Long>>()
@@ -37,7 +37,10 @@ internal fun socialPopupCandidates(state: SocialUiState): List<Pair<SocialPopup,
         .forEach { notice -> popups += notice.toSocialPopup() to (parseSocialTimestampMs(notice.createdAt) ?: 0L) }
     state.inbox
         .filter { it.kind == SocialInboxEvent.FriendWatching && it.readAt == null }
-        .filter { event -> state.prefsFor(event.actor.profileId).notifyWhenWatching }
+        // The notify audience as it is now, so turning someone off also quiets what already arrived.
+        .filter { event ->
+            state.audiences?.notify?.allows(event.actor.profileId) ?: state.prefsFor(event.actor.profileId).notifyWhenWatching
+        }
         .forEach { event -> popups += event.toSocialPopup(state.watchingNow) to (parseSocialTimestampMs(event.createdAt) ?: 0L) }
     state.inbox
         .filter { it.readAt == null && (it.kind == SocialInboxEvent.Recommendation || it.kind == SocialInboxEvent.RecommendationStarted) }

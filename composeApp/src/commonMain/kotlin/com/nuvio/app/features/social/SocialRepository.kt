@@ -335,6 +335,7 @@ object SocialRepository {
                 // time is only the base for a running cooldown, so it is stamped only when one runs.
                 sentPartyInvites = payload.sentPartyInvites,
                 sentPartyInvitesAtMs = if (payload.sentPartyInvites.orEmpty().any { it.cooldownSeconds != null }) currentEpochMs() else 0L,
+                audiences = payload.audiences,
                 nextCursor = next, isLoading = false, isLoadingMore = false, isOfflineCache = false, errorMessage = null,
             ) }
             val owner = operation()
@@ -535,6 +536,66 @@ object SocialRepository {
             hideActivity?.let { put("p_hide_activity", it) }
             notifyWhenWatching?.let { put("p_notify_when_watching", it) }
         }
+
+    /**
+     * One setting's audience (2026-10-24): [mode], and the list that mode uses when [members] is given.
+     * Shown at once and put back if the server refuses.
+     */
+    suspend fun setAudience(setting: SocialAudienceSetting, mode: SocialAudienceMode, members: List<String>? = null): Result<Unit> =
+        updateAudience(setting, { it.withMode(mode, members) }) {
+            socialRpc("social_set_audience", buildJsonObject {
+                put("p_profile_id", requireActiveProfile()); put("p_setting", setting.wire)
+                put("p_mode", json.encodeToJsonElement(mode))
+                members?.let { put("p_members", json.encodeToJsonElement(it)) }
+            })
+        }
+
+    /** A friend's profile switch: let [friendProfileId] in, or keep them out, under the current mode. */
+    suspend fun setAudienceMember(setting: SocialAudienceSetting, friendProfileId: String, allowed: Boolean): Result<Unit> =
+        updateAudience(setting, { it.withMember(friendProfileId, allowed) }) {
+            socialRpc("social_set_audience_member", buildJsonObject {
+                put("p_profile_id", requireActiveProfile()); put("p_setting", setting.wire)
+                put("p_friend_profile_id", friendProfileId); put("p_allowed", allowed)
+            })
+        }
+
+    private suspend fun updateAudience(
+        setting: SocialAudienceSetting,
+        change: (SocialAudience) -> SocialAudience,
+        call: suspend () -> PostgrestResult,
+    ): Result<Unit> {
+        val before = _uiState.value.audiences ?: return Result.failure(IllegalStateException("Audiences need a newer backend"))
+        publish { it.copy(audiences = before.with(setting, change(before[setting]))) }
+        return socialCall {
+            val saved = call().decodeAs<SocialAudiences>()
+            publish { it.copy(audiences = saved) }
+            refresh(false)
+        }.onFailure { publish { it.copy(audiences = before) } }
+    }
+
+    /** The profile page's banner (2026-10-24): an https picture, or null for the strip of recent titles. */
+    suspend fun setBanner(url: String?): Result<Unit> = socialMutation("social_set_banner") {
+        put("p_profile_id", requireActiveProfile()); put("p_banner_url", url?.trim().orEmpty())
+    }
+
+    /**
+     * One friend's Recently watched for their profile page, a page at a time and apart from the feed,
+     * so opening a profile never reshuffles the Social tab.
+     */
+    suspend fun friendHistory(friendProfileId: String, before: SocialActivityCursor? = null): Result<FriendHistoryPage> = socialCall {
+        val payload = socialRpc("social_get_state_v2", buildJsonObject {
+            put("p_profile_id", requireActiveProfile())
+            before?.let { put("p_before_time", it.lastEventTime); put("p_before_run_id", it.runId) }
+            put("p_limit", SocialPageSize)
+            put("p_filter_profile_id", friendProfileId)
+        }).decodeAs<SocialStatePayload>()
+        val runs = payload.activity.filter { it.profile.profileId == friendProfileId }
+        FriendHistoryPage(
+            runs = runs,
+            next = payload.activity.takeIf { it.size >= SocialPageSize }?.lastOrNull()
+                ?.let { SocialActivityCursor(it.lastEventTime, it.runId) },
+        )
+    }
 
     /**
      * This phone's push token, for the active profile (Android, Stage 4). Registering moves a token that
