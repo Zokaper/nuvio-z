@@ -38,6 +38,20 @@ object AdvancedSetupLauncher {
 }
 
 /**
+ * Settings → Setup & About → "Set up this device" (Device Setup redesign, 2026-10-24): Device Setup on
+ * demand, the same process-wide request as [AdvancedSetupLauncher] for the same reasons. The gate opens
+ * it over the mounted app.
+ */
+object DeviceSetupLauncher {
+    private val requestChannel = Channel<Unit>(Channel.CONFLATED)
+    internal val requests: Flow<Unit> = requestChannel.receiveAsFlow()
+
+    fun open() {
+        requestChannel.trySend(Unit)
+    }
+}
+
+/**
  * Whether the active profile has opened Advanced Setup on this device: the Settings row's "New"
  * badge (plan §8). Per profile and device-local, stored in [DeviceSetupStorage].
  *

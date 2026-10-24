@@ -8,8 +8,14 @@ import androidx.compose.runtime.Composable
  * tray and the Windows `Run` key. Null where the area does not apply, which drops it from the hub.
  */
 object AdvancedSetupExtensions {
-    /** Windows: Startup & tray (2026-10-22). */
+    /** Desktop: This computer (Startup & tray, 2026-10-22). */
     var startupAndTray: AdvancedSetupPlatformArea? = null
+
+    /**
+     * The platform's Social alerts (2026-10-24): the phone's alert switches (`PhoneSocialAlerts`), the
+     * desktop's pop-ups. Both belong to the installation, not the profile.
+     */
+    var alerts: AdvancedSetupPlatformArea? = null
 }
 
 class AdvancedSetupPlatformArea(

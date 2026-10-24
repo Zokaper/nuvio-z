@@ -167,6 +167,8 @@ fun SetupDiagram(
             SetupStep.Theme,
             SetupStep.DeviceNavigation,
             SetupStep.DevicePlayer,
+            SetupStep.DeviceNotifications,
+            SetupStep.ThisComputer,
             SetupStep.Language,
             SetupStep.LanguageOwnTitles,
             SetupStep.LanguageOtherTitles,

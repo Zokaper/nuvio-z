@@ -22,6 +22,7 @@ import com.nuvio.app.features.downloads.DownloadPolicySyncPayload
 import com.nuvio.app.features.player.PlayerSettingsStorage
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.setup.SetupProfileFlags
 import com.nuvio.app.core.ui.CardDepthStyleRepository
 import com.nuvio.app.core.ui.CardDepthStyleStorage
 import com.nuvio.app.core.ui.PosterCardStyleRepository
@@ -345,7 +346,12 @@ object ProfileSettingsSync {
     }
 
     private fun applyRemoteBlob(blob: MobileProfileSettingsBlob) {
-        ThemeSettingsStorage.replaceFromSyncPayload(blob.features.themeSettings)
+        // Z (Device Setup, 2026-10-24): once this profile has set this device up, the settings Device
+        // Setup asks stay this device's own - see `DeviceOwnedSettings`.
+        val deviceOwned = SetupProfileFlags.deviceSetupDone(ProfileRepository.activeProfileId)
+        ThemeSettingsStorage.replaceFromSyncPayload(
+            withoutDeviceOwnedKeys(blob.features.themeSettings, DeviceOwnedSettings.themeKeys, deviceOwned),
+        )
         ThemeSettingsRepository.onProfileChanged()
 
         PosterCardStyleStorage.savePayload(blob.features.posterCardStyleSettingsPayload)
@@ -368,7 +374,7 @@ object ProfileSettingsSync {
         PlayerSettingsStorage.replaceFromSyncPayload(
             preservingLocalProfileCredentials(
                 PROFILE_PLAYER_SETTINGS_FEATURE,
-                blob.features.playerSettings,
+                withoutDeviceOwnedKeys(blob.features.playerSettings, DeviceOwnedSettings.playerKeys, deviceOwned),
                 localPlayerSettings,
             ),
         )
@@ -421,7 +427,9 @@ object ProfileSettingsSync {
         TraktCommentsStorage.replaceFromSyncPayload(blob.features.traktCommentsSettings)
         TraktCommentsSettings.onProfileChanged()
 
-        EpisodeReleaseNotificationsRepository.applyFromSyncEnabled(blob.features.notificationsSettings.episodeReleaseAlertsEnabled)
+        if (!deviceOwned) {
+            EpisodeReleaseNotificationsRepository.applyFromSyncEnabled(blob.features.notificationsSettings.episodeReleaseAlertsEnabled)
+        }
         // `blob.features.socialFeatures` is deliberately not applied: see `SharedSocialPreference`.
         DownloadPolicyRepository.applyFromSync(blob.features.downloadPolicy)
         zProfileSyncContributors.forEach { contributor ->

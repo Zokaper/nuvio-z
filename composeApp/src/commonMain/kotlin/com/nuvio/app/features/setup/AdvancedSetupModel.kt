@@ -34,7 +34,16 @@ enum class AdvancedSetupCategory(val group: AdvancedSetupGroup) {
     Metadata(AdvancedSetupGroup.SocialAndServices),
     Tracking(AdvancedSetupGroup.SocialAndServices),
 
-    /** Windows only (2026-10-22): what closing the window does, and starting with Windows. */
+    /**
+     * What may interrupt you on this device (2026-10-24): new-episode alerts on phones, and the
+     * platform's own Social alerts - the phone's alert switches, or the desktop's pop-ups.
+     */
+    Notifications(AdvancedSetupGroup.ThisDevice),
+
+    /**
+     * Desktop (2026-10-22, "This computer" since 2026-10-24): what closing the window does, starting
+     * with Windows, Discord Rich Presence, and the interface size.
+     */
     Startup(AdvancedSetupGroup.ThisDevice),
 }
 
@@ -69,6 +78,7 @@ enum class AdvancedSetupPanel(val category: AdvancedSetupCategory) {
     SocialIdentity(AdvancedSetupCategory.Social),
     EnhancedMetadata(AdvancedSetupCategory.Metadata),
     TrackingServices(AdvancedSetupCategory.Tracking),
+    Notifications(AdvancedSetupCategory.Notifications),
     StartupTray(AdvancedSetupCategory.Startup),
 }
 
@@ -156,6 +166,14 @@ enum class AdvancedSetupControl {
     TrackingLink,
     /** Closing the window and Start with Windows, drawn by the desktop app (`AdvancedSetupExtensions`). */
     StartupAndTray,
+    /** Desktop: the interface size (`DesktopUiZoom`). Device-local, never synced. */
+    UiZoom,
+    /** Instant on a phone: the most it spends on a metered connection when Data saver is chosen. */
+    MeteredCap,
+    /** Phones: new-episode alerts for this profile on this device, asking the OS when turned on. */
+    EpisodeAlerts,
+    /** The platform's Social alerts, drawn by the platform (`AdvancedSetupExtensions.alerts`). */
+    PlatformAlerts,
 }
 
 /** The most controls a panel may carry - the setup wizard's rule, so nothing scrolls on a phone. */
@@ -194,6 +212,8 @@ data class AdvancedSetupFacts(
     val inAppTrailers: Boolean = false,
     /** The desktop app registered its Startup & tray controls: an installed Windows build. */
     val startupAvailable: Boolean = false,
+    /** The platform registered its Social alert controls (the phone's switches, the desktop's pop-ups). */
+    val alertsAvailable: Boolean = false,
 ) {
     val isMobile: Boolean get() = isAndroid || isIos
 }
@@ -208,8 +228,14 @@ fun advancedSetupControls(panel: AdvancedSetupPanel, facts: AdvancedSetupFacts):
         AdvancedSetupPanel.PlaybackModeChoice -> listOf(AdvancedSetupControl.PlaybackModeCards)
         // Every source preference feeds the automatic picker, which Classic does not have - the same
         // reason the Settings rows are greyed out and the wizard's playback step is dropped.
-        AdvancedSetupPanel.PlaybackSourcePreferences ->
-            if (automaticPicker) listOf(AdvancedSetupControl.QualityLimit, AdvancedSetupControl.LanguageMatching, AdvancedSetupControl.DynamicRange) else emptyList()
+        // The metered cap only where something reads it: Instant, on a phone (see the Settings row).
+        AdvancedSetupPanel.PlaybackSourcePreferences -> buildList {
+            if (!automaticPicker) return@buildList
+            add(AdvancedSetupControl.QualityLimit)
+            add(AdvancedSetupControl.LanguageMatching)
+            add(AdvancedSetupControl.DynamicRange)
+            if (facts.isMobile && facts.playbackModeName == "INSTANT") add(AdvancedSetupControl.MeteredCap)
+        }
         AdvancedSetupPanel.PlaybackSourceFormat ->
             if (automaticPicker) listOf(AdvancedSetupControl.CodecPreference, AdvancedSetupControl.AudioPreference, AdvancedSetupControl.PreferEmbeddedSubtitles) else emptyList()
         AdvancedSetupPanel.PlayerControls -> buildList {
@@ -287,7 +313,16 @@ fun advancedSetupControls(panel: AdvancedSetupPanel, facts: AdvancedSetupFacts):
         AdvancedSetupPanel.SocialIdentity ->
             if (facts.socialAvailable && facts.socialEnabled && facts.offerSocialIdentity) listOf(AdvancedSetupControl.SocialHandle) else emptyList()
         AdvancedSetupPanel.EnhancedMetadata -> listOf(AdvancedSetupControl.TmdbEnrichment, AdvancedSetupControl.TmdbLanguage, AdvancedSetupControl.MdbListRatingsLink)
-        AdvancedSetupPanel.StartupTray -> if (facts.startupAvailable) listOf(AdvancedSetupControl.StartupAndTray) else emptyList()
+        AdvancedSetupPanel.Notifications -> buildList {
+            if (facts.isMobile) add(AdvancedSetupControl.EpisodeAlerts)
+            if (facts.alertsAvailable) add(AdvancedSetupControl.PlatformAlerts)
+        }
+        // This computer is the desktop's alone, whatever a platform registered.
+        AdvancedSetupPanel.StartupTray -> buildList {
+            if (!facts.isDesktop) return@buildList
+            if (facts.startupAvailable) add(AdvancedSetupControl.StartupAndTray)
+            add(AdvancedSetupControl.UiZoom)
+        }
         AdvancedSetupPanel.TrackingServices ->
             if (facts.hasTrackingCredentials) listOf(AdvancedSetupControl.TrackingLink) else emptyList()
     }
@@ -331,8 +366,9 @@ fun advancedSetupTour(facts: AdvancedSetupFacts, areas: List<AdvancedSetupCatego
  */
 fun advancedSetupAreasChangedIn(revision: Int): List<AdvancedSetupCategory> = when (revision) {
     10 -> listOf(AdvancedSetupCategory.Downloads)
-    // Startup & tray arrived with Language; it has panels only on Windows, so elsewhere it drops out.
-    11 -> listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Startup)
+    // This computer (Startup & tray, then Discord) and Notifications arrived with Language; an area
+    // with no panel on this platform drops out by itself.
+    11 -> listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Notifications, AdvancedSetupCategory.Startup)
     else -> emptyList()
 }
 
@@ -397,8 +433,17 @@ fun previousAdvancedSetupTourStop(
  *   on 13+), Liquid Glass on iOS 26+, desktop layout + style; nothing on iOS before 26.
  * - [SetupStep.DevicePlayer]: the mobile player's layout and touch - legacy vs new controls, gestures,
  *   hold-to-speed and its speed. Mobile only, and not while an external player is chosen.
+ * - [SetupStep.DeviceNotifications]: [AdvancedSetupPanel.Notifications] - the profile's episode alerts
+ *   always, the platform's Social alerts only while [deviceStale] (they belong to the machine, so a
+ *   second profile must not change them for the first).
+ * - [SetupStep.ThisComputer]: [AdvancedSetupPanel.StartupTray], only while [deviceStale] - every row
+ *   on it belongs to the machine.
  */
-fun deviceSetupControls(step: SetupStep, facts: AdvancedSetupFacts): List<AdvancedSetupControl> = when (step) {
+fun deviceSetupControls(
+    step: SetupStep,
+    facts: AdvancedSetupFacts,
+    deviceStale: Boolean = true,
+): List<AdvancedSetupControl> = when (step) {
     SetupStep.DeviceNavigation -> advancedSetupControls(AdvancedSetupPanel.NavigationStyle, facts)
     SetupStep.DevicePlayer ->
         if (facts.isMobile && !facts.externalPlayer) {
@@ -411,6 +456,9 @@ fun deviceSetupControls(step: SetupStep, facts: AdvancedSetupFacts): List<Advanc
         } else {
             emptyList()
         }
+    SetupStep.DeviceNotifications -> advancedSetupControls(AdvancedSetupPanel.Notifications, facts)
+        .filter { deviceStale || it != AdvancedSetupControl.PlatformAlerts }
+    SetupStep.ThisComputer -> if (deviceStale) advancedSetupControls(AdvancedSetupPanel.StartupTray, facts) else emptyList()
     else -> emptyList()
 }
 

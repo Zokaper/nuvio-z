@@ -169,6 +169,17 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
+import androidx.compose.material.icons.rounded.Notifications
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
+import com.nuvio.app.features.settings.DesktopUiZoom
+import nuvio.composeapp.generated.resources.advanced_setup_category_notifications
+import nuvio.composeapp.generated.resources.advanced_setup_panel_notifications_desktop
+import nuvio.composeapp.generated.resources.advanced_setup_panel_notifications_mobile
+import nuvio.composeapp.generated.resources.advanced_setup_episode_alerts_short
+import nuvio.composeapp.generated.resources.advanced_setup_ui_zoom_detail
+import nuvio.composeapp.generated.resources.settings_notifications_episode_release_alerts
+import nuvio.composeapp.generated.resources.settings_notifications_episode_release_alerts_description
+import nuvio.composeapp.generated.resources.settings_appearance_desktop_ui_zoom
 
 // String keys by wildcard, as `SetupWizardScreen.kt` does: this screen reads about a hundred.
 
@@ -511,6 +522,11 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
     }.collectAsStateWithLifecycle()
     val profileState by remember { ProfileRepository.state }.collectAsStateWithLifecycle()
     val randomEpisodeAvailable = rememberAdvancedRandomEpisodeAvailable()
+    val episodeAlerts by remember {
+        EpisodeReleaseNotificationsRepository.ensureLoaded()
+        EpisodeReleaseNotificationsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val uiZoom by remember { ThemeSettingsRepository.desktopUiZoom }.collectAsStateWithLifecycle()
 
     val effectiveDownloadMode = downloadPolicy.effectiveMode(player.playbackMode.forDownloads())
     val platformFacts = remember {
@@ -524,6 +540,7 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
             hasTrackingCredentials = TraktAuthRepository.hasRequiredCredentials() || SimklAuthRepository.hasRequiredCredentials(),
             inAppTrailers = AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP,
             startupAvailable = AdvancedSetupExtensions.startupAndTray != null,
+            alertsAvailable = AdvancedSetupExtensions.alerts != null,
         )
     }
     val facts = platformFacts.copy(
@@ -580,6 +597,8 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
         joinPolicy = socialState.me?.defaultJoinPolicy ?: WatchJoinPolicy.approval,
         tmdbEnabled = tmdb.enabled,
         tmdbLanguage = tmdb.language,
+        episodeAlerts = episodeAlerts.isEnabled,
+        uiZoom = uiZoom,
     )
     return AdvancedSetupLive(facts = facts, values = values)
 }
@@ -736,6 +755,10 @@ internal data class AdvancedSetupValues(
     val joinPolicy: WatchJoinPolicy = WatchJoinPolicy.approval,
     val tmdbEnabled: Boolean = true,
     val tmdbLanguage: String = "en",
+    /** Phones: new-episode alerts for this profile on this device. */
+    val episodeAlerts: Boolean = false,
+    /** Desktop: the interface size. */
+    val uiZoom: DesktopUiZoom = DesktopUiZoom.Default,
 )
 
 // --- hub ---------------------------------------------------------------------------------
@@ -1043,7 +1066,18 @@ internal fun advancedCategorySummary(
         AdvancedSetupCategory.Social -> listOf(if (values.socialEnabled) on else off)
         AdvancedSetupCategory.Metadata -> if (values.tmdbEnabled) listOf(on, languageName(values.tmdbLanguage)) else listOf(off)
         AdvancedSetupCategory.Tracking -> listOf(stringResource(Res.string.advanced_setup_tracking_summary))
-        AdvancedSetupCategory.Startup -> listOfNotNull(AdvancedSetupExtensions.startupAndTray?.summary?.invoke())
+        AdvancedSetupCategory.Notifications -> listOfNotNull(
+            if (facts.isMobile) {
+                stringResource(Res.string.advanced_setup_episode_alerts_short) + " " + (if (values.episodeAlerts) on else off).lowercase()
+            } else {
+                null
+            },
+            AdvancedSetupExtensions.alerts?.summary?.invoke(),
+        )
+        AdvancedSetupCategory.Startup -> listOfNotNull(
+            AdvancedSetupExtensions.startupAndTray?.summary?.invoke(),
+            if (facts.isDesktop) values.uiZoom.label else null,
+        )
     }
     return parts.filter { it.isNotBlank() }.joinToString(" · ")
 }
@@ -1081,6 +1115,7 @@ internal val AdvancedSetupCategory.titleRes: StringResource
         AdvancedSetupCategory.Social -> Res.string.advanced_setup_category_social
         AdvancedSetupCategory.Metadata -> Res.string.advanced_setup_category_metadata
         AdvancedSetupCategory.Tracking -> Res.string.advanced_setup_category_tracking
+        AdvancedSetupCategory.Notifications -> Res.string.advanced_setup_category_notifications
         AdvancedSetupCategory.Startup -> Res.string.advanced_setup_category_startup
     }
 
@@ -1101,6 +1136,7 @@ private val AdvancedSetupCategory.icon: ImageVector
         AdvancedSetupCategory.Social -> Icons.Rounded.Groups
         AdvancedSetupCategory.Metadata -> Icons.Rounded.Tune
         AdvancedSetupCategory.Tracking -> Icons.Rounded.Sync
+        AdvancedSetupCategory.Notifications -> Icons.Rounded.Notifications
         AdvancedSetupCategory.Startup -> Icons.Rounded.PowerSettingsNew
     }
 
@@ -1380,6 +1416,7 @@ private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this)
     AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> 200.dp
     AdvancedSetupPanel.EnhancedMetadata -> 360.dp
     AdvancedSetupPanel.TrackingServices -> 160.dp
+    AdvancedSetupPanel.Notifications -> 200.dp
     AdvancedSetupPanel.StartupTray -> 200.dp
 }.let { if (desktop) it * DesktopSpecimenScale else it }
 
@@ -1519,6 +1556,15 @@ internal fun AdvancedPanelPreview(
         )
         AdvancedSetupPanel.EnhancedMetadata -> SpecimenMetadata(enriched = values.tmdbEnabled, desktop = desktop || facts.isDesktop)
         AdvancedSetupPanel.TrackingServices -> SpecimenTracking(scale = scale)
+        // The platform's own picture of an alert; Friend activity where it has none (alerts only).
+        AdvancedSetupPanel.Notifications -> {
+            val alerts = AdvancedSetupExtensions.alerts
+            if (alerts != null) {
+                alerts.preview(desktop)
+            } else {
+                SpecimenFriendActivity(socialEnabled = true, shareWatchingNow = true, shareWatched = true, scale = scale)
+            }
+        }
         AdvancedSetupPanel.StartupTray -> AdvancedSetupExtensions.startupAndTray?.preview?.invoke(desktop)
     }
 }
@@ -1643,6 +1689,7 @@ internal fun AdvancedPanelBody(
                 languageStrictness = values.player.playbackLanguageStrictness,
                 dynamicRangePolicy = values.player.playbackDynamicRangePolicy,
                 qualityCeilingMbps = values.player.playbackQualityCeilingMbps,
+                meteredCapHeight = values.player.playbackMeteredCapHeight.takeIf { AdvancedSetupControl.MeteredCap in controls },
             )
             return
         }
@@ -1736,6 +1783,7 @@ private fun AdvancedControl(
         AdvancedSetupControl.QualityLimit,
         AdvancedSetupControl.LanguageMatching,
         AdvancedSetupControl.DynamicRange,
+        AdvancedSetupControl.MeteredCap,
         AdvancedSetupControl.DownloadModeCards,
         AdvancedSetupControl.DownloadResolution,
         AdvancedSetupControl.DownloadSize,
@@ -2282,8 +2330,39 @@ private fun AdvancedControl(
             onClick = { onOpenSettings(SettingsPage.TraktAuthentication) },
         )
         AdvancedSetupControl.StartupAndTray -> AdvancedSetupExtensions.startupAndTray?.controls?.invoke()
+        AdvancedSetupControl.PlatformAlerts -> AdvancedSetupExtensions.alerts?.controls?.invoke()
+        // The Settings row's own setter: turning it on asks the OS, and only this device's answer counts
+        // since Device Setup made alerts device-owned.
+        AdvancedSetupControl.EpisodeAlerts -> SetupToggleRow(
+            title = stringResource(Res.string.settings_notifications_episode_release_alerts),
+            description = stringResource(Res.string.settings_notifications_episode_release_alerts_description),
+            checked = values.episodeAlerts,
+            onCheckedChange = EpisodeReleaseNotificationsRepository::setEnabled,
+        )
+        AdvancedSetupControl.UiZoom -> SetupQuestion(
+            title = stringResource(Res.string.settings_appearance_desktop_ui_zoom),
+            detail = stringResource(Res.string.advanced_setup_ui_zoom_detail),
+        ) {
+            NuvioSegmentedChoice(
+                segments = AdvancedUiZoomChoices.map { NuvioSegment(it.label, it) },
+                // Settings offers more steps than fit here; snap to the nearest rather than light none.
+                selected = AdvancedUiZoomChoices.minByOrNull { abs(it.percent - values.uiZoom.percent) },
+                onSelected = ThemeSettingsRepository::setDesktopUiZoom,
+                compact = true,
+            )
+        }
     }
 }
+
+/** The interface sizes Advanced Setup offers; Settings → Appearance has every step. */
+private val AdvancedUiZoomChoices: List<DesktopUiZoom> = listOf(
+    DesktopUiZoom.P75,
+    DesktopUiZoom.P90,
+    DesktopUiZoom.P100,
+    DesktopUiZoom.P110,
+    DesktopUiZoom.P125,
+    DesktopUiZoom.P150,
+)
 
 /** Explanation + a way to the real Settings page. Never a connect flow of its own (plan §12). */
 @Composable
@@ -2481,6 +2560,7 @@ internal val AdvancedSetupPanel.titleRes: StringResource
         AdvancedSetupPanel.SocialIdentity -> Res.string.setup_social_identity_title
         AdvancedSetupPanel.EnhancedMetadata -> Res.string.advanced_setup_category_metadata
         AdvancedSetupPanel.TrackingServices -> Res.string.advanced_setup_category_tracking
+        AdvancedSetupPanel.Notifications -> Res.string.advanced_setup_category_notifications
         AdvancedSetupPanel.StartupTray -> Res.string.advanced_setup_category_startup
     }
 
@@ -2524,5 +2604,7 @@ internal fun AdvancedSetupPanel.subtitleRes(facts: AdvancedSetupFacts): StringRe
     AdvancedSetupPanel.SocialIdentity -> Res.string.setup_social_identity_subtitle
     AdvancedSetupPanel.EnhancedMetadata -> Res.string.advanced_setup_panel_metadata_subtitle
     AdvancedSetupPanel.TrackingServices -> Res.string.advanced_setup_panel_tracking_subtitle
+    AdvancedSetupPanel.Notifications ->
+        if (facts.isDesktop) Res.string.advanced_setup_panel_notifications_desktop else Res.string.advanced_setup_panel_notifications_mobile
     AdvancedSetupPanel.StartupTray -> Res.string.advanced_setup_panel_startup_subtitle
 }

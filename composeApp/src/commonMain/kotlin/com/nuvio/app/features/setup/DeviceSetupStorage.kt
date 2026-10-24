@@ -24,9 +24,36 @@ internal expect object DeviceSetupStorage {
 internal object SetupProfileFlags {
     private const val ARRIVAL_PENDING = "setup_arrival_pending"
     private const val ADVANCED_SETUP_OPENED = "advanced_setup_opened"
+    private const val DEVICE_SETUP_DONE = "device_setup_done"
+
+    /**
+     * Installation-wide, under profile 0 (no profile has that id): this installation predates the
+     * Device Setup redesign, so every profile entering it counts as set up (`deviceSetupSeed`). Kept
+     * with the account's flags, so signing in again afresh asks properly.
+     */
+    private const val LEGACY_INSTALLATION = "device_setup_legacy_installation"
+    private const val INSTALLATION = 0
 
     // One key per debug build: debug builds only, so the handful of keys a tester collects is fine.
     private const val DEBUG_SETTINGS_OFFER = "debug_settings_offer_"
+
+    /**
+     * This profile has set this device up (Device Setup redesign, 2026-10-24) - finished or declined
+     * it. From then on sync no longer overwrites the profile's device-owned settings here
+     * (`DeviceOwnedSettings`), which is what makes them per device.
+     */
+    fun deviceSetupDone(profileId: Int): Boolean =
+        DeviceSetupStorage.loadProfileFlag(DEVICE_SETUP_DONE, profileId) ||
+            (DeviceSetupStorage.loadProfileFlag(LEGACY_INSTALLATION, INSTALLATION) && markDeviceSetupDone(profileId))
+
+    /** Returns true, so [deviceSetupDone] can mark a legacy installation's profile as it reads it. */
+    fun markDeviceSetupDone(profileId: Int): Boolean {
+        DeviceSetupStorage.saveProfileFlag(DEVICE_SETUP_DONE, profileId, true)
+        return true
+    }
+
+    fun markLegacyInstallation() =
+        DeviceSetupStorage.saveProfileFlag(LEGACY_INSTALLATION, INSTALLATION, true)
 
     fun arrivalPending(profileId: Int): Boolean = DeviceSetupStorage.loadProfileFlag(ARRIVAL_PENDING, profileId)
 
