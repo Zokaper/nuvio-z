@@ -3,8 +3,8 @@ Last updated: 2026-10-24
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 131 (dispatched) | Completing friend profile + audience privacy from 078bffea5; compile/render/debug verification pending |
-| Mobile | `claude/social-v2` | 112 (dispatched) | Friend profile + audiences ported; Android Social tests/APK in progress |
+| Desktop | `claude/social-v2-design` | 132 (building) | Friend profile + audience settings complete; final desktop tests/renders 184/184; live smoke check in progress |
+| Mobile | `claude/social-v2` | 113 (building) | Friend profile + audiences ported; final Android Social tests 179/179 and debug APK pass |
 
 ## Friend profile and audience privacy continuation (2026-10-24)
 
@@ -16,9 +16,13 @@ restores audiences; failed history loads have Retry. Narrow desktop Now cards pr
 Mobile: strings `d41da3433`, original port `d06bb8e03`, wiring/recovery `352e64257`, card layout
 `6b6826b54`. Desktop counterparts `c9d340ff4`, `44a74ca04`; new render/recovery coverage `137408500`.
 All eight changed shared production files and the Social V2 strings block match across repos.
-Desktop compilation passes; nine pure groups pass 1,088 checks. Focused desktop Social tests,
-production renders, Android Social host tests and debug APK are in progress. Debug publication
-waits for those checks. No new installed-device testing is claimed. Backend `8164eaf` / migration
+Final local verification passes: desktop Social tests + real page renders **184/184** (22 suites,
+zero failures/errors/skips, Gradle exit 0; `build/profile-audience-final.log`), Android Social host
+tests **179/179** and `assembleFullDebug` (Gradle exit 0; `build/profile-audience-mobile-final.log`),
+and nine pure groups **1,088/1,088**. Renders inspected at 320/411 px phones and 1140/1920 desktop,
+including both phone tabs and audience pages. Desktop debug **132** / mobile **113** reserved;
+existing debug workflows are being dispatched. Live desktop smoke check is in progress. No new
+installed-device testing is claimed. Backend `8164eaf` / migration
 `202610240001` was already deployed by the previous session (551/551 pgTAP); this continuation
 makes no backend changes. S13/S14 record the new scope in `Docs/Z-FEATURES.md`.
 
