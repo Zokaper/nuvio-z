@@ -1,10 +1,26 @@
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
-| Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
+| Desktop | `claude/social-v2-design` | 131 (dispatched) | Completing friend profile + audience privacy from 078bffea5; compile/render/debug verification pending |
+| Mobile | `claude/social-v2` | 112 (dispatched) | Friend profile + audiences ported; Android Social tests/APK in progress |
+
+## Friend profile and audience privacy continuation (2026-10-24)
+
+Resumed desktop `078bffea5` after the previous session stopped. Both branches now carry the full
+profile page, month history, three audience settings with separately remembered lists, and the
+HTTPS banner dialog, reachable from Social settings. Saves show failures and prevent duplicate
+submission; audience mutations serialize and cannot publish across profile changes; cached state
+restores audiences; failed history loads have Retry. Narrow desktop Now cards preserve their titles.
+Mobile: strings `d41da3433`, original port `d06bb8e03`, wiring/recovery `352e64257`, card layout
+`6b6826b54`. Desktop counterparts `c9d340ff4`, `44a74ca04`; new render/recovery coverage `137408500`.
+All eight changed shared production files and the Social V2 strings block match across repos.
+Desktop compilation passes; nine pure groups pass 1,088 checks. Focused desktop Social tests,
+production renders, Android Social host tests and debug APK are in progress. Debug publication
+waits for those checks. No new installed-device testing is claimed. Backend `8164eaf` / migration
+`202610240001` was already deployed by the previous session (551/551 pgTAP); this continuation
+makes no backend changes. S13/S14 record the new scope in `Docs/Z-FEATURES.md`.
 
 ## Regional My language switched subtitles off (2026-10-23, debug 112 / 131)
 
