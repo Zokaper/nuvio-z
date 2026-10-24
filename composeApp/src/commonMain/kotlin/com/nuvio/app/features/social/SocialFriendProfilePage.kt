@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -288,7 +289,8 @@ private fun ProfileBanner(
 ) {
     val bg = MaterialTheme.colorScheme.background
     val live = watching?.state == SocialPlaybackState.playing
-    Box(Modifier.fillMaxWidth().height((if (wide) 250.dp else 230.dp) + topInset)) {
+    // Clipped: the artwork's placeholder glow draws past its own bounds and showed as a haze under the name.
+    Box(Modifier.fillMaxWidth().height((if (wide) 250.dp else 230.dp) + topInset).clipToBounds()) {
         val banner = friend.bannerUrl?.takeIf(String::isNotBlank)
         if (banner != null) {
             SocialArtwork(listOf(banner), friend.handle, Modifier.matchParentSize())
@@ -305,7 +307,19 @@ private fun ProfileBanner(
                 }
             }
         }
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to bg.copy(alpha = 0.55f), 1f to bg)))
+        // Light over the picture, then the backdrop dissolves into the page under the name. Phones keep
+        // less shade at the top: there is no tab bar to read over it there.
+        val topShade = if (wide) 0.4f else 0.2f
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(
+                    0f to bg.copy(alpha = topShade),
+                    0.45f to bg.copy(alpha = topShade * 0.5f),
+                    0.8f to bg.copy(alpha = 0.75f),
+                    1f to bg,
+                ),
+            ),
+        )
         Row(
             Modifier.align(Alignment.BottomStart).padding(horizontal = if (wide) 48.dp else 18.dp),
             verticalAlignment = Alignment.CenterVertically,

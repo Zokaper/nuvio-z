@@ -3419,7 +3419,7 @@
     <string name="advanced_setup_category_social">Social</string>
     <string name="advanced_setup_category_metadata">Enhanced metadata</string>
     <string name="advanced_setup_category_tracking">Tracking</string>
-    <string name="advanced_setup_category_startup">Startup &amp; tray</string>
+    <string name="advanced_setup_category_startup">This computer</string>
     <string name="advanced_setup_progress">%1$s · %2$d of %3$d</string>
     <string name="advanced_setup_tour_progress">Full tour · %1$d of %2$d</string>
     <string name="advanced_setup_all_categories">All areas</string>
@@ -3509,10 +3509,11 @@
     <string name="advanced_setup_panel_social_subtitle">Friends, activity and watching together.</string>
     <string name="advanced_setup_panel_metadata_subtitle">On by default. No account or key needed.</string>
     <string name="advanced_setup_panel_tracking_subtitle">Sync your watch history with Trakt or Simkl.</string>
-    <string name="advanced_setup_panel_startup_subtitle">What closing the window does, and how Nuvio Z starts.</string>
+    <string name="advanced_setup_panel_startup_subtitle">What closing the window does, how Nuvio Z starts, and whether Discord shows what you watch.</string>
     <string name="advanced_setup_startup_summary_tray">Closes to tray</string>
     <string name="advanced_setup_startup_summary_quit">Closes fully</string>
     <string name="advanced_setup_startup_summary_starts">Starts with Windows</string>
+    <string name="advanced_setup_startup_summary_discord">Shows on Discord</string>
     <string name="advanced_preview_while_loading">While loading</string>
     <string name="advanced_preview_when_paused">When paused</string>
     <string name="advanced_preview_warning_sample">Violence · Language</string>

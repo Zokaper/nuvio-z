@@ -25,6 +25,9 @@ internal object SetupProfileFlags {
     private const val ARRIVAL_PENDING = "setup_arrival_pending"
     private const val ADVANCED_SETUP_OPENED = "advanced_setup_opened"
 
+    // One key per debug build: debug builds only, so the handful of keys a tester collects is fine.
+    private const val DEBUG_SETTINGS_OFFER = "debug_settings_offer_"
+
     fun arrivalPending(profileId: Int): Boolean = DeviceSetupStorage.loadProfileFlag(ARRIVAL_PENDING, profileId)
 
     fun setArrivalPending(profileId: Int, pending: Boolean) =
@@ -35,4 +38,11 @@ internal object SetupProfileFlags {
 
     fun markAdvancedSetupOpened(profileId: Int) =
         DeviceSetupStorage.saveProfileFlag(ADVANCED_SETUP_OPENED, profileId, true)
+
+    /** This profile has answered "New settings available" on debug build [build] (2026-10-24). */
+    fun debugSettingsOfferAnswered(profileId: Int, build: Int): Boolean =
+        DeviceSetupStorage.loadProfileFlag("$DEBUG_SETTINGS_OFFER$build", profileId)
+
+    fun markDebugSettingsOfferAnswered(profileId: Int, build: Int) =
+        DeviceSetupStorage.saveProfileFlag("$DEBUG_SETTINGS_OFFER$build", profileId, true)
 }

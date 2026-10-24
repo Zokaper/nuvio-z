@@ -399,6 +399,22 @@ internal fun AppGate(
     // Z (2026-10-20): an Upgrade no longer gates the app. It is offered after What's New instead -
     // "New settings available" - unless it carries a cross-family arrival, which is device setup.
     val upgradeOffered = gateSetupRun == SetupWizardRun.Upgrade && !arrivalPending && !reviewSetupRequested
+    // Z (2026-10-24, maintainer): a debug build offers this release's settings again, once per profile
+    // per debug build, so a tester who already answered can still walk them. Never on a stable build.
+    // Re-read when the gate moves (a profile switch) or the offer is answered.
+    val debugOfferBuild = whatsNewIdentity.debugBuild
+    var debugOfferEpoch by remember { mutableStateOf(0) }
+    val debugOfferPending = remember(gateScreen, debugOfferEpoch) {
+        debugOfferBuild != null &&
+            !SetupProfileFlags.debugSettingsOfferAnswered(ProfileRepository.activeProfileId, debugOfferBuild)
+    }
+    val debugOffered = debugOfferPending && !upgradeOffered && gateSetupRun == SetupWizardRun.None && !reviewSetupRequested
+    val answerDebugOffer: () -> Unit = {
+        if (debugOfferBuild != null) {
+            SetupProfileFlags.markDebugSettingsOfferAnswered(ProfileRepository.activeProfileId, debugOfferBuild)
+            debugOfferEpoch++
+        }
+    }
     val gatingRun = when {
         reviewSetupRequested -> SetupWizardRun.Full
         upgradeOffered -> SetupWizardRun.None
@@ -814,6 +830,8 @@ internal fun AppGate(
                             onFinished = {
                                 deviceSetupRevision = DeviceSetupStorage.loadRevision()
                                 arrivalPending = SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId)
+                                // A whole Initial Setup has just asked this release's questions.
+                                if (gatingRun == SetupWizardRun.Full) answerDebugOffer()
                                 reviewSetupRequested = false
                             },
                             modifier = Modifier.fillMaxSize(),
@@ -1004,18 +1022,27 @@ internal fun AppGate(
 
         // Z: "New settings available" (see `NewSettingsOffer`), once What's New is out of the way.
         if (
-            upgradeOffered && whatsNewDecided && gateScreen == AppGateScreen.Main.name &&
+            (upgradeOffered || debugOffered) && whatsNewDecided && gateScreen == AppGateScreen.Main.name &&
             !showWhatsNew && !showWhatsNewOnDemand && !showSetupWizardOnDemand && !isAdvancedSetupActive
         ) {
             NewSettingsOffer(
                 // The areas this profile owes, in Advanced Setup (2026-10-22) - not a wizard of their own.
                 // Answering is opening them: the revision is written now, as leaving early always did.
                 onYes = {
-                    val owed = advancedSetupAreasChangedSince(gatePlayerSettings.setupWizardCompletedRevision ?: 0)
+                    // A debug re-offer is for a profile already current: this release's areas.
+                    val owed = if (upgradeOffered) {
+                        advancedSetupAreasChangedSince(gatePlayerSettings.setupWizardCompletedRevision ?: 0)
+                    } else {
+                        advancedSetupAreasChangedIn(SETUP_WIZARD_REVISION)
+                    }
                     PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+                    answerDebugOffer()
                     AdvancedSetupLauncher.review(owed)
                 },
-                onNo = { PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION) },
+                onNo = {
+                    PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+                    answerDebugOffer()
+                },
                 onBackToWhatsNew = {
                     if (whatsNewEvents.isNotEmpty() || whatsNewDebug != null) showWhatsNew = true else showWhatsNewOnDemand = true
                 },

@@ -6,6 +6,24 @@ Last updated: 2026-10-24
 | Desktop | `claude/social-v2-design` | 132 (published) | Friend profile + audience settings complete; final desktop tests/renders 184/184; live settings/profile smoke passed |
 | Mobile | `claude/social-v2` | 113 (published) | Friend profile + audiences complete; Android Social tests 179/179, APK + unsigned IPA published |
 
+## Debug 132/113 feedback: banner, Discord in New settings, debug re-offer (2026-10-24)
+
+Maintainer results on desktop 132 / mobile 113: items 1-10 of the test list passed, including iOS
+Watch Together host loss. Changes from the feedback, in both repos (shared files byte-identical):
+- **Friend profile banner**: lighter shade (phones 0.2 at the top, desktop 0.4 for the tab bar), and
+  the backdrop now dissolves into the page under the name. The banner is clipped: the artwork
+  placeholder's glow drew past its bounds and showed as a green haze under the name.
+- **Discord Rich Presence** (inherited from upstream NuvioDesktop PR #369 in August) is now in
+  Advanced Setup's desktop area, renamed **Startup & tray -> This computer**. That area is already in
+  `advancedSetupAreasChangedIn(11)`, so "New settings available -> Yes" offers it.
+- **Debug builds re-offer "New settings available"** once per profile per debug build
+  (`SetupProfileFlags.debugSettingsOfferAnswered`). Yes reviews this release's areas; a finished
+  Initial Setup counts as answered. Stable builds are unchanged.
+Verified: desktop setup + What's New tests and the profile / This computer renders **248/248**
+(`nuviozdesktop/build/device-discord-tests.log`); mobile `:androidApp:compileFullDebugKotlin` exit 0.
+Not yet in a debug build. **Next:** `Nuvio Z/PLAN-device-setup.md` (Device Setup as a fixed,
+per-profile-per-device setup type behind a pop-up; agreed, not started). Discord join is parked there.
+
 ## Friend profile and audience privacy continuation (2026-10-24)
 
 Resumed desktop `078bffea5` after the previous session stopped. Both branches now carry the full
