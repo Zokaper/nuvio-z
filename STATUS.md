@@ -6,6 +6,18 @@ Last updated: 2026-10-24
 | Desktop | `claude/social-v2-design` | 135 (dispatched) | Welcome back copy on top of 134 (setup-upload fix); see the first section |
 | Mobile | `claude/social-v2` | 116 (dispatched) | Welcome back copy on top of 115 (setup-upload fix); see the first section |
 
+## Social V2 stable release (2026-10-24): mobile 0.6.2-z1 / desktop 0.1.31-alpha-z1
+
+Maintainer go-ahead after the 134/115 retest and a confirmed update over 132/113 (no device pop-up).
+What's New seq 5 gained Friend profiles + Choose who sees what you watch (features), Set up each device
+(improvement) and the second-device setup fix (maintainer's picks; mobile `4ea33c4b9`, desktop `aca1efc5c`).
+Release branches: mobile `release/0.6.2-z1` = `claude/social-v2` + `main` (installer split; docs conflicts kept
+the Social V2 side hunk by hunk, `.gitignore` keeps both blocks), desktop `release/0.1.31-alpha-z1` =
+`claude/social-v2-design` + `Dev` (two docs commits, clean). The bump is the last commit: mobile 0.6.2-z1 build
+129 serial 130, desktop 0.1.31-alpha-z1 code 48 serial 134, ship date 2026-10-24 on all three platforms of seq 5
+(a later publish date must be folded INTO the bump commits - see `Docs/RELEASES.md`). Then push to `main` / `Dev`,
+dry-run both, publish only on the maintainer's word. The maintainer writes the GitHub release notes.
+
 ## Finishing setup cancelled its own upload (2026-10-24, debug 134 / 115)
 
 Maintainer's first Device Setup round on 133/114 (new profile made on desktop, then opened on the phone):
