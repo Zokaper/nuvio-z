@@ -3,8 +3,8 @@ Last updated: 2026-10-24
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 134 (dispatched) | Setup-upload fix on top of 133 (Device Setup); see the first section |
-| Mobile | `claude/social-v2` | 115 (dispatched) | Setup-upload fix on top of 114 (Device Setup); see the first section |
+| Desktop | `claude/social-v2-design` | 135 (dispatched) | Welcome back copy on top of 134 (setup-upload fix); see the first section |
+| Mobile | `claude/social-v2` | 116 (dispatched) | Welcome back copy on top of 115 (setup-upload fix); see the first section |
 
 ## Finishing setup cancelled its own upload (2026-10-24, debug 134 / 115)
 
@@ -27,7 +27,12 @@ Also clarified to the maintainer: Initial Setup *ends with* the device steps (no
 after it); "This computer" is skipped when the machine already answered it.
 **Retest needs a brand-new profile**: the 133 test profile now has a mobile blob, so it can never arrive
 from desktop again. Untested so far: update over 132/113, "Not now", per-device quality (items 1, 4, 5).
-Dispatched: desktop 134 (run 40107250703), mobile 115 (run 40107962513).
+Published: desktop 134 (run 40107250703). Mobile 115 (run 40107962513).
+**Maintainer retest on 134/115: all passed** (new desktop profile -> no offer after Initial Setup; phone
+opened Device Setup on Welcome back). The phone's later "New settings available" is the debug-only re-offer
+(a Device run does not answer it). Welcome back reworded at the maintainer's pick (option B + names Device
+Setup, no repeated subtitle): desktop `75baa9f1e`, mobile `428b00fab`; debug 135 (run 40112172449) / 116
+(run 40112230473; an earlier 116 run was cancelled because it lacked the copy commit).
 
 ## Device Setup redesign (2026-10-24, debug 133 / 114)
 
