@@ -246,19 +246,16 @@ jobs:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
 
-      # Phase 2 spike (claude/self-signing): link the installer's Rust core into the app. Branches without
-      # iosInstaller/ffi skip this, and without NUVIO_IOS_SELF_SIGNING Gradle leaves the library out.
+      # Nuvio Z keeps itself signed: link the installer's Rust signer (pinned from Zokaper/nuviozinstaller in
+      # signer/Cargo.toml) into the app. Branches without signer/ skip this, and Gradle then leaves it out.
       - name: Build the self-signing library
         id: signer
-        if: ${{ hashFiles('iosInstaller/ffi/Cargo.toml') != '' }}
-        working-directory: iosInstaller
+        if: ${{ hashFiles('signer/Cargo.toml') != '' }}
         env:
           # Nuvio Z's minimum iOS; without it the crypto C/assembly objects target the SDK's own version.
           IPHONEOS_DEPLOYMENT_TARGET: "16.1"
         run: |
-          rustup target add aarch64-apple-ios
-          cargo build -p nuvioz-signer --release --target aarch64-apple-ios
-          ls -la target/aarch64-apple-ios/release/libnuvioz_signer.a
+          bash signer/build.sh aarch64-apple-ios
           echo "NUVIO_IOS_SELF_SIGNING=true" >> "$GITHUB_ENV"
           echo "linked=true" >> "$GITHUB_OUTPUT"
 
@@ -437,7 +434,7 @@ jobs:
             --clobber
 
       # Installer 3 downloads Nuvio Z Debug from the link in distribution/ios-installer/nuvio.json on main
-      # (iosInstaller/core/src/nuvio.rs, CONFIG_URL), pinned to its SHA-256. Only a build that renews itself goes
+      # (Zokaper/nuviozinstaller core/src/nuvio.rs, CONFIG_URL), pinned to its SHA-256. Only a build that renews itself goes
       # there: an IPA without the signer, installed straight from a computer, would stop opening after 7 days.
       - name: Point the iOS installer at this build
         if: ${{ needs.ios_debug.outputs.self_signing == 'true' }}

@@ -12,9 +12,10 @@ gh() {
 }
 git() {
     case "${1-}" in
-        rev-parse) return 0 ;;
-        diff) return 1 ;; # Signer source changed since whichever baseline was chosen.
-        show) printf '%s\n' 'name = "isideload"' 'version = "0.4.6"' ;;
+        # A tree hash per commit: the signer source differs between whichever baseline was chosen and HEAD.
+        rev-parse) [[ "${2-}" == "-q" ]] && return 0; echo "tree-of-${2-}" ;;
+        # These releases predate signer/ (the pinned installer), so its Cargo.toml is absent.
+        show) [[ "${2-}" == *signer/Cargo.toml ]] && return 1; printf '%s\n' 'name = "isideload"' 'version = "0.4.6"' ;;
         *) echo 'Unexpected git call in marker test' >&2; return 1 ;;
     esac
 }

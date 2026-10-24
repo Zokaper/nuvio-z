@@ -8,8 +8,10 @@
 # Usage: scripts/ios-release-markers.sh <self_signing true|false> <stable or tag prefix, e.g. debug-v>
 # Needs GH_TOKEN (or a gh login) and the full git history (actions/checkout fetch-depth: 0).
 #
-# "Signing code" is our signer (iosInstaller/core, iosInstaller/ffi) and the upstream crates it signs and
-# installs with. Only those crates' Cargo.lock entries count: the lock also pins the installer's UI
+# "Signing code" is our signer (the installer's core/ and ffi/) and the upstream crates it signs and installs
+# with. Until 2026-10-24 those lived here in iosInstaller/; since then signer/Cargo.toml pins a commit of
+# Zokaper/nuviozinstaller, whose filtered history gives the same content the same tree hashes, so either kind of
+# release compares with the other. Only those crates' Cargo.lock entries count: the lock also pins the installer's UI
 # dependencies, and bumping those must not make an update look urgent.
 set -euo pipefail
 
@@ -46,14 +48,31 @@ if ! git rev-parse -q --verify "refs/tags/${previous}" >/dev/null; then
     git fetch --quiet origin "refs/tags/${previous}:refs/tags/${previous}"
 fi
 
+installer_repo="https://github.com/Zokaper/nuviozinstaller.git"
+installer_git=""
+# The signer's source at a commit, as the tree hashes of core/ and ffi/.
+signer_trees() {
+    local rev
+    rev=$(git show "$1:signer/Cargo.toml" 2>/dev/null | sed -n -E 's/.*nuviozinstaller", rev = "([0-9a-f]{40})".*/\1/p' | head -n 1)
+    if [[ -n "${rev}" ]]; then
+        if [[ -z "${installer_git}" ]]; then
+            installer_git=$(mktemp -d)
+            git clone --quiet --bare --filter=blob:none "${installer_repo}" "${installer_git}"
+        fi
+        echo "$(git --git-dir "${installer_git}" rev-parse "${rev}:core") $(git --git-dir "${installer_git}" rev-parse "${rev}:ffi")"
+    else
+        echo "$(git rev-parse "$1:iosInstaller/core" 2>/dev/null) $(git rev-parse "$1:iosInstaller/ffi" 2>/dev/null)"
+    fi
+}
+
 lock_entries() {
-    git show "$1:iosInstaller/Cargo.lock" 2>/dev/null \
+    { git show "$1:signer/Cargo.lock" 2>/dev/null || git show "$1:iosInstaller/Cargo.lock" 2>/dev/null; } \
         | awk -v pattern="^name = \"(${signing_crates})\"$" '$0 ~ pattern { name = $0; getline; print name " " $0 }' \
         | sort
 }
 
 changed=false
-if ! git diff --quiet "${previous}" HEAD -- iosInstaller/core iosInstaller/ffi; then
+if [[ "$(signer_trees "${previous}")" != "$(signer_trees HEAD)" ]]; then
     changed=true
     echo "Signer source changed since ${previous}." >&2
 fi

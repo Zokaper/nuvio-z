@@ -21,6 +21,206 @@
       "category": "developer-tools",
       "versions": [
         {
+          "version": "0.5.4-z3.115",
+          "buildVersion": "115",
+          "date": "2026-10-24T16:07:55Z",
+          "localizedDescription": "Debug build 0.5.4-z3.115 (build 115) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.115/Nuvio-Z-iOS-0.5.4-z3-115-debug-unsigned.ipa",
+          "size": 104576819,
+          "sha256": "6f2266acc7790faf8a88d2d3e672d4731284481e3f4a6b671a7f8b9bc0975a7b",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.114",
+          "buildVersion": "114",
+          "date": "2026-10-24T14:23:36Z",
+          "localizedDescription": "Debug build 0.5.4-z3.114 (build 114) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.114/Nuvio-Z-iOS-0.5.4-z3-114-debug-unsigned.ipa",
+          "size": 104527172,
+          "sha256": "2fe4156d6882ab95607670bb84622f5a233ca10dbf6ea041db9ce8c0a60fc0db",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.113",
+          "buildVersion": "113",
+          "date": "2026-10-24T02:02:11Z",
+          "localizedDescription": "Debug build 0.5.4-z3.113 (build 113) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.113/Nuvio-Z-iOS-0.5.4-z3-113-debug-unsigned.ipa",
+          "size": 104526457,
+          "sha256": "da4da0db05891b67a6e6e5d66d35feb050505e9ae7dcbde59ffe825fc9968764",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.112",
+          "buildVersion": "112",
+          "date": "2026-10-23T15:58:45Z",
+          "localizedDescription": "Debug build 0.5.4-z3.112 (build 112) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.112/Nuvio-Z-iOS-0.5.4-z3-112-debug-unsigned.ipa",
+          "size": 104244655,
+          "sha256": "46c8f82b0dacd326cde2a0115779669a0f7258c8892cf7f826597a5fff7f7991",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.111",
+          "buildVersion": "111",
+          "date": "2026-10-23T14:01:31Z",
+          "localizedDescription": "Debug build 0.5.4-z3.111 (build 111) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.111/Nuvio-Z-iOS-0.5.4-z3-111-debug-unsigned.ipa",
+          "size": 104244158,
+          "sha256": "07a730b3a86bc0416e6cc1b05c0929cf2c02a231d5a90105bf01dd4f737550df",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.110",
+          "buildVersion": "110",
+          "date": "2026-10-22T13:46:57Z",
+          "localizedDescription": "Debug build 0.5.4-z3.110 (build 110) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.110/Nuvio-Z-iOS-0.5.4-z3-110-debug-unsigned.ipa",
+          "size": 103985442,
+          "sha256": "a316b28e8113e402ffad6dd8d8580d1694de7d971ff93f0f0d6bf3393d933562",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.109",
+          "buildVersion": "109",
+          "date": "2026-10-22T12:11:21Z",
+          "localizedDescription": "Debug build 0.5.4-z3.109 (build 109) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.109/Nuvio-Z-iOS-0.5.4-z3-109-debug-unsigned.ipa",
+          "size": 103944731,
+          "sha256": "27737be68d6c881d166958f2a8f13f9e188355d3f92155068ac22074cba3157b",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.108",
+          "buildVersion": "108",
+          "date": "2026-10-20T14:21:17Z",
+          "localizedDescription": "Debug build 0.5.4-z3.108 (build 108) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.108/Nuvio-Z-iOS-0.5.4-z3-108-debug-unsigned.ipa",
+          "size": 103834282,
+          "sha256": "eb6f3993534d7a8b8d75976ed82287666b21f5e9021c194d7d22f0582a298019",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.107",
+          "buildVersion": "107",
+          "date": "2026-10-19T18:19:35Z",
+          "localizedDescription": "Debug build 0.5.4-z3.107 (build 107) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.107/Nuvio-Z-iOS-0.5.4-z3-107-debug-unsigned.ipa",
+          "size": 100746637,
+          "sha256": "253803e05f06f69f25e6e1a6c0c2ac3d03287768ea365d550939c0d9bca3b310",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.106",
+          "buildVersion": "106",
+          "date": "2026-10-19T14:21:01Z",
+          "localizedDescription": "Debug build 0.5.4-z3.106 (build 106) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.106/Nuvio-Z-iOS-0.5.4-z3-106-debug-unsigned.ipa",
+          "size": 100738899,
+          "sha256": "b9444de8938bd09dbc7d4fe425622925a4c0f7b1c3c473db087d5bde1e250fce",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.105",
+          "buildVersion": "105",
+          "date": "2026-10-19T12:22:09Z",
+          "localizedDescription": "Debug build 0.5.4-z3.105 (build 105) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.105/Nuvio-Z-iOS-0.5.4-z3-105-debug-unsigned.ipa",
+          "size": 100680685,
+          "sha256": "560c3856845a8a857badbc259613a1543428b62a0a89c471a14b8ef0a5bfa18a",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.104",
+          "buildVersion": "104",
+          "date": "2026-10-19T11:50:36Z",
+          "localizedDescription": "Debug build 0.5.4-z3.104 (build 104) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.104/Nuvio-Z-iOS-0.5.4-z3-104-debug-unsigned.ipa",
+          "size": 100539749,
+          "sha256": "01e9865abbefff41b033f7b85fdcefb29f02a78688010ba532640bbb4dc86946",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.103",
+          "buildVersion": "103",
+          "date": "2026-10-19T10:44:27Z",
+          "localizedDescription": "Debug build 0.5.4-z3.103 (build 103) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.103/Nuvio-Z-iOS-0.5.4-z3-103-debug-unsigned.ipa",
+          "size": 100538523,
+          "sha256": "098611a4b477a259477c9a82a3e9c30896d28fdc1544a3851c5c165e55010e90",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.102",
+          "buildVersion": "102",
+          "date": "2026-10-18T21:35:38Z",
+          "localizedDescription": "Debug build 0.5.4-z3.102 (build 102) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.102/Nuvio-Z-iOS-0.5.4-z3-102-debug-unsigned.ipa",
+          "size": 100552844,
+          "sha256": "4a21c3a3158ad46ad44082a77a45e8953f5ae70921408bbfb2e48bdbb1f3d949",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.101",
+          "buildVersion": "101",
+          "date": "2026-10-18T19:27:46Z",
+          "localizedDescription": "Debug build 0.5.4-z3.101 (build 101) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.101/Nuvio-Z-iOS-0.5.4-z3-101-debug-unsigned.ipa",
+          "size": 100519310,
+          "sha256": "04d41716f8a65b66c81db1c88cd565356b185e1ea2229d482e5dc28006ede387",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.100",
+          "buildVersion": "100",
+          "date": "2026-10-18T18:52:23Z",
+          "localizedDescription": "Debug build 0.5.4-z3.100 (build 100) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.100/Nuvio-Z-iOS-0.5.4-z3-100-debug-unsigned.ipa",
+          "size": 100521382,
+          "sha256": "160fe1816c8af0abb0e3644093aaa9e932fac7bf3d2c4ed2c3fe955706adae45",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.99",
+          "buildVersion": "99",
+          "date": "2026-10-18T17:33:40Z",
+          "localizedDescription": "Debug build 0.5.4-z3.99 (build 99) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.99/Nuvio-Z-iOS-0.5.4-z3-99-debug-unsigned.ipa",
+          "size": 100389683,
+          "sha256": "c7d236426a8798d1e1d64985651700432534202712e76f87985466a0ac6a143f",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.98",
+          "buildVersion": "98",
+          "date": "2026-10-18T15:49:51Z",
+          "localizedDescription": "Debug build 0.5.4-z3.98 (build 98) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.98/Nuvio-Z-iOS-0.5.4-z3-98-debug-unsigned.ipa",
+          "size": 100362657,
+          "sha256": "2079a0decb9c9211bf9ba08e0b64304a7aafe2ba1047abbdd2fb1d1d69c17dfb",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.97",
+          "buildVersion": "97",
+          "date": "2026-10-18T15:06:07Z",
+          "localizedDescription": "Debug build 0.5.4-z3.97 (build 97) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.97/Nuvio-Z-iOS-0.5.4-z3-97-debug-unsigned.ipa",
+          "size": 100349004,
+          "sha256": "5c4aafc3a97e48f187f39e3f8fa2d01e0901154a4947a55601a98fd8e94fa0fd",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.96",
+          "buildVersion": "96",
+          "date": "2026-10-18T13:50:40Z",
+          "localizedDescription": "Debug build 0.5.4-z3.96 (build 96) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.96/Nuvio-Z-iOS-0.5.4-z3-96-debug-unsigned.ipa",
+          "size": 100338926,
+          "sha256": "453747795889aabf4f9faa7067f9c3e872b3177162e4089b4a55e5ff10b0e362",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.4-z2.95",
           "buildVersion": "95",
           "date": "2026-10-18T10:29:00Z",
@@ -573,7 +773,9 @@
       ],
       "appPermissions": {
         "entitlements": [],
-        "privacy": {}
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Nuvio connects to media servers on your local network."
+        }
       }
     }
   ],

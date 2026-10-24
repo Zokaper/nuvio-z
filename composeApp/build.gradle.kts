@@ -338,15 +338,16 @@ val iosDistributionSourceDir = if (iosDistribution == "full") {
     "src/iosAppStore/kotlin"
 }
 val iosFrameworkBundleId = "com.nuvio.media"
-// Phase 2 spike (PLAN-nuvio-z-self-signing.md): link the installer's Rust core into the iOS app so Nuvio Z can
-// reach the phone's own services. Off unless NUVIO_IOS_SELF_SIGNING=true; the library comes from
-// `cargo build -p nuvioz-signer --release --target aarch64-apple-ios` in iosInstaller/.
+// Nuvio Z signs itself (PLAN-nuvio-z-self-signing.md): link the installer's Rust signer into the iOS app so Nuvio Z
+// can reach the phone's own services. Off unless NUVIO_IOS_SELF_SIGNING=true. The signer lives in
+// Zokaper/nuviozinstaller, pinned by commit in signer/Cargo.toml; `bash signer/build.sh aarch64-apple-ios` builds it
+// and stages the library and header in signer/out/.
 val iosSelfSigning = (
     providers.gradleProperty("nuvio.ios.selfSigning").orNull
         ?: System.getenv("NUVIO_IOS_SELF_SIGNING")
         ?: "false"
     ).trim().toBoolean()
-val nuviozSignerRoot = rootProject.file("iosInstaller")
+val nuviozSignerRoot = rootProject.file("signer/out")
 val nuvioEngineAppleFramework = rootProject.file("../nuvio-engine/platform/apple/NuvioEngine.xcframework")
 val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
@@ -463,7 +464,7 @@ kotlin {
         }
         val nuvioEngineSliceDirectory = nuvioEngineAppleFramework.resolve(nuvioEngineSlice)
         val nuviozSignerDirectory = nuviozSignerRoot.resolve(
-            if (iosTarget.name == "iosArm64") "target/aarch64-apple-ios/release" else "target/aarch64-apple-ios-sim/release",
+            if (iosTarget.name == "iosArm64") "aarch64-apple-ios" else "aarch64-apple-ios-sim",
         )
         // The device build must have it when asked for; a simulator slice that was not built just goes without.
         val withSigner = iosSelfSigning && (iosTarget.name == "iosArm64" || nuviozSignerDirectory.resolve("libnuvioz_signer.a").isFile)
@@ -489,11 +490,11 @@ kotlin {
                 }
                 if (withSigner) {
                     check(nuviozSignerDirectory.resolve("libnuvioz_signer.a").isFile) {
-                        "NUVIO_IOS_SELF_SIGNING is on: build iosInstaller's nuvioz-signer for ${iosTarget.name} first."
+                        "NUVIO_IOS_SELF_SIGNING is on: run signer/build.sh for ${iosTarget.name} first."
                     }
                     create("nuviozsigner") {
                         defFile(project.file("src/nativeInterop/cinterop/nuviozsigner.def"))
-                        compilerOpts("-I${nuviozSignerRoot.resolve("ffi/include").absolutePath}")
+                        compilerOpts("-I${nuviozSignerRoot.resolve("include").absolutePath}")
                         extraOpts("-libraryPath", nuviozSignerDirectory.absolutePath)
                     }
                 }

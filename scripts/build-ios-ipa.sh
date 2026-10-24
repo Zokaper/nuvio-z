@@ -46,7 +46,7 @@ fi
 if [[ -n "${NUVIO_KOTLIN_NATIVE_JVMARGS:-}" ]]; then
     build_environment+=("ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}")
 fi
-# Nuvio Z self-signing (builds linked with iosInstaller's signer, see composeApp/build.gradle.kts): compile
+# Nuvio Z self-signing (builds linked with the pinned signer, see composeApp/build.gradle.kts): compile
 # SelfSigning.swift's App Intent and background task, which the Info.plist keys added below go with. Debug and
 # Release alike since 0.5.4-z3; the condition list replaces the build setting, so Debug keeps its own DEBUG.
 self_signing=false
