@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "stable": {
-    "url": "https://github.com/Zokaper/nuvio-z/releases/download/0.5.4-z3+129/Nuvio-Z-iOS-0.5.4-z3-128-unsigned.ipa",
-    "sha256": "7847d496a2e4b1e6ad051e1efbf926130adc46f65c65bfcc99eab51ad4fd2c44",
-    "version": "0.5.4-z3"
+    "url": "https://github.com/Zokaper/nuvio-z/releases/download/0.6.2-z1+130/Nuvio-Z-iOS-0.6.2-z1-129-unsigned.ipa",
+    "sha256": "6679a54596d00c19ba2fdbe7bc7c171e2683d4c6851ca1c7efbb9ae652be1099",
+    "version": "0.6.2-z1"
   },
   "debug": {
     "url": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.116/Nuvio-Z-iOS-0.5.4-z3-116-debug-unsigned.ipa",
