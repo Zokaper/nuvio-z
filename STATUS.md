@@ -3,8 +3,8 @@ Last updated: 2026-10-24
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 131 (dispatched) | Completing friend profile + audience privacy from 078bffea5; compile/render/debug verification pending |
-| Mobile | `claude/social-v2` | 112 (dispatched) | Friend profile + audiences ported; Android Social tests/APK in progress |
+| Desktop | `claude/social-v2-design` | 132 (building) | Friend profile + audience settings complete; final desktop tests/renders 184/184; live settings/profile smoke passed |
+| Mobile | `claude/social-v2` | 113 (building) | Friend profile + audiences ported; final Android Social tests 179/179 and debug APK pass |
 | Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
 | Installer | `Zokaper/nuviozinstaller:main` | `3.1.0-alpha.1` (published) | Separate repository; all-platform Release build passed; self-update device tests deferred by maintainer |
 
@@ -18,11 +18,23 @@ restores audiences; failed history loads have Retry. Narrow desktop Now cards pr
 Mobile: strings `d41da3433`, original port `d06bb8e03`, wiring/recovery `352e64257`, card layout
 `6b6826b54`. Desktop counterparts `c9d340ff4`, `44a74ca04`; new render/recovery coverage `137408500`.
 All eight changed shared production files and the Social V2 strings block match across repos.
-Desktop compilation passes; nine pure groups pass 1,088 checks. Focused desktop Social tests,
-production renders, Android Social host tests and debug APK are in progress. Debug publication
-waits for those checks. No new installed-device testing is claimed. Backend `8164eaf` / migration
+Final local verification passes: desktop Social tests + real page renders **184/184** (22 suites,
+zero failures/errors/skips, Gradle exit 0; `build/profile-audience-final.log`), Android Social host
+tests **179/179** and `assembleFullDebug` (Gradle exit 0; `build/profile-audience-mobile-final.log`),
+and nine pure groups **1,088/1,088**. Renders inspected at 320/411 px phones and 1140/1920 desktop,
+including both phone tabs and audience pages. Desktop debug **132** / mobile **113** are building.
+Hot Reload semantic smoke passed: the gear exposes all three audience rows and the banner; the
+Watching Now page opens its four choices, the friend picker selects and cancels without saving,
+the banner opens/cancels, and the profile loads real month history/together stats and switches to
+You two at phone width, with no UI exception. MCP screenshots were black; visual QA used the
+production render harness PNGs. The temporary source app was closed after verification.
+No new installed-device testing is claimed. Backend `8164eaf` / migration
 `202610240001` was already deployed by the previous session (551/551 pgTAP); this continuation
 makes no backend changes. S13/S14 record the new scope in `Docs/Z-FEATURES.md`.
+
+Debug workflows: [desktop 132](https://github.com/Zokaper/NuvioZDesktop/actions/runs/40050520980)
+at `847da5a26` (pre-created exact tag), [mobile 113](https://github.com/Zokaper/nuvio-z/actions/runs/40050524988)
+at `2527ace71`. All package jobs are running; publication is not yet confirmed.
 
 
 ## The installer has its own repository (2026-10-24)
