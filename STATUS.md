@@ -6,6 +6,14 @@ Last updated: 2026-10-25
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
 
+## TV playback source-screen continuation (2026-10-25)
+
+`nuviozweb` `claude/phase-10-trunk`: Stage 2 step 3.2 wires Streamlined's quality sheet,
+persistent loading host, capped fallback chain, progress watchdog and bounded in-player source list.
+394 tests pass; browser checks include an actual dead URL falling back to a working video in 20.1 s.
+Canonical TV cells and PATCH-SURFACE now match this step. No Kotlin code changed. TV verification,
+debug publication, remaining P12/P16 work and next step 3.3 are detailed in `nuviozweb/STATUS.md`.
+
 ## Social V2 shipped (2026-10-24)
 
 Published on the maintainer's word, from the release branches above (both now contained in `main` / `Dev`):

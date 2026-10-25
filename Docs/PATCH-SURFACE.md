@@ -461,6 +461,19 @@ js/ui/screens/settings/settingsScreenPlaybackMarkup-01-general.js
                                    mobile's note (isZAutoStreamSelectionInert)
 js/ui/screens/settings/settingsScreenHelpers-10-create-default-expanded-state.js
                                    `sources: false`, so the group's open state survives a reload
+js/ui/screens/stream/streamScreen.js
+                                   import + withZStreamPlayback decorator; vanilla search/list retained
+js/ui/screens/stream/streamScreenMethods-10-play-stream.js
+                                   zAutomaticPlayback launch parameter (chain/context/consent)
+js/ui/screens/player/playerScreen.js
+                                   import + withZPlayerPlayback decorator; Z lifecycle stays in js/z/
+js/ui/screens/player/playerScreenMethods-63-get-source-request-key.js
+                                   sourceWindow bounds card/badge DOM to 13 rows; absolute focus retained
+js/ui/screens/player/playerScreenMethods-35-play-stream-candidate.js
+                                   forwards explicit uncached consent only for the selected source id
+js/core/debrid/directDebridResolver.js
+                                   optional allowUncached=false bypasses two cache-only guards solely
+                                   after Start caching consent; provider APIs remain vanilla
 package.json                       version 1.2.9-z1; test:z script
 res/values/strings.xml             the Nuvio Z string block, last in the file
 scripts/appMetadata.mjs            normalizePackageVersion (manifests get numeric x.y.z)
