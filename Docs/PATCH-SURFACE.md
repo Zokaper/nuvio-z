@@ -445,6 +445,8 @@ Upstream-owned files modified, and what each seam does:
 ```
 .gitignore                         AGENTS.md un-ignored (Z's manual is tracked)
 js/core/update/appUpdateService.js release URL + Z-revision ordering, imported from js/core/z/zVersion.js
+js/core/profile/profileSettingsSyncFeature-player-settings.js
+                                   three seams: Z playback keys ride in the tv blob's player payload
 js/ui/screens/settings/settingsScreenMethods-12-render-trakt-stats-strip.js
                                    one import + one line: About's "Based on Nuvio <base>"
 package.json                       version 1.2.9-z1; test:z script
@@ -455,7 +457,7 @@ scripts/package-webos.mjs          version normalisation only (webOS identity is
 scripts/release-build-poller.mjs   default repo Zokaper/NuvioZWeb
 ```
 
-Z-owned, zero conflict risk: `js/core/z/`, `js/ui/screens/settings/zSettingsAbout.js`, `z-tests/`,
+Z-owned, zero conflict risk: `js/core/z/`, `js/z/`, `js/ui/screens/settings/zSettingsAbout.js`, `z-tests/`,
 `.gitattributes`, `debug-version.properties`, the debug and drift workflows, `scripts/upstream-drift.sh`,
 `AGENTS.md`, `STATUS.md`, `docs/Z-PORT-MATRIX.md`. Not yet touched but known to need it at the release
 gate: `.github/workflows/release-platform-artifacts.yml` (globs `NuvioTV001_*.wgt`).
