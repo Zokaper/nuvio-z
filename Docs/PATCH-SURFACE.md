@@ -14,6 +14,17 @@ mobile **363** upstream-owned paths against **0.6.2-beta** (`1cfae0fe7`), deskto
 The verified pre-sync surfaces were 361 / 286. New rows are classified in the snapshot;
 eleven desktop paths now match upstream. Measurements below are historical.
 
+### 2026-10-24 desktop engine-DLL packaging note (Desktop 0.1.31-alpha-z1)
+
+Desktop `composeApp/build.gradle.kts` (already on the surface) gained one more Z hunk, commit `ced373783`.
+Upstream 0.1.31-alpha replaced TorrServer with `nuvio_engine.dll` and packs it into the JAR only, but Z's
+Windows packaging loads natives from the app-resources directory and the release MSI verifier requires the
+DLL there. `prepareWindowsAppResources` now copies
+`src/desktopMain/native/windows/engine/nuvio_engine.dll` into `native/windows` (macOS already did the
+equivalent) and no longer copies the dead `torrserver/windows-amd64/TorrServer.exe`. At a sync: keep the
+engine copy in that task, and if upstream moves or renames the DLL, follow it there, or the Windows release
+fails verification.
+
 ### 2026-10-11 desktop Home-scrolling perf pass (Desktop 0.1.26-alpha-z2)
 
 Desktop branch `claude/perf-home-smooth`, accepted by the maintainer on signed-in touchpad runs (Home frames on
