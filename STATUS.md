@@ -6,6 +6,16 @@ Last updated: 2026-10-25
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
 
+## TV first-launch setup (2026-10-25)
+
+`nuviozweb` `claude/phase-10-trunk`: Stage 2 step 3.3 implements the standalone per-profile,
+device-local mode selector and explicit one-time Mobile/Desktop import of compatible playback/language
+preferences. Instant is visible but unavailable; imported Instant remains stored and uses Streamlined
+until enabled. Existing TV settings, picture/hardware values and other families are preserved.
+Browser automation covers actual stores, remote keys, import exclusion, safe-area fit, Back and
+once-only completion. P8 and PATCH-SURFACE updated; no Kotlin code changed. Debug 9 and the physical
+checkpoint are detailed in `nuviozweb/STATUS.md`.
+
 ## TV playback source-screen continuation (2026-10-25)
 
 `nuviozweb` `claude/phase-10-trunk`: Stage 2 step 3.2 wires Streamlined's quality sheet,

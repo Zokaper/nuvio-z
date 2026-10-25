@@ -447,6 +447,8 @@ Upstream-owned files modified, and what each seam does:
 js/core/update/appUpdateService.js release URL + Z-revision ordering, imported from js/core/z/zVersion.js
 js/core/profile/profileSettingsSyncFeature-player-settings.js
                                    three seams: Z playback keys ride in the tv blob's player payload
+js/ui/navigation/router.js          import + installPlaybackSetup: local, per-profile first-launch gate;
+                                   route registration/decorator and import UI live in js/z/settings/
 js/ui/screens/settings/settingsScreenMethods-12-render-trakt-stats-strip.js
                                    one import + one line: About's "Based on Nuvio <base>"
 js/ui/screens/settings/settingsScreenMethods-02-render-action-row.js
