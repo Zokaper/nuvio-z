@@ -439,24 +439,31 @@ The right shape, when the time comes, is the one the playback package already ha
 
 ## NuvioZWeb - the whole surface, for comparison
 
-Eight files, all named, all small:
+**Phase 10 restart (2026-10-25): the 1.2.9 trunk** (`claude/phase-10-trunk`, vanilla `c8674f2d`).
+Upstream-owned files modified, and what each seam does:
 
 ```
-css/components.css
-js/core/profile/profileSettingsSyncService.js
-js/data/local/playerSettingsStore.js
-js/ui/screens/settings/settingsScreen.js
-js/ui/screens/stream/streamScreen.js
-package.json
-res/values/strings.xml
+.gitignore                         AGENTS.md un-ignored (Z's manual is tracked)
+js/core/update/appUpdateService.js release URL + Z-revision ordering, imported from js/core/z/zVersion.js
+js/ui/screens/settings/settingsScreenMethods-12-render-trakt-stats-strip.js
+                                   one import + one line: About's "Based on Nuvio <base>"
+package.json                       version 1.2.9-z1; test:z script
+res/values/strings.xml             the Nuvio Z string block, last in the file
+scripts/appMetadata.mjs            normalizePackageVersion (manifests get numeric x.y.z)
+scripts/package-tizen.mjs          Z identity: NuvioZTV01 / NuvioZTV01.NuvioZ / "Nuvio Z" / widget URI
+scripts/package-webos.mjs          version normalisation only (webOS identity is Stage 7)
+scripts/release-build-poller.mjs   default repo Zokaper/NuvioZWeb
 ```
 
-Everything else the port added is new: `js/core/playback/**` (8), `js/core/sources/**` (3),
-`js/core/language/`, `js/core/media/`, `js/ui/screens/playback/qualitySheet.js`, `tests/**` (9),
-the debug workflow, and the two docs.
+Z-owned, zero conflict risk: `js/core/z/`, `js/ui/screens/settings/zSettingsAbout.js`, `z-tests/`,
+`.gitattributes`, `debug-version.properties`, the debug and drift workflows, `scripts/upstream-drift.sh`,
+`AGENTS.md`, `STATUS.md`, `docs/Z-PORT-MATRIX.md`. Not yet touched but known to need it at the release
+gate: `.github/workflows/release-platform-artifacts.yml` (globs `NuvioTV001_*.wgt`).
 
-**This is achievable because the port was done deliberately as new modules plus minimal seams.** It
-is the reference for what the mobile surface should converge toward.
+**The archived 0.3.40 line** (tag `z-0.3.40-archive`) touched seven upstream files - `css/components.css`,
+`profileSettingsSyncService.js`, `playerSettingsStore.js`, `settingsScreen.js`, `streamScreen.js`,
+`package.json`, `strings.xml` - with everything else as new modules. **That is the reference for what
+every surface should converge toward:** new modules plus minimal seams.
 
 ## Reviewing this file
 
