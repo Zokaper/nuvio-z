@@ -449,6 +449,18 @@ js/core/profile/profileSettingsSyncFeature-player-settings.js
                                    three seams: Z playback keys ride in the tv blob's player payload
 js/ui/screens/settings/settingsScreenMethods-12-render-trakt-stats-strip.js
                                    one import + one line: About's "Based on Nuvio <base>"
+js/ui/screens/settings/settingsScreenMethods-02-render-action-row.js
+                                   option dialog: Z classes + a described label (zOptionDialog.js);
+                                   options without zDescription/zDisabled render as before
+js/ui/screens/settings/settingsScreenMethods-10-render-playback-section.js
+                                   one import + one call: registerZPlaybackActions
+js/ui/screens/settings/settingsScreenPlaybackMarkup-06-section.js
+                                   Playback mode row on top, Source Preferences group after General
+js/ui/screens/settings/settingsScreenPlaybackMarkup-01-general.js
+                                   six Auto Stream Selection rows greyed outside Classic, with
+                                   mobile's note (isZAutoStreamSelectionInert)
+js/ui/screens/settings/settingsScreenHelpers-10-create-default-expanded-state.js
+                                   `sources: false`, so the group's open state survives a reload
 package.json                       version 1.2.9-z1; test:z script
 res/values/strings.xml             the Nuvio Z string block, last in the file
 scripts/appMetadata.mjs            normalizePackageVersion (manifests get numeric x.y.z)
@@ -457,7 +469,7 @@ scripts/package-webos.mjs          version normalisation only (webOS identity is
 scripts/release-build-poller.mjs   default repo Zokaper/NuvioZWeb
 ```
 
-Z-owned, zero conflict risk: `js/core/z/`, `js/z/`, `js/ui/screens/settings/zSettingsAbout.js`, `z-tests/`,
+Z-owned, zero conflict risk: `js/core/z/`, `js/z/`, `css/z.css` (the build bundles it; no import), `js/ui/screens/settings/zSettingsAbout.js`, `z-tests/`,
 `.gitattributes`, `debug-version.properties`, the debug and drift workflows, `scripts/upstream-drift.sh`,
 `AGENTS.md`, `STATUS.md`, `docs/Z-PORT-MATRIX.md`. Not yet touched but known to need it at the release
 gate: `.github/workflows/release-platform-artifacts.yml` (globs `NuvioTV001_*.wgt`).
