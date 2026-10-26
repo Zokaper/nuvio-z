@@ -1,10 +1,21 @@
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
+
+## TV playback completion chunk (2026-10-26)
+
+`nuviozweb` `claude/phase-10-trunk`: debug 11 implements Instant, measured connection/re-test
+(N1-N3), coordinated next-episode transitions (P12), post-attach source probes and duration
+plausibility (P16). All three modes are selectable; imported Instant now becomes active without
+rewriting it. PC checks: 457 tests, real measured transfer/video/failover and remote navigation,
+countdown cancellation and next-episode first-frame coverage. Canonical TV cells and patch surface
+updated. No Kotlin code changed. The maintainer reports no new TV testing and explicitly asks for
+spaced, combined hardware chunks; this work and debug 10's restyle remain TV-pending. See
+`nuviozweb/STATUS.md` for the package, precise limits and next test chunk.
 
 ## TV first-launch setup (2026-10-25)
 

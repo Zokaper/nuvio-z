@@ -469,6 +469,10 @@ js/ui/screens/stream/streamScreenMethods-10-play-stream.js
                                    zAutomaticPlayback launch parameter (chain/context/consent)
 js/ui/screens/player/playerScreen.js
                                    import + withZPlayerPlayback decorator; Z lifecycle stays in js/z/
+js/ui/screens/player/playerScreenMethods-01-mount.js
+                                   Z-only preferred-ID correction before vanilla records URL-matched state;
+                                   duplicate URLs otherwise break the automatic chain. No later getter seam
+                                   can fix the initial index. drop-at-next-sync when upstream fixes precedence.
 js/ui/screens/player/playerScreenMethods-63-get-source-request-key.js
                                    sourceWindow bounds card/badge DOM to 13 rows; absolute focus retained
 js/ui/screens/player/playerScreenMethods-35-play-stream-candidate.js
