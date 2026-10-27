@@ -6,6 +6,14 @@ Last updated: 2026-10-27
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
 
+## Maintainer's focused debug 14 retest passed (2026-10-27)
+
+On the Q60B, the maintainer repeated Instant playback of a series episode followed by manual
+Next Episode and confirmed: "it worked, next episode loaded just fine." This passes the requested
+picture/motion and spinner-dismissal retest and closes the reported persistent-throbber issue
+for this path. Loading smoothness, automatic countdown/failover and other TV families remain
+outside this focused result.
+
 ## TV debug 13 maintainer test and Debug 14 follow-up (2026-10-27)
 
 The maintainer tested the Q60B: Classic playback, loading Back, Details and audio menus work.
