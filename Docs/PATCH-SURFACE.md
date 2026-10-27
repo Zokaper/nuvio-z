@@ -439,6 +439,16 @@ The right shape, when the time comes, is the one the playback package already ha
 
 ## NuvioZWeb - the whole surface, for comparison
 
+**Debug 18 Home artwork seam (2026-10-27, `drop-at-next-sync`):**
+`js/ui/screens/home/homeScreen.js` gains one import and wraps its composed method object with
+`js/z/home/settledArtwork.js`. The Z decorator scopes a minimum delay to the original synchronous
+vertical hero-delay lookup when modern Tizen Home's background-input deferral is active. The
+original scheduler retains its own timers, preload, focus/cancellation fences and metadata.
+There is no new async job or queued-DOM model. Horizontal/immediate and other-runtime timing,
+artwork and fades remain. This addresses Phase 10 Stage 3; source assembly, delay and scheduler
+are unchanged from `c8674f2d` through fetched upstream `50d1a57f`. Drop when upstream settles
+vertical artwork under the same input policy. No Kotlin/CSS change; see TV2 and V9.
+
 **Debug 17 Home append seam (2026-10-27, `drop-at-next-sync`):**
 `js/ui/screens/home/homeScreenMethods-29-setup-modern-track-scroll-pagination.js` gains one import
 and one call to `js/z/home/rowPagination.js`. The Z policy bounds later Tizen DOM appends to two
