@@ -6,6 +6,28 @@ Last updated: 2026-10-27
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
 
+## TV debug 16: coalesced native startup track refreshes (2026-10-27)
+
+`nuviozweb` `claude/phase-10-trunk`: native metadata/track bursts share a refresh after paint only
+while Tizen AVPlay's strict startup audio gate is closed before the first frame, with no track
+dialog open. Reentrant native refreshes leave the selection stack. Original preference matching,
+cache invalidation, support checks, gates and deadlines remain; manual/other-engine refresh stays
+synchronous. Mount/source/native-request fences and cleanup/error/retry checks retire stale work.
+All implementation is in Z-owned files; no upstream patch seam, UI or Kotlin change.
+
+493 tests and focused Samsung/subtitle-language/browser checks pass. Q60B coordination-only
+comparison: 35 requests become 16 refreshes, maximum 445 ms versus the debug 15 maximum 2,045 ms.
+The configured signed debug 16 is installed: first built-app inspection reaches preferred English
+audio/subtitles with loading and gate cleared; maximum refresh 796 ms. Startup gaps remain, so
+this is not maintainer smoothness acceptance. Final trace, manual audio/Next Episode checks and
+publication belong to `nuviozweb/STATUS.md` and `docs/TV-STARTUP-DEBUG16-2026-10-27.md` there.
+
+Built-app replay trace: loadedmetadata 56.3 ms versus 3,928.3 ms in the prior trace; largest task
+1,075 ms versus 4,651 ms. Manual audio switch/restore passes without remembering the selection.
+Instant Next Episode reaches episode 2 with preferred audio/subtitles and loading/gate cleared;
+clock advances beyond 125 seconds, no spinner in 1,226 settled samples. Remaining startup pauses
+are documented; these individual traces do not establish maintainer physical smoothness.
+
 ## TV debug 15: measured responsiveness and roomier Classic (2026-10-27)
 
 `nuviozweb` `claude/phase-10-trunk`: connection status is a native-read-free snapshot, invalidated
