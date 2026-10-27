@@ -439,6 +439,16 @@ The right shape, when the time comes, is the one the playback package already ha
 
 ## NuvioZWeb - the whole surface, for comparison
 
+**Debug 17 Home append seam (2026-10-27, `drop-at-next-sync`):**
+`js/ui/screens/home/homeScreenMethods-29-setup-modern-track-scroll-pagination.js` gains one import
+and one call to `js/z/home/rowPagination.js`. The Z policy bounds later Tizen DOM appends to two
+cards; initial/provider page sizes and the original pagination/ordering/ownership logic remain.
+An imported limit is the seam because the append closure owns both cached and fetched paths;
+a later decorator cannot change its captured chunk size. This addresses Phase 10 Stage 3's
+navigation gate. The pagination file is unchanged between vanilla base `c8674f2d` and fetched
+upstream `50d1a57f` (2026-10-27); drop the seam when upstream bounds the same work. No Kotlin,
+CSS or other upstream-owned file changes in this pass. See TV1 and vanilla cost V8.
+
 **Phase 10 restart (2026-10-25): the 1.2.9 trunk** (`claude/phase-10-trunk`, vanilla `c8674f2d`).
 Upstream-owned files modified, and what each seam does:
 

@@ -1,6 +1,18 @@
 Last updated: 2026-10-27
 
 
+**TV/Web checkpoint (2026-10-27):** `nuviozweb` remains on `claude/phase-10-trunk`,
+vanilla 1.2.9. Debug 17's configured signed WGT is installed on the Q60B: later Tizen Home
+catalogue appends are limited to two cards. A warm 15-card append measured 63.1 ms; installed
+two-card turns measured 8.8-19.8 ms. 497 tests, lint and configured WGT/IPK packaging pass.
+Overall Home frame/focus budgets remain open; no end-to-end smoothness claim. Publication and
+long-traversal results live in `nuviozweb/STATUS.md` and `docs/TV-HOME-DEBUG17-2026-10-27.md` there.
+One new upstream seam is recorded in `Docs/PATCH-SURFACE.md`, inherited cost V8 in
+`Docs/VANILLA-BUGS.md`, and TV1 in `Docs/Z-FEATURES.md`. No Kotlin code changed.
+The maintainer accepts debug 16 with residual source-loading stutter for now. Agent checks on
+that installed build pass for automatic-origin countdown/remote Back and controlled dead-source
+failover; natural autoplay threshold triggering remains untested.
+
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |

@@ -70,3 +70,18 @@ upstream closes these handles and the Windows resource-install test passes.
 
 **Related:** `Docs/UPSTREAM.md` (Rule 7, and the sync procedure), `Docs/PATCH-SURFACE.md` (what we
 patch in upstream files and why), `Docs/Z-FEATURES.md` (§12, what has and has not been watched).
+
+## V8: TV Home catalogue append blocks navigation
+
+**Scope:** modern Home on Samsung Q60B / Tizen 6.5, measured in the Z build. The upstream-owned
+pagination callback creates and registers a row-sized DOM batch in one turn: about 138 ms in
+the first trace, 63.1 ms in a warm same-row replay. This callback is unchanged from vanilla
+1.2.9 base `c8674f2d` through fetched upstream `50d1a57f` on 2026-10-27. Confirmed in upstream
+source; not separately reproduced in an installed vanilla build.
+
+**Patched for Phase 10 Stage 3's navigation gate (`drop-at-next-sync`):** debug 17 imports the
+Z-owned two-card Tizen append limit at the captured chunk-size seam. Initial rows, provider
+pages, cached order, load-ahead and lifecycle guards remain vanilla; other runtimes retain
+their existing batch size. The installed Q60B records 8.8-19.8 ms append turns. This does not
+close the overall frame/focus budget or the separate image/compositing pauses. Drop the seam
+when upstream bounds the same work; details are in `nuviozweb/docs/TV-HOME-DEBUG17-2026-10-27.md`.
