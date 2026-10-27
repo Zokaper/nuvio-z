@@ -1,5 +1,12 @@
 # Nuvio Z Feature Ledger
 
+**2026-10-28 S3/S6 guest-source repair (code; device retest pending):** guests may explicitly choose
+their own source without changing the host's source, including collaborative parties. A playable
+choice completes local realization and lobby readiness; material timing differences produce a
+brief player notice rather than a permanent banner. Actual filenames take precedence over AIO's
+parsed title when matching releases across addon configurations. Source-picker guests do not enter
+the host's buffering hold. Desktop/mobile share the fix; no platform acceptance cell is promoted.
+
 **2026-10-20 language port and upstream integration:** C25 records the new per-title language model;
 Advanced Setup (W12) now includes its three Language pages. Mobile and desktop implementations
 are complete, with compiler, pure-suite and render evidence in STATUS. Mobile inherits 0.6.2-beta

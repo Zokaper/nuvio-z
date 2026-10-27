@@ -12,6 +12,49 @@ import kotlin.test.assertTrue
 
 class PlayerScreenRuntimeStateTest {
 
+    @Test fun anInPlaceGuestChoiceCompletesRealizationAndRetainsTheCurrentEpisodeInsteadOfTheOldLaunch() {
+        val descriptor = com.nuvio.app.features.watchparty.PartySourceDescriptorV2(
+            originKind = com.nuvio.app.features.watchparty.PartySourceOriginKind.addon,
+            originId = "org.example", releaseFingerprint = com.nuvio.app.features.watchparty.partyReleaseFingerprint("host-release"),
+        )
+        val local = descriptor.copy(releaseFingerprint = com.nuvio.app.features.watchparty.partyReleaseFingerprint("guest-release"))
+        val party = com.nuvio.app.features.watchparty.WatchPartyState(
+            id = "party", hostProfileId = "host", status = com.nuvio.app.features.watchparty.WatchPartyStatus.playing,
+            controlMode = com.nuvio.app.features.watchparty.WatchPartyControlMode.host_only,
+            contentGeneration = 2, sourceGeneration = 3,
+            content = com.nuvio.app.features.watchparty.PartyContent("tt1234567", "series", "tt1234567:1:9", "Title", season = 1, episode = 9),
+            sourceFingerprint = descriptor, positionMs = 40_000L, durationMs = 3_000_000L,
+            playbackSpeed = 1f, sequence = 1, stateUpdatedAt = "2026-10-28T00:00:00Z",
+        )
+        val key = com.nuvio.app.features.watchparty.partyLocalSourceChoiceForLaunch(
+            party, "tt1234567", party.content.videoId, local, userSelectedSource = true,
+        )!!
+        val realizer = com.nuvio.app.features.watchparty.PartySourceRealizer
+        try {
+            realizer.updateAuthority(key.key)
+            realizer.fallbackRequired(key.key)
+            val launchId = PlayerLaunchStore.put(testPlayerLaunch())
+            val runtime = PlayerScreenRuntime(testPlayerScreenArgs().copy(launchId = launchId)).apply {
+                activeVideoId = party.content.videoId
+                activeSeasonNumber = 1
+                activeEpisodeNumber = 9
+                activeSourceUrl = "https://example.com/guest-episode-9.mp4"
+                activePartySourceDescriptor = local
+                partyLocalSourceChoice = key
+            }
+            runtime.retainCurrentPartySource(party)
+            val retained = kotlin.test.assertNotNull(realizer.reusable(key.key))
+            assertEquals(party.content.videoId, retained.videoId)
+            assertEquals(9, retained.episodeNumber)
+            assertEquals(runtime.activeSourceUrl, retained.sourceUrl)
+            assertEquals(local, retained.partySourceDescriptor)
+            assertFalse(realizer.claimAutomaticLaunch(key.key), "returning to the lobby must not reopen the player automatically")
+        } finally {
+            realizer.clear()
+            PlayerLaunchStore.clear()
+        }
+    }
+
     @Test
     fun manualSourceEndedDuringOpeningCannotStartAutomaticNextEpisodeSelection() {
         val runtime = completedEpisodeRuntime().apply { initialLoadCompleted = false }

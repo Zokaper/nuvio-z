@@ -197,6 +197,7 @@ internal class PlayerScreenRuntime(
     var activeProviderName by mutableStateOf(providerName)
     var activeProviderAddonId by mutableStateOf(providerAddonId)
     var activePartySourceDescriptor by mutableStateOf(args.partySourceDescriptor)
+    var partyLocalSourceChoice by mutableStateOf(initialPartySourceChoice(args))
     var activeStream by mutableStateOf(args.stream)
     var currentStreamBingeGroup by mutableStateOf(initialBingeGroup)
     var currentStreamFilename by mutableStateOf<String?>(null)

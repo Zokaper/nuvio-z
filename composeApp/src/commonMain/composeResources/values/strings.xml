@@ -4010,4 +4010,5 @@
     <string name="zwhatsnew_all_platforms">All platforms</string>
     <string name="zwhatsnew_bug_fixes_count">Bug fixes (%1$d)</string>
     <!-- /Nuvio Z: language settings. -->
+    <string name="watch_party_source_timing_warning">Your source has different timing from the host’s. Playback may be out of sync.</string>
 </resources>

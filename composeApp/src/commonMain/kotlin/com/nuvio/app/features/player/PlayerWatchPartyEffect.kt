@@ -108,6 +108,8 @@ import nuvio.composeapp.generated.resources.watch_party_cannot_share_source
 import nuvio.composeapp.generated.resources.watch_party_promote_already_in_party
 import nuvio.composeapp.generated.resources.watch_party_promote_failed
 import nuvio.composeapp.generated.resources.watch_party_promote_presence_stale
+import nuvio.composeapp.generated.resources.watch_party_source_timing_warning
+import nuvio.composeapp.generated.resources.watch_party_choose_source
 import org.jetbrains.compose.resources.getString
 import com.nuvio.app.features.watchparty.PartyContent
 import com.nuvio.app.features.watchparty.PartyContentHandoff
@@ -405,7 +407,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     }
     val generationKey = matchingParty?.generationKey()
     val isHost = matchingParty != null && matchingParty.hostProfileId == partyUi.activeProfileId
-    val mediaLoaded = playbackSnapshot.durationMs > 0L
+    val mediaLoaded = playbackSnapshot.durationMs > 0L && playbackSnapshotKey == activePlaybackKey
     val platformLifecycle = rememberPartyPlatformLifecycle()
     var readinessReconcileRevision by androidx.compose.runtime.remember(generationKey) {
         androidx.compose.runtime.mutableLongStateOf(0L)
@@ -494,7 +496,9 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     // the old one, at timestamps that no longer mean the same frame. So the tier is measured here,
     // against the party's own descriptor, and `partySourceTimelineDecision` says who owes what: the
     // host moves the party, a guest proves it still matches or says it cannot.
-    LaunchedEffect(generationKey, mediaLoaded, activePartySourceDescriptor, readinessReconcileRevision) {
+    LaunchedEffect(generationKey, mediaLoaded, activePartySourceDescriptor, partyLocalSourceChoice,
+        matchingParty?.members?.firstOrNull { it.profileId == matchingParty.hostProfileId }?.resolvedDurationMs,
+        readinessReconcileRevision) {
         if (generationKey == null) return@LaunchedEffect
         if (mediaLoaded) {
             val party = matchingParty
@@ -518,6 +522,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                     tier = it,
                     hostDurationMs = partyHostDurationMs,
                     localDurationMs = localDurationMs,
+                    userSelectedSource = partyLocalSourceChoice?.appliesTo(party, local) == true,
                 )
             }
             val match = when {
@@ -529,6 +534,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 else -> PartySourceMatch.alternate
             }
             partyLocalSourceMatch = match
+            retainCurrentPartySource(party)
             if (decision != null && decision != partyReportedTimelineDecision) {
                 partyReportedTimelineDecision = decision
                 partyLog.i {
@@ -567,14 +573,31 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     // than the tolerance often enough that one would be up for the whole film without anything ever
     // going wrong - but it is the first thing to look for when a member cannot follow the party, so
     // it belongs in the log rather than only on the HUD.
-    val durationMismatch = matchingParty?.hostDurationMismatch(playbackSnapshot.durationMs) == true
-    LaunchedEffect(generationKey, durationMismatch) {
+    val durationMismatch = mediaLoaded && matchingParty?.hostDurationMismatch(playbackSnapshot.durationMs) == true
+    var sourceTimingWarned by androidx.compose.runtime.remember(generationKey, activePartySourceDescriptor) {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    LaunchedEffect(generationKey, activePartySourceDescriptor, mediaLoaded, durationMismatch, partyPositionUnreachable) {
         val state = matchingParty ?: return@LaunchedEffect
-        if (!durationMismatch) return@LaunchedEffect
+        if (isHost || !mediaLoaded || (!durationMismatch && !partyPositionUnreachable) || sourceTimingWarned) return@LaunchedEffect
+        sourceTimingWarned = true
         val hostMs = state.members.firstOrNull { it.profileId == state.hostProfileId }?.resolvedDurationMs
         partyLog.w {
             "duration mismatch localMs=${playbackSnapshot.durationMs} hostMs=$hostMs - " +
                 "this source is a different cut, positions past its end cannot be followed"
+        }
+        val message = getString(Res.string.watch_party_source_timing_warning)
+        if (isDesktop) {
+            // JCEF owns the player surface; an app-level Compose toast would be behind it.
+            playerNotificationMessage = message
+            playerNotificationToken += 1
+        } else {
+            NuvioToastController.show(
+                message = message,
+                durationMillis = 6000L,
+                actionLabel = getString(Res.string.watch_party_choose_source),
+                action = com.nuvio.app.core.ui.NuvioToastAction.ChangePlaybackSource,
+            )
         }
     }
 
@@ -1218,6 +1241,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             return@LaunchedEffect
         }
         partyContentHandoffInFlight = true
+        partyUi.party?.partySourceKey()?.let(PartySourceRealizer::matching)
         partyLog.i {
             "content handoff begin contentGeneration=${adopt.contentGeneration} " +
                 "sourceGeneration=${adopt.sourceGeneration} videoId=${adopt.content.videoId}"
@@ -1269,6 +1293,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 partyContentHandoffInFlight = false
                 partyHandledContentGeneration = adopt.contentGeneration
                 partyLog.w { "content handoff unavailable generation=${adopt.contentGeneration}" }
+                partyUi.party?.partySourceKey()?.let(PartySourceRealizer::fallbackRequired)
                 WatchPartySessionCoordinator.reportReadiness(
                     SourceResolutionState.choosing_fallback,
                     sourceGeneration = adopt.sourceGeneration,
@@ -1292,6 +1317,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                     sourceGeneration = adopt.sourceGeneration,
                 )
                 partyLog.i { "content handoff adopt generation=${adopt.contentGeneration}" }
+                partyUi.party?.partySourceKey()?.let(PartySourceRealizer::resolving)
                 switchToEpisodeStream(winner.stream, adopt.content.toPartyEpisodeVideo(playerMetaVideos))
             }
         }
@@ -1307,6 +1333,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     val partyHandoff = decidePartySourceHandoff(
         party = matchingParty,
         localDescriptor = activePartySourceDescriptor,
+        localSourceChoice = partyLocalSourceChoice,
         handledSourceGeneration = partyHandledSourceGeneration,
     )
     val partySourceCatalogue by PlayerStreamsRepository.sourceState.collectAsStateWithLifecycle()
@@ -1320,6 +1347,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             return@LaunchedEffect
         }
         partySourceHandoffInFlight = true
+        matchingParty?.partySourceKey()?.let(PartySourceRealizer::matching)
         partyLog.i { "source handoff begin generation=${adopt.sourceGeneration}" }
         WatchPartySessionCoordinator.reportReadiness(
             SourceResolutionState.fetching,
@@ -1363,6 +1391,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 partySourceHandoffInFlight = false
                 partyHandledSourceGeneration = adopt.sourceGeneration
                 partyLog.w { "source handoff unavailable generation=${adopt.sourceGeneration}" }
+                matchingParty?.partySourceKey()?.let(PartySourceRealizer::fallbackRequired)
                 WatchPartySessionCoordinator.reportReadiness(
                     SourceResolutionState.choosing_fallback,
                     sourceGeneration = adopt.sourceGeneration,
@@ -1379,6 +1408,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                     sourceGeneration = adopt.sourceGeneration,
                 )
                 partyLog.i { "source handoff adopt generation=${adopt.sourceGeneration}" }
+                matchingParty?.partySourceKey()?.let(PartySourceRealizer::resolving)
                 // Not `switchToUserSelectedSource`: nobody here picked anything, and refunding the
                 // credential budget for a source the party chose would hand an automatic retry a
                 // fresh budget on every generation.

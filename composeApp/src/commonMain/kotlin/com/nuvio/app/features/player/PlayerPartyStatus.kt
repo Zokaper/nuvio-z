@@ -157,6 +157,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 adoptingNewPartySource = decidePartySourceHandoff(
                     party = party,
                     localDescriptor = activePartySourceDescriptor,
+                    localSourceChoice = partyLocalSourceChoice,
                     handledSourceGeneration = partyHandledSourceGeneration,
                 ) is PartySourceHandoff.Adopt,
                 hostAdvancingPartySource = isHost &&

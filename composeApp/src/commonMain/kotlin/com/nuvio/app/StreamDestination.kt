@@ -971,12 +971,13 @@ internal fun StreamDestination(
     LaunchedEffect(
         isPartyResolution,
         partyResolutionHandled,
+        manualSourceListRequested,
         partyTieredSources,
         streamsUiState.requestToken,
         streamsUiState.isAnyLoading,
         streamsUiState.emptyStateReason,
     ) {
-        if (!isPartyResolution || partyResolutionHandled) return@LaunchedEffect
+        if (!isPartyResolution || partyResolutionHandled || manualSourceListRequested) return@LaunchedEffect
         // Reported, not owned: this route is torn down the moment playback starts, so the work it
         // is doing on the party's behalf has to be visible somewhere that outlives it.
         partyRealizationKey?.let(PartySourceRealizer::matching)

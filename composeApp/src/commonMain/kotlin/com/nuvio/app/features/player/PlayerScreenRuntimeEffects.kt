@@ -1412,6 +1412,7 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
         activeStream = stream
         currentStreamFilename = stream.behaviorHints.filename
         currentStreamInfoHash = stream.infoHash
+        continuePartySourceChoice(activePartySourceDescriptor, stream.toPartySourceDescriptor())
         activePartySourceDescriptor = stream.toPartySourceDescriptor()
         currentStreamBingeGroup = stream.behaviorHints.bingeGroup
         activeInitialPositionMs = savedPositionMs

@@ -20,6 +20,7 @@ import com.nuvio.app.navigation.PlayerRoute
 import com.nuvio.app.navigation.WatchPartyLobbyRoute
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -30,6 +31,7 @@ import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.PartySourceRealizer
 import com.nuvio.app.features.watchparty.partyRealizationCompletedByLaunch
+import com.nuvio.app.features.watchparty.partyLocalSourceChoiceForLaunch
 import com.nuvio.app.features.watchparty.lobbyOwedOnPlayerExit
 import com.nuvio.app.features.watchparty.matchesPlayback
 import org.jetbrains.compose.resources.stringResource
@@ -68,7 +70,12 @@ internal fun PlayerDestination(
         return
     }
     val partyUi by WatchPartyRepository.uiState.collectAsStateWithLifecycle()
-    val realization by PartySourceRealizer.state.collectAsStateWithLifecycle()
+    val localSourceChoice = remember(route.launchId) {
+        partyLocalSourceChoiceForLaunch(
+            partyUi.party, launch.parentMetaId, launch.videoId, launch.partySourceDescriptor,
+            userSelectedSource = !launch.autoPickedWithFailureChain,
+        )
+    }
     // Tiered, not byte-equal: see `partyRealizationCompletedByLaunch` for the stuck "Matching" pill
     // an equality test here produced.
     val retainedPartyKey = partyRealizationCompletedByLaunch(
@@ -76,7 +83,7 @@ internal fun PlayerDestination(
         launchContentId = launch.parentMetaId,
         launchVideoId = launch.videoId,
         launchDescriptor = launch.partySourceDescriptor,
-        realization = realization,
+        userSelectedSource = localSourceChoice?.appliesTo(partyUi.party, launch.partySourceDescriptor) == true,
     )
     LaunchedEffect(route.launchId, retainedPartyKey) {
         retainedPartyKey?.let { PartySourceRealizer.retain(it, launch) }

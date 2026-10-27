@@ -1,4 +1,33 @@
-Last updated: 2026-10-27
+Last updated: 2026-10-28
+
+## Watch Together guest source recovery (2026-10-28)
+
+Desktop and mobile work branches: `codex/watch-together-guest-sources`; mobile checkout is
+`Nuvio Z/.codex-worktrees/wt-guest-mobile`. This is a focused post-release repair, not a new phase.
+Maintainer observation: real desktop guests manually picked a playable source but remained Resolving
+source with a persistent no-match/short-version banner; a host may also have held while picking.
+
+Fixes: party fingerprints prefer actual filenames over AIO parsed titles; explicit guest picks
+remain local, complete realization and report ready/alternate even for a different cut. The choice
+is fenced by party/content/source authority and follows local URL preparation. Automatic matching
+still requires evidence. Manual escape stops the stream route's automatic matcher. In-place handoffs
+complete realization with the current episode/source launch. Readiness/timing use current-source
+snapshots. A timing mismatch gives one transient player notice rather than a permanent status line.
+Guests outside the player (including matching/loading) do not enter the host's buffering hold.
+
+Shared Z-owned files merge through `5fb6f8ea1`; the player seams were ported as patches because the
+platform files differ. Mobile's currentStreamFilename/currentStreamInfoHash and Infuse back path
+are preserved. The credential-refresh seam has a different field order and was resolved by hand.
+
+Read-only Z backend evidence: retained Punisher sessions on 2026-10-25 contain S1E6/S1E7, not the
+remembered episode 8. In the 14:50-18:30 UTC window, all 68 readiness calls plus source selection
+and content-change calls returned 200; a single membership 403 occurred just after termination.
+Member addon IDs differ, but matching already supports cross-origin releases. Server logs omit
+guest catalogues/request bodies, so they cannot prove the original matching failure. A regression
+fixture reproduces the actual-filename/parsed-title bug. No backend mutation or deployment.
+
+First desktop compile passed. Final focused desktop/mobile tests and debug publication are in
+progress. No two-client/device acceptance or stable release is claimed; iOS WT remains deferred.
 
 
 **TV/Web checkpoint (2026-10-27):** `nuviozweb` remains on `claude/phase-10-trunk`,
