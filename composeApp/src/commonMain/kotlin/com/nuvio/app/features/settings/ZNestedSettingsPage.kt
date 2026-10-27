@@ -83,6 +83,11 @@ internal fun ZNestedSettingsPageHost(
         TrackingSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
 
+    val mdbListConnected by remember {
+        com.nuvio.app.features.mdblist.MdbListTracker.ensureLoaded()
+        com.nuvio.app.features.mdblist.MdbListTracker.isAuthenticated
+    }.collectAsStateWithLifecycle()
+
     // Registered after the hub's own handler, so system back closes this page first.
     PlatformBackHandler(enabled = true, onBack = onBack)
 
@@ -112,6 +117,7 @@ internal fun ZNestedSettingsPageHost(
                         simklUiState = simklAuthUiState,
                         settingsUiState = trackingSettingsUiState,
                         commentsEnabled = traktCommentsEnabled,
+                        mdbListConnected = mdbListConnected,
                         onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                     )
                     else -> Unit

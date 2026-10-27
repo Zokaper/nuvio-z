@@ -51,6 +51,10 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
+    val languagePreferences by remember {
+        com.nuvio.app.features.language.LanguagePreferencesRepository.ensureLoaded()
+        com.nuvio.app.features.language.LanguagePreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
     val p2pSettingsUiState by remember {
         P2pSettingsRepository.ensureLoaded()
         P2pSettingsRepository.uiState
@@ -91,8 +95,11 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
 
         runtime.scope = rememberCoroutineScope()
         runtime.hapticFeedback = LocalHapticFeedback.current
-        runtime.gestureController = rememberPlayerGestureController()
-        runtime.playerSettingsUiState = playerSettingsUiState
+        runtime.gestureController = rememberPlayerGestureController(
+            restoreBrightness = playerSettingsUiState.touchGesturesEnabled,
+        )
+        runtime.rawPlayerSettingsUiState = playerSettingsUiState
+        runtime.languagePreferences = languagePreferences
         runtime.p2pSettingsUiState = p2pSettingsUiState
         runtime.p2pStreamingState = p2pStreamingState
         runtime.metaScreenSettingsUiState = metaScreenSettingsUiState
@@ -101,6 +108,7 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         runtime.sourceStreamsState = sourceStreamsState
         runtime.episodeStreamsRepoState = episodeStreamsRepoState
         runtime.metaUiState = metaUiState
+        runtime.applyTitleLanguagePlan()
         runtime.addonsUiState = addonsUiState
         runtime.addonSubtitles = mergeStreamAndAddonSubtitles(addonSubtitles, runtime.externalSubtitles)
         runtime.isLoadingAddonSubtitles = isLoadingAddonSubtitles

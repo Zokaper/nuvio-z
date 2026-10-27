@@ -135,12 +135,14 @@ internal fun findPreferredSubtitleTrackIndex(
     targets: List<String>,
     mode: SubtitleAutoSelectionMode,
     selectedAudioTrack: AudioTrack? = null,
+    preferSdh: Boolean? = null,
 ): Int = findBestInternalSubtitleTrackIndex(
     tracks = tracks,
     targets = targets,
     forcedOnly = mode == SubtitleAutoSelectionMode.FORCED_ONLY,
     normalOnly = mode == SubtitleAutoSelectionMode.NORMAL_ONLY,
     selectedAudioTrack = selectedAudioTrack,
+    preferSdh = preferSdh,
 )
 
 internal fun findBestInternalSubtitleTrackIndex(
@@ -149,6 +151,8 @@ internal fun findBestInternalSubtitleTrackIndex(
     forcedOnly: Boolean = false,
     normalOnly: Boolean = false,
     selectedAudioTrack: AudioTrack? = null,
+    /** Z: Full (false) puts plain tracks first, Deaf and hard of hearing (true) SDH/CC first; null keeps file order. */
+    preferSdh: Boolean? = null,
 ): Int {
     for ((targetPosition, target) in targets.withIndex()) {
         if (forcedOnly) {
@@ -181,13 +185,17 @@ internal fun findBestInternalSubtitleTrackIndex(
             continue
         }
 
-        val preferredCandidateIndexes = candidateIndexes.filter { index -> !tracks[index].isForced }
-            .takeIf { it.isNotEmpty() }
-            ?: if (normalOnly) {
-                continue
-            } else {
-                candidateIndexes
-            }
+        val preferredCandidateIndexes = (
+            candidateIndexes.filter { index -> !tracks[index].isForced }
+                .takeIf { it.isNotEmpty() }
+                ?: if (normalOnly) {
+                    continue
+                } else {
+                    candidateIndexes
+                }
+            ).let { indexes ->
+            if (preferSdh == null) indexes else indexes.sortedBy { index -> if (subtitleTrackIsSdh(tracks[index]) == preferSdh) 0 else 1 }
+        }
 
         if (preferredCandidateIndexes.size == 1) {
             if (normalizedTarget == "pt" || normalizedTarget == "es") {
@@ -216,6 +224,24 @@ internal fun findBestInternalSubtitleTrackIndex(
     }
     return -1
 }
+
+/**
+ * Z: whether a track is for the deaf and hard of hearing - SDH, CC or "hearing impaired" in its label
+ * or id. Only orders candidates (see `preferSdh`); a wrong answer changes which full track wins, never
+ * whether one does.
+ */
+internal fun subtitleTrackIsSdh(track: SubtitleTrack): Boolean {
+    val text = listOf(track.label, track.id).joinToString(" ").lowercase()
+    return SdhMarkers.any { marker -> marker.containsMatchIn(text) }
+}
+
+private val SdhMarkers = listOf(
+    Regex("""\bsdh\b"""),
+    Regex("""\bcc\b"""),
+    Regex("""hearing[ -]?impaired"""),
+    Regex("""\bhoh\b"""),
+    Regex("""[(\[]hi[)\]]"""),
+)
 
 internal fun findBestForcedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,
@@ -524,8 +550,18 @@ internal fun findPersistedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,
     preference: PersistedPlayerTrackPreference,
 ): Int {
+    // Z: a track id is a position in one file (mpv's `sid` - "3"), and this preference is kept per
+    // show, so the same id in the next episode's release can be another language. Trust the id only
+    // when the stored language and forced flag still agree.
+    val storedLanguage = preference.subtitleLanguage?.takeIf { it.isNotBlank() }
     preference.subtitleTrackId?.takeIf { it.isNotBlank() }?.let { trackId ->
-        tracks.firstOrNull { it.id == trackId }?.let { return it.index }
+        tracks.firstOrNull { track ->
+            track.id == trackId &&
+                (preference.subtitleIsForced == null || track.isForced == preference.subtitleIsForced) &&
+                (storedLanguage == null ||
+                    SubtitleLanguageMatching.matchesLanguageCode(track.language, storedLanguage) ||
+                    subtitleTrackMatchesLanguage(track, storedLanguage))
+        }?.let { return it.index }
     }
 
     val languageCandidates = preference.subtitleLanguage?.takeIf { it.isNotBlank() }?.let { language ->
@@ -534,10 +570,12 @@ internal fun findPersistedSubtitleTrackIndex(
                 subtitleTrackMatchesLanguage(tracks[index], language)
         }
     }.orEmpty()
-    val forcedFiltered = if (preference.subtitleIsForced == true) {
-        languageCandidates.filter { index -> tracks[index].isForced }
-    } else {
-        languageCandidates
+    // Z: the forced flag is honoured both ways - a remembered full track must not come back as the
+    // forced-only one that happens to share its language (and sort first).
+    val forcedFiltered = when (preference.subtitleIsForced) {
+        true -> languageCandidates.filter { index -> tracks[index].isForced }
+        false -> languageCandidates.filter { index -> !tracks[index].isForced }.ifEmpty { languageCandidates }
+        null -> languageCandidates
     }
     if (forcedFiltered.size == 1) return tracks[forcedFiltered.first()].index
     if (forcedFiltered.size > 1) {
@@ -558,10 +596,10 @@ internal fun findPersistedSubtitleTrackIndex(
 
     preference.subtitleName?.takeIf { it.isNotBlank() }?.let { name ->
         val nameMatches = tracks.filter { it.label.equals(name, ignoreCase = true) }
-        val forcedNameMatches = if (preference.subtitleIsForced == true) {
-            nameMatches.filter { it.isForced }
-        } else {
-            nameMatches
+        val forcedNameMatches = when (preference.subtitleIsForced) {
+            true -> nameMatches.filter { it.isForced }
+            false -> nameMatches.filter { !it.isForced }.ifEmpty { nameMatches }
+            null -> nameMatches
         }
         forcedNameMatches.firstOrNull()?.let { return it.index }
     }

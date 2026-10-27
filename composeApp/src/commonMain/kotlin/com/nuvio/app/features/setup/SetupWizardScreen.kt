@@ -72,8 +72,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.ui.PlatformBackHandler
-import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
-import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.isDesktop
 import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.AppTheme
@@ -146,10 +144,20 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
+import com.nuvio.app.features.settings.PLAYBACK_METERED_CAP_HEIGHTS
+import nuvio.composeapp.generated.resources.settings_playback_metered_cap
+import nuvio.composeapp.generated.resources.settings_playback_metered_cap_description
+import nuvio.composeapp.generated.resources.setup_device_notifications_title
+import nuvio.composeapp.generated.resources.advanced_setup_panel_notifications_desktop
+import nuvio.composeapp.generated.resources.advanced_setup_panel_notifications_mobile
+import nuvio.composeapp.generated.resources.advanced_setup_category_startup
+import nuvio.composeapp.generated.resources.advanced_setup_panel_startup_subtitle
 
 // String keys are imported by wildcard, which is the style HomeScreen.kt, MetaDetailsScreen.kt
 // and DetailHero.kt already use. Deliberate: this screen reads about sixty keys.
@@ -211,6 +219,11 @@ fun SetupWizardScreen(
     onReviewSetup: (() -> Unit)? = null,
     importRetry: (suspend () -> Unit)? = null,
     onOpenAdvancedSetup: (() -> Unit)? = null,
+    /**
+     * Z: an Upgrade run that re-asks the steps added after this revision whatever the profile has
+     * finished - What's New's "Review new settings". Null plans from the profile's own revision.
+     */
+    reviewFromRevision: Int? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val scope = rememberCoroutineScope()
@@ -258,26 +271,16 @@ fun SetupWizardScreen(
     val isPhone = !isDesktop
     // Captured once: finishing writes the new revision, and an upgrade must not re-plan itself
     // from the value it just wrote.
-    val fromRevision = remember { playerSettings.setupWizardCompletedRevision }
-    // Captured once for the same reason: finishing writes the device revision.
-    val deviceStale = remember { isDeviceSetupStale(DeviceSetupStorage.loadRevision(), isPhone) }
-    // Device Setup's navigation and player steps borrow Advanced Setup's controls and previews, so
-    // they read the same live state those do (setup polish: the curated "this device" steps).
+    val fromRevision = remember { reviewFromRevision ?: playerSettings.setupWizardCompletedRevision }
+    // Captured once for the same reason: finishing writes the machine's revision.
+    val deviceStale = remember { isDeviceSetupStale(DeviceSetupStorage.loadRevision()) }
+    // The device steps are Advanced Setup panels, narrowed (`deviceSetupControls`): they read the same
+    // live state those do, so the two can never ask differently.
     val deviceLive = rememberAdvancedSetupLive()
     val offerDeviceNavigation = deviceSetupControls(SetupStep.DeviceNavigation, deviceLive.facts).isNotEmpty()
     val offerDevicePlayer = deviceSetupControls(SetupStep.DevicePlayer, deviceLive.facts).isNotEmpty()
-    val episodeAlerts by remember {
-        EpisodeReleaseNotificationsRepository.ensureLoaded()
-        EpisodeReleaseNotificationsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    // Decided when the run opens rather than read live, so the row does not vanish the moment the
-    // user grants the permission it offers.
-    val offerDeviceAlerts = remember {
-        run == SetupWizardRun.Device && isPhone &&
-            EpisodeReleaseNotificationsRepository.uiState.value.isEnabled &&
-            !EpisodeReleaseNotificationsRepository.uiState.value.permissionGranted
-    }
-    var deviceAlertsDenied by remember { mutableStateOf(false) }
+    val offerDeviceNotifications = deviceSetupControls(SetupStep.DeviceNotifications, deviceLive.facts, deviceStale).isNotEmpty()
+    val offerThisComputer = deviceSetupControls(SetupStep.ThisComputer, deviceLive.facts, deviceStale).isNotEmpty()
 
     // ⚠ **Kicked off here rather than on the social step, and that head start is the point.** The
     // probe only runs for a profile the local cache cannot answer for - a second install, a
@@ -311,6 +314,8 @@ fun SetupWizardScreen(
                     deviceStale = deviceStale,
                     offerDeviceNavigation = offerDeviceNavigation,
                     offerDevicePlayer = offerDevicePlayer,
+                    offerDeviceNotifications = offerDeviceNotifications,
+                    offerThisComputer = offerThisComputer,
                 ),
             ).firstOrNull() ?: SetupStep.Done
         }
@@ -339,6 +344,8 @@ fun SetupWizardScreen(
         deviceStale = deviceStale,
         offerDeviceNavigation = offerDeviceNavigation,
         offerDevicePlayer = offerDevicePlayer,
+        offerDeviceNotifications = offerDeviceNotifications,
+        offerThisComputer = offerThisComputer,
     )
     // A gating upgrade or device run can be put off: its close control is "Not now", and that
     // records the revision like finishing does, so it is not asked again.
@@ -422,14 +429,18 @@ fun SetupWizardScreen(
         }
     }
 
-    fun complete(afterUpload: () -> Unit = onFinished) {
+    fun complete() {
         // ⚠ `playback_mode_selector_seen` used to be written here too. It is gone: nothing had
         // read it since the setup wizard replaced the standalone selector, and it was being
         // kept alive only to spare a 0.4.x downgrade one extra prompt. The key survives as a
         // sync tombstone so an older client's payload still clears the stale local value.
         PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
-        // Any run answers this device's questions too - a full run and an upgrade both ask them.
-        DeviceSetupStorage.saveRevision(SETUP_DEVICE_REVISION)
+        // A Full run ends with the device steps and a Device run is them, so either sets this device
+        // up - for the profile, and for the machine. A plain upgrade asks neither.
+        if (run != SetupWizardRun.Upgrade || arrival) {
+            SetupProfileFlags.markDeviceSetupDone(ProfileRepository.activeProfileId)
+            DeviceSetupStorage.saveRevision(SETUP_DEVICE_REVISION)
+        }
         // An arrival is answered by finishing any run here - Device Setup, or the Initial Setup that
         // "Review setup" switched to.
         SetupProfileFlags.setArrivalPending(ProfileRepository.activeProfileId, false)
@@ -440,33 +451,27 @@ fun SetupWizardScreen(
         // line above. Nothing else changes a setting right after setup, so the remote went on
         // answering with the old revision indefinitely and the pull re-gated the app with it.
         // `exportSettingsBlob` exports the whole blob, so this carries every choice the wizard
-        // made too. Keep the gate up until the first upload settles, so another device opened
-        // immediately afterward can see the completed setup. A failed push still lets this device
-        // proceed; the other device treats transport failure separately from an absent blob.
-        scope.launch {
+        // made too. Launched before `onFinished`, so it normally reaches the sync lock before the full pull
+        // that Home starts, which then finds the remote matching instead of rolling the last steps back.
+        // ⚠ **Not on this screen's scope, and `onFinished` is not deferred until it settles.** The
+        // revision written above drops a gating run's gate at the next frame, which disposes this
+        // screen and cancelled the push mid-flight ("rememberCoroutineScope left the composition",
+        // 2026-10-24): another device then pulled an unfinished setup and ran Initial Setup again,
+        // and `onFinished` never ran, so the gate's bookkeeping (the debug settings offer, the
+        // device-setup flag) was left stale and "New settings available" followed a whole setup.
+        // A failed push still lets this device proceed; the other device treats transport failure
+        // separately from an absent blob.
+        setupUploadScope.launch {
             kotlinx.coroutines.withTimeoutOrNull(8_000L) {
                 ProfileSettingsSync.pushCurrentProfileToRemote()
             }
-            afterUpload()
         }
+        onFinished()
     }
 
     fun completeThenOpenAdvancedSetup() {
-        complete {
-            onFinished()
-            onOpenAdvancedSetup?.invoke()
-        }
-    }
-
-    fun enableDeviceAlerts() {
-        scope.launch {
-            val granted = runCatching { EpisodeReleaseNotificationPlatform.requestAuthorization() }.getOrDefault(false)
-            deviceAlertsDenied = !granted
-            // Already on for the profile; this re-reads the permission and schedules on this device.
-            // Deliberately not called on a refusal: that path would switch alerts off for the whole
-            // profile, on every device, for a choice made about this one.
-            if (granted) EpisodeReleaseNotificationsRepository.setEnabled(true)
-        }
+        complete()
+        onOpenAdvancedSetup?.invoke()
     }
 
     fun advance() {
@@ -654,10 +659,10 @@ fun SetupWizardScreen(
                 onBack = ::back,
                 onAdvance = ::advance,
                 advance = advanceState,
-                customSpecimen = if (specimen == SetupSpecimen.Device) {
-                    { DeviceStepPreview(step = step, live = deviceLive, desktop = true) }
-                } else {
-                    null
+                customSpecimen = when (specimen) {
+                    SetupSpecimen.Device -> { { DeviceStepPreview(step = step, live = deviceLive, desktop = true) } }
+                    SetupSpecimen.Language -> { { step.languagePanel?.let { AdvancedLanguagePreview(panel = it, desktop = true) } } }
+                    else -> null
                 },
             ) {
                 SetupStepBody(
@@ -707,10 +712,11 @@ fun SetupWizardScreen(
                     onReviewSetup = onReviewSetup,
                     onOpenAdvancedSetup = onOpenAdvancedSetup?.let { { completeThenOpenAdvancedSetup() } },
                     themeName = stringResource(selectedTheme.labelRes),
-                    offerDeviceAlerts = offerDeviceAlerts,
-                    deviceAlertsGranted = episodeAlerts.permissionGranted,
-                    deviceAlertsDenied = deviceAlertsDenied,
-                    onAllowDeviceAlerts = ::enableDeviceAlerts,
+                    deviceStale = deviceStale,
+                    deviceRun = run == SetupWizardRun.Device,
+                    meteredCapHeight = playerSettings.playbackMeteredCapHeight.takeIf {
+                        isPhone && playerSettings.playbackMode.name == "INSTANT"
+                    },
                     deviceLive = deviceLive,
                 )
             }
@@ -718,14 +724,18 @@ fun SetupWizardScreen(
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            if (specimen == SetupSpecimen.Device) Box(
+            if (specimen == SetupSpecimen.Device || specimen == SetupSpecimen.Language) Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(bandHeight + insets.calculateTopPadding())
                     .background(tokens.colors.background)
                     .padding(top = insets.calculateTopPadding()),
             ) {
-                DeviceStepPreview(step = step, live = deviceLive, desktop = false)
+                if (specimen == SetupSpecimen.Device) {
+                    DeviceStepPreview(step = step, live = deviceLive, desktop = false)
+                } else {
+                    step.languagePanel?.let { AdvancedLanguagePreview(panel = it, desktop = false) }
+                }
             } else SetupSpecimenBand(
                 specimen = specimen,
                 step = step,
@@ -823,10 +833,11 @@ fun SetupWizardScreen(
                     onReviewSetup = onReviewSetup,
                     onOpenAdvancedSetup = onOpenAdvancedSetup?.let { { completeThenOpenAdvancedSetup() } },
                     themeName = stringResource(selectedTheme.labelRes),
-                    offerDeviceAlerts = offerDeviceAlerts,
-                    deviceAlertsGranted = episodeAlerts.permissionGranted,
-                    deviceAlertsDenied = deviceAlertsDenied,
-                    onAllowDeviceAlerts = ::enableDeviceAlerts,
+                    deviceStale = deviceStale,
+                    deviceRun = run == SetupWizardRun.Device,
+                    meteredCapHeight = playerSettings.playbackMeteredCapHeight.takeIf {
+                        isPhone && playerSettings.playbackMode.name == "INSTANT"
+                    },
                     deviceLive = deviceLive,
                 )
             }
@@ -843,8 +854,8 @@ private fun DeviceStepPreview(step: SetupStep, live: AdvancedSetupLive, desktop:
     val p = live.values.player
     AdvancedPreviewFrame(Modifier.fillMaxSize(), interactive = true) {
         when (step) {
-            SetupStep.DeviceNavigation -> AdvancedPanelPreview(
-                panel = AdvancedSetupPanel.NavigationStyle,
+            SetupStep.DeviceNavigation, SetupStep.DeviceNotifications, SetupStep.ThisComputer -> AdvancedPanelPreview(
+                panel = step.devicePanel,
                 facts = live.facts,
                 values = live.values,
                 desktop = desktop,
@@ -1062,6 +1073,9 @@ private fun SetupWelcomeSurface(
     }
 }
 
+/** The finished wizard's upload: it must outlive the wizard, which finishing disposes. */
+private val setupUploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
 /**
  * How wide the intro card is on desktop.
  *
@@ -1144,14 +1158,36 @@ private val SetupStep.specimen: SetupSpecimen
         SetupStep.PlaybackSetup,
         SetupStep.DownloadMode,
         SetupStep.DownloadSetup,
-        SetupStep.Language,
         SetupStep.Sources,
         SetupStep.SocialOptIn,
         SetupStep.SocialIdentity,
         SetupStep.WelcomeBack,
         SetupStep.Done,
         -> SetupSpecimen.Diagram
-        SetupStep.DeviceNavigation, SetupStep.DevicePlayer -> SetupSpecimen.Device
+        SetupStep.DeviceNavigation,
+        SetupStep.DevicePlayer,
+        SetupStep.DeviceNotifications,
+        SetupStep.ThisComputer,
+        -> SetupSpecimen.Device
+        SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles -> SetupSpecimen.Language
+    }
+
+/** The Advanced Setup panel a device step is (Device Setup redesign): same body, same preview. */
+internal val SetupStep.devicePanel: AdvancedSetupPanel
+    get() = when (this) {
+        SetupStep.DeviceNavigation -> AdvancedSetupPanel.NavigationStyle
+        SetupStep.DeviceNotifications -> AdvancedSetupPanel.Notifications
+        SetupStep.ThisComputer -> AdvancedSetupPanel.StartupTray
+        else -> AdvancedSetupPanel.PlayerTouch
+    }
+
+/** The Advanced Setup Language panel a wizard Language step is (2026-10-22): same body, same preview. */
+internal val SetupStep.languagePanel: AdvancedSetupPanel?
+    get() = when (this) {
+        SetupStep.Language -> AdvancedSetupPanel.Languages
+        SetupStep.LanguageOwnTitles -> AdvancedSetupPanel.OwnLanguageTitles
+        SetupStep.LanguageOtherTitles -> AdvancedSetupPanel.OtherLanguageTitles
+        else -> null
     }
 
 /**
@@ -1500,11 +1536,13 @@ internal fun SetupStepBody(
     onReviewSetup: (() -> Unit)? = null,
     onOpenAdvancedSetup: (() -> Unit)? = null,
     themeName: String? = null,
-    offerDeviceAlerts: Boolean = false,
-    deviceAlertsGranted: Boolean = false,
-    deviceAlertsDenied: Boolean = false,
-    onAllowDeviceAlerts: () -> Unit = {},
     deviceLive: AdvancedSetupLive? = null,
+    /** The machine still owes its own questions (`isDeviceSetupStale`). */
+    deviceStale: Boolean = true,
+    /** Device Setup's download step asks the machine's questions alone, through Advanced Setup's panel. */
+    deviceRun: Boolean = false,
+    /** Instant on a phone: the playback step also asks the metered cap (see `SetupPlaybackSetupBody`). */
+    meteredCapHeight: Int? = null,
 ) {
     AnimatedContent(
         targetState = step,
@@ -1568,13 +1606,17 @@ internal fun SetupStepBody(
 
                 // Device Setup's curated "this device" steps: the same controls as the matching
                 // Advanced Setup panels, written through the same setters.
-                SetupStep.DeviceNavigation, SetupStep.DevicePlayer -> if (deviceLive != null) {
+                SetupStep.DeviceNavigation,
+                SetupStep.DevicePlayer,
+                SetupStep.DeviceNotifications,
+                SetupStep.ThisComputer,
+                -> if (deviceLive != null) {
                     AdvancedPanelBody(
-                        panel = if (current == SetupStep.DeviceNavigation) AdvancedSetupPanel.NavigationStyle else AdvancedSetupPanel.PlayerTouch,
+                        panel = current.devicePanel,
                         facts = deviceLive.facts,
                         values = deviceLive.values,
                         onSocialEnabledChange = {},
-                        controlsOverride = deviceSetupControls(current, deviceLive.facts),
+                        controlsOverride = deviceSetupControls(current, deviceLive.facts, deviceStale),
                     )
                 }
 
@@ -1595,6 +1637,7 @@ internal fun SetupStepBody(
                     languageStrictness = languageStrictness,
                     dynamicRangePolicy = dynamicRangePolicy,
                     qualityCeilingMbps = qualityCeilingMbps,
+                    meteredCapHeight = meteredCapHeight,
                 )
 
                 // The same card Settings -> Downloads shows, written through the same setter.
@@ -1608,22 +1651,35 @@ internal fun SetupStepBody(
                     }
                 }
 
-                SetupStep.DownloadSetup -> SetupDownloadSetupBody(
-                    variant = downloadSetupVariant,
-                    policy = downloadPolicy,
-                    mobileDataRule = mobileDataRule,
-                    askMobileData = askMobileData,
-                    showNotificationNote = showNotificationNote,
-                    offerDeviceAlerts = offerDeviceAlerts,
-                    deviceAlertsGranted = deviceAlertsGranted,
-                    deviceAlertsDenied = deviceAlertsDenied,
-                    onAllowDeviceAlerts = onAllowDeviceAlerts,
-                )
+                // A Device run asks the machine's download questions: Advanced Setup's device panel.
+                SetupStep.DownloadSetup -> if (deviceRun && deviceLive != null) {
+                    AdvancedPanelBody(
+                        panel = AdvancedSetupPanel.DownloadDevice,
+                        facts = deviceLive.facts,
+                        values = deviceLive.values,
+                        onSocialEnabledChange = {},
+                    )
+                } else {
+                    SetupDownloadSetupBody(
+                        variant = downloadSetupVariant,
+                        policy = downloadPolicy,
+                        mobileDataRule = mobileDataRule,
+                        askMobileData = askMobileData,
+                        showNotificationNote = showNotificationNote,
+                    )
+                }
 
                 SetupStep.Language -> SetupLanguageBody(
                     preferredAudioLanguage = preferredAudioLanguage,
                     preferredSubtitleLanguage = preferredSubtitleLanguage,
                 )
+
+                SetupStep.LanguageOwnTitles -> AdvancedLanguageBody(panel = AdvancedSetupPanel.OwnLanguageTitles, isTablet = false)
+
+                SetupStep.LanguageOtherTitles -> {
+                    AdvancedLanguageBody(panel = AdvancedSetupPanel.OtherLanguageTitles, isTablet = false)
+                    SetupFootnote(stringResource(Res.string.zlang_wizard_footnote))
+                }
 
                 SetupStep.Sources -> SetupSourcesBody(
                     state = sources,
@@ -1802,86 +1858,13 @@ internal fun SetupStepBody(
  */
 @Composable
 private fun SetupLanguageBody(
-    preferredAudioLanguage: String,
-    preferredSubtitleLanguage: String,
+    @Suppress("UNUSED_PARAMETER") preferredAudioLanguage: String,
+    @Suppress("UNUSED_PARAMETER") preferredSubtitleLanguage: String,
 ) {
-    var showAudioDialog by remember { mutableStateOf(false) }
-    var showSubtitleDialog by remember { mutableStateOf(false) }
-
+    // Z (2026-10-22): the first of three Language steps, each Advanced Setup's panel - same body, same
+    // preview - instead of every section on one page under a diagram that explained nothing.
     SetupParagraph(stringResource(Res.string.setup_language_body))
-
-    SetupLanguageRow(
-        title = stringResource(Res.string.settings_playback_preferred_audio_language),
-        value = when (preferredAudioLanguage) {
-            AudioLanguageOption.DEFAULT -> stringResource(Res.string.settings_playback_option_default)
-            AudioLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-            AudioLanguageOption.ORIGINAL -> stringResource(Res.string.settings_playback_option_original)
-            else -> languageLabelForCode(preferredAudioLanguage)
-        },
-        onClick = { showAudioDialog = true },
-    )
-    SetupLanguageRow(
-        title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-        value = when (preferredSubtitleLanguage) {
-            SubtitleLanguageOption.NONE -> stringResource(Res.string.settings_playback_option_none)
-            SubtitleLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-            SubtitleLanguageOption.FORCED -> stringResource(Res.string.settings_playback_option_forced)
-            else -> languageLabelForCode(preferredSubtitleLanguage)
-        },
-        onClick = { showSubtitleDialog = true },
-    )
-
-    SetupParagraph(stringResource(Res.string.setup_language_more))
-
-    if (showAudioDialog) {
-        val originalHint = stringResource(Res.string.settings_playback_option_original_hint)
-        LanguageSelectionDialog(
-            title = stringResource(Res.string.settings_playback_preferred_audio_language),
-            options = listOf(
-                LanguageSelectionOption(
-                    AudioLanguageOption.DEVICE,
-                    stringResource(Res.string.settings_playback_option_device_language),
-                ),
-                LanguageSelectionOption(
-                    AudioLanguageOption.ORIGINAL,
-                    stringResource(Res.string.settings_playback_option_original),
-                    description = originalHint,
-                ),
-            ) + AvailableLanguageOptions.map { option ->
-                LanguageSelectionOption(option.code, stringResource(option.labelRes))
-            },
-            selectedValue = preferredAudioLanguage,
-            onSelect = { value ->
-                PlayerSettingsRepository.setPreferredAudioLanguage(value ?: AudioLanguageOption.DEVICE)
-                showAudioDialog = false
-            },
-            onDismiss = { showAudioDialog = false },
-        )
-    }
-
-    if (showSubtitleDialog) {
-        LanguageSelectionDialog(
-            title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-            options = listOf(
-                LanguageSelectionOption(
-                    SubtitleLanguageOption.NONE,
-                    stringResource(Res.string.settings_playback_option_none),
-                ),
-                LanguageSelectionOption(
-                    SubtitleLanguageOption.DEVICE,
-                    stringResource(Res.string.settings_playback_option_device_language),
-                ),
-            ) + AvailableLanguageOptions.map { option ->
-                LanguageSelectionOption(option.code, stringResource(option.labelRes))
-            },
-            selectedValue = preferredSubtitleLanguage,
-            onSelect = { value ->
-                PlayerSettingsRepository.setPreferredSubtitleLanguage(value ?: SubtitleLanguageOption.NONE)
-                showSubtitleDialog = false
-            },
-            onDismiss = { showSubtitleDialog = false },
-        )
-    }
+    AdvancedLanguageBody(panel = AdvancedSetupPanel.Languages, isTablet = false)
 }
 
 /** A label and the current answer, sized to its content like [SetupChoiceGroup]'s chips. */
@@ -1920,6 +1903,8 @@ internal fun SetupPlaybackSetupBody(
     languageStrictness: LanguageStrictness,
     dynamicRangePolicy: DynamicRangePolicy,
     qualityCeilingMbps: Int,
+    /** Instant on a phone (Device Setup, 2026-10-24): the metered cap to ask too; null hides it. */
+    meteredCapHeight: Int? = null,
 ) {
     if (variant == PlaybackSetupVariant.None) return
     val instant = variant == PlaybackSetupVariant.AutomaticBand
@@ -1971,6 +1956,20 @@ internal fun SetupPlaybackSetupBody(
             onSelected = PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
         )
     }
+    if (meteredCapHeight != null) {
+        SetupQuestion(
+            title = stringResource(Res.string.settings_playback_metered_cap),
+            detail = stringResource(Res.string.settings_playback_metered_cap_description),
+        ) {
+            NuvioSegmentedChoice(
+                segments = PLAYBACK_METERED_CAP_HEIGHTS.map { NuvioSegment(if (it == 2160) "4K" else "${it}p", it) },
+                // A stored height need not be one of the four; snap like the Settings dialog does.
+                selected = PLAYBACK_METERED_CAP_HEIGHTS.minByOrNull { abs(it - meteredCapHeight) },
+                onSelected = PlayerSettingsRepository::setPlaybackMeteredCapHeight,
+                compact = true,
+            )
+        }
+    }
     SetupFootnote(stringResource(Res.string.setup_playback_setup_more))
 }
 
@@ -1990,10 +1989,6 @@ internal fun SetupDownloadSetupBody(
     mobileDataRule: DownloadMobileDataRule,
     askMobileData: Boolean,
     showNotificationNote: Boolean,
-    offerDeviceAlerts: Boolean = false,
-    deviceAlertsGranted: Boolean = false,
-    deviceAlertsDenied: Boolean = false,
-    onAllowDeviceAlerts: () -> Unit = {},
 ) {
     if (variant == DownloadSetupVariant.None) return
     if (variant == DownloadSetupVariant.Automatic) {
@@ -2038,28 +2033,6 @@ internal fun SetupDownloadSetupBody(
                 selected = mobileDataRule,
                 onSelected = { value -> DownloadsRepository.updateDeviceSettings { it.copy(mobileData = value) } },
             )
-        }
-    }
-    // Device Setup only: the profile has new-episode alerts on (it synced from another device) but
-    // this device has never been allowed to show them. The existing permission request, nothing new.
-    if (offerDeviceAlerts) {
-        SetupQuestion(
-            title = stringResource(Res.string.setup_device_alerts_title),
-            detail = stringResource(
-                if (deviceAlertsDenied && !deviceAlertsGranted) Res.string.setup_device_alerts_denied else Res.string.setup_device_alerts_body,
-            ),
-        ) {
-            if (deviceAlertsGranted) {
-                Text(
-                    text = stringResource(Res.string.setup_device_alerts_allowed),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.nuvio.colors.textSecondary,
-                )
-            } else {
-                OutlinedButton(onClick = onAllowDeviceAlerts) {
-                    Text(text = stringResource(Res.string.setup_device_alerts_allow))
-                }
-            }
         }
     }
 }
@@ -2382,11 +2355,15 @@ private val SetupStep.titleRes
         SetupStep.WelcomeBack -> Res.string.setup_welcome_back_title
         SetupStep.DeviceNavigation -> Res.string.setup_device_navigation_title
         SetupStep.DevicePlayer -> Res.string.setup_device_player_title
+        SetupStep.DeviceNotifications -> Res.string.setup_device_notifications_title
+        SetupStep.ThisComputer -> Res.string.advanced_setup_category_startup
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_title
         SetupStep.PlaybackSetup -> Res.string.setup_playback_setup_title
         SetupStep.DownloadMode -> Res.string.download_mode_title
         SetupStep.DownloadSetup -> Res.string.download_setup_title
         SetupStep.Language -> Res.string.setup_language_title
+        SetupStep.LanguageOwnTitles -> Res.string.zlang_own_titles
+        SetupStep.LanguageOtherTitles -> Res.string.zlang_titles_other
         SetupStep.Sources -> Res.string.setup_sources_title
         SetupStep.SocialOptIn -> Res.string.setup_social_title
         SetupStep.SocialIdentity -> Res.string.setup_social_identity_title
@@ -2436,6 +2413,9 @@ private val SetupStep.subtitleRes
             else -> Res.string.setup_device_navigation_subtitle_android
         }
         SetupStep.DevicePlayer -> Res.string.setup_device_player_subtitle
+        SetupStep.DeviceNotifications ->
+            if (isDesktop) Res.string.advanced_setup_panel_notifications_desktop else Res.string.advanced_setup_panel_notifications_mobile
+        SetupStep.ThisComputer -> Res.string.advanced_setup_panel_startup_subtitle
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_subtitle
         // Never read - `setupStepSubtitle` answers for this step - but enumerated so that a new
         // step is a compile error here rather than a header with no subtitle.
@@ -2443,6 +2423,8 @@ private val SetupStep.subtitleRes
         SetupStep.DownloadMode -> Res.string.download_mode_subtitle
         SetupStep.DownloadSetup -> Res.string.download_setup_subtitle_device
         SetupStep.Language -> Res.string.setup_language_subtitle
+        SetupStep.LanguageOwnTitles -> Res.string.advanced_setup_panel_own_titles_subtitle
+        SetupStep.LanguageOtherTitles -> Res.string.advanced_setup_panel_other_titles_subtitle
         SetupStep.Sources -> Res.string.setup_sources_subtitle
         SetupStep.SocialOptIn -> Res.string.setup_social_subtitle
         SetupStep.SocialIdentity -> Res.string.setup_social_identity_subtitle

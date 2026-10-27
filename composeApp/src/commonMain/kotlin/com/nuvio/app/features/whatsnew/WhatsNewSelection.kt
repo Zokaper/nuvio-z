@@ -35,6 +35,12 @@ val ChangelogPlatform.family: String
  */
 enum class ChangelogAction(val key: String) {
     ADVANCED_SETUP("advanced_setup"),
+
+    /**
+     * "Review new settings" (2026-10-20): the setup wizard's steps of the current revision, on demand.
+     * The way back to them after "No" on the "New settings available" offer.
+     */
+    REVIEW_SETTINGS("review_settings"),
     ;
 
     companion object {
@@ -48,6 +54,11 @@ data class ChangelogEntry(
     val title: String,
     val body: String? = null,
     val action: ChangelogAction? = null,
+    /**
+     * Z (2026-10-20): a picture for the entry's card, a file under `composeResources/files/whatsnew/`.
+     * Optional in the file (`"image": "social.webp"`); an entry without one is a plain line.
+     */
+    val image: String? = null,
 )
 
 /**
@@ -62,6 +73,8 @@ data class ChangelogEvent(
     val entries: List<ChangelogEntry>,
     /** Optional one line. Deliberately not a "release name": the date is the identity. */
     val summary: String? = null,
+    /** The update's hero picture, a bare file name like [ChangelogEntry.image]; shown above its date. */
+    val image: String? = null,
 )
 
 /** A line for the "This debug build" section. Per family, from `changelog-debug.json`. */

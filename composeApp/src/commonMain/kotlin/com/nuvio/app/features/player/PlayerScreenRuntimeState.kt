@@ -33,6 +33,7 @@ import com.nuvio.app.features.watchparty.WatchPartyStatus
 import com.nuvio.app.features.watchprogress.WatchProgressUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 internal data class PlayerSurfaceSource(
@@ -117,7 +118,16 @@ internal class PlayerScreenRuntime(
     lateinit var scope: CoroutineScope
     lateinit var hapticFeedback: HapticFeedback
 
+    /**
+     * Z: what the player reads - [rawPlayerSettingsUiState] with this title's language plan applied
+     * (`PlayerTitleLanguagePlan.kt`). Written only by `applyTitleLanguagePlan`.
+     */
     var playerSettingsUiState by mutableStateOf(PlayerSettingsUiState())
+    var rawPlayerSettingsUiState by mutableStateOf(PlayerSettingsUiState())
+    /** Null until the screen hands them over; while null, [playerSettingsUiState] is left as assigned. */
+    var languagePreferences by mutableStateOf<com.nuvio.app.core.language.LanguagePreferences?>(null)
+    var titleLanguagePlan: com.nuvio.app.core.language.TitleLanguagePlan? = null
+    var titleLanguageInputs: Any? = null
     var p2pSettingsUiState by mutableStateOf(P2pSettingsUiState())
     var p2pStreamingState by mutableStateOf<P2pStreamingState>(P2pStreamingState.Idle)
     var metaScreenSettingsUiState: MetaScreenSettingsUiState = MetaScreenSettingsUiState()
@@ -162,8 +172,10 @@ internal class PlayerScreenRuntime(
     var partyEndConfirm by mutableStateOf(false)
     /** One inline, dismissible error row under the panel header, replacing party toasts. */
     var partyPanelError by mutableStateOf<String?>(null)
-    /** Friends invited from this panel, so a second press says Invited instead of sending again. */
+    /** Friends invited from this panel that the server has not listed yet; they read Sending. */
     var partyInvitedProfileIds by mutableStateOf<Set<String>>(emptySet())
+    /** Invite ids withdrawn from this panel that the server still lists; they read Cancelling. */
+    var partyCancellingInviteIds by mutableStateOf<Set<String>>(emptySet())
     var activeSourceUrl by mutableStateOf(sourceUrl)
     var activeSourceAudioUrl by mutableStateOf(sourceAudioUrl)
     var activeSourceHeaders by mutableStateOf(sanitizePlaybackHeaders(sourceHeaders))
@@ -172,6 +184,7 @@ internal class PlayerScreenRuntime(
     var activeTorrentInfoHash by mutableStateOf(torrentInfoHash)
     var activeTorrentFileIdx by mutableStateOf(torrentFileIdx)
     var activeTorrentFilename by mutableStateOf(torrentFilename)
+    var activeSourceFilename by mutableStateOf(args.sourceFilename ?: torrentFilename)
     var activeTorrentTrackers by mutableStateOf(torrentTrackers)
     var p2pResolvedSourceUrl by mutableStateOf<String?>(null)
     var activeSourceIdentityKey by mutableStateOf(
@@ -184,7 +197,10 @@ internal class PlayerScreenRuntime(
     var activeProviderName by mutableStateOf(providerName)
     var activeProviderAddonId by mutableStateOf(providerAddonId)
     var activePartySourceDescriptor by mutableStateOf(args.partySourceDescriptor)
+    var activeStream by mutableStateOf(args.stream)
     var currentStreamBingeGroup by mutableStateOf(initialBingeGroup)
+    var currentStreamFilename by mutableStateOf<String?>(null)
+    var currentStreamInfoHash by mutableStateOf<String?>(null)
     var activeSeasonNumber by mutableStateOf(seasonNumber)
     var activeEpisodeNumber by mutableStateOf(episodeNumber)
     var activeEpisodeTitle by mutableStateOf(episodeTitle)
@@ -314,6 +330,9 @@ internal class PlayerScreenRuntime(
      * Cleared whenever a new selection starts and whenever it is spent.
      */
     var nextEpisodeFallbacks by mutableStateOf<List<StreamItem>>(emptyList())
+    var nextEpisodeAutoPlayAutomatic by mutableStateOf(false)
+    var nextEpisodePreloadJob by mutableStateOf<Job?>(null)
+    var nextEpisodePreloadTriggered by mutableStateOf(false)
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
@@ -346,7 +365,23 @@ internal class PlayerScreenRuntime(
     var showAudioModal by mutableStateOf(false)
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
+    var showStreamInfo by mutableStateOf(false)
+    var showPartyPanel by mutableStateOf(false)
+    var showPartyChat by mutableStateOf(false)
+    var partyBehind by mutableStateOf(false)
+    var partyBehindMs by mutableStateOf<Long?>(null)
+    var partyRateNudge: Float? = null
+    var partyPreviousKey: String? = null
+    var partyAppInBackground = false
+    var playbackSnapshotMark: TimeMark? = null
+    var pendingSeekTarget: Pair<Long, TimeMark>? = null
+    var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
+    var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
+    var serverAudioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
+    var serverSubtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
+    var serverTrackSwitchJob by mutableStateOf<Job?>(null)
+    var serverAudioPreferenceKey: String? = null
     var subtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
     var selectedAudioIndex by mutableStateOf(-1)
     var selectedSubtitleIndex by mutableStateOf(-1)
@@ -370,6 +405,17 @@ internal class PlayerScreenRuntime(
 
     /** The source whose embedded-subtitle verification has already been logged, so it logs once. */
     var embeddedSubtitleVerificationLoggedFor by mutableStateOf<String?>(null)
+
+    /**
+     * What the loading band and the stall watchdog describe: the source playing *now*. `args` holds the
+     * launch's, which used to be read directly, so a next episode or a switched source showed (and
+     * watched for) the first source's quality, size and attempt.
+     */
+    var activeSourceFacts by mutableStateOf(args.sourceFacts)
+    var activePlaybackAttempt by mutableStateOf(args.playbackAttempt)
+
+    /** The last `subtitle_pick` line written, so the picker's view is logged only when it changes. */
+    var subtitlePickLoggedLine: String? = null
     var hasScannedTextTracksOnce by mutableStateOf(false)
     var autoFetchedAddonSubtitlesForKey by mutableStateOf<String?>(null)
     var trackPreferenceRestoreApplied by mutableStateOf(false)

@@ -299,6 +299,7 @@ internal val SetupSpecimen.desktopHeight: Dp
         SetupSpecimen.Theme -> 300.dp
         SetupSpecimen.Diagram -> 420.dp
         SetupSpecimen.Device -> 560.dp
+        SetupSpecimen.Language -> 720.dp
     }
 
 /**

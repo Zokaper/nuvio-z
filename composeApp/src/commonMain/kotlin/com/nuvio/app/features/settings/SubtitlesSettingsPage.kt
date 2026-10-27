@@ -19,6 +19,7 @@ import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
 import com.nuvio.app.features.player.SubtitleColorSwatches
 import com.nuvio.app.features.player.subtitleFontSizeRangeSp
 import com.nuvio.app.features.player.SubtitleLanguageOption
+import com.nuvio.app.isDesktop
 import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.*
 import nuvio.composeapp.generated.resources.Res
@@ -92,19 +93,16 @@ private fun SubtitlesSettingsSection(
                     isTablet = isTablet,
                     onClick = onOpenPlaybackLanguage,
                 )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_subtitle_use_forced),
-                    description = stringResource(Res.string.settings_playback_subtitle_use_forced_description),
-                    checked = autoPlayPlayerSettings.subtitleStyle.useForcedSubtitles,
-                    enabled = otherSubtitleOptionsEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = { enabled ->
-                        PlayerSettingsRepository.setSubtitleStyle(
-                            autoPlayPlayerSettings.subtitleStyle.copy(useForcedSubtitles = enabled),
-                        )
-                    },
-                )
+                if (!isIos && !isDesktop) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    AutoSyncPlaybackSettingsRows(
+                        isTablet = isTablet,
+                        enabled = otherSubtitleOptionsEnabled && androidPlaybackEngine != AndroidPlaybackEngine.Libmpv,
+                        preferredSubtitleLanguage = autoPlayPlayerSettings.preferredSubtitleLanguage,
+                    )
+                }
+                // Z: "Use Forced Subtitles" is gone - Forced is one of the subtitle choices in
+                // Playback → Language now, per group of titles (`LanguageSettingsSections`).
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_subtitle_show_preferred_only),
@@ -154,7 +152,7 @@ private fun SubtitlesSettingsSection(
                 SettingsSliderRow(
                     title = stringResource(Res.string.settings_playback_subtitle_size),
                     value = subtitleStyle.fontSizeSp,
-                    valueText = stringResource(Res.string.compose_player_font_size_value, subtitleStyle.fontSizeSp),
+                    valueText = { size -> stringResource(Res.string.compose_player_font_size_value, size) },
                     valueRange = subtitleFontSizeRangeSp,
                     step = 2,
                     isTablet = isTablet,
@@ -167,7 +165,7 @@ private fun SubtitlesSettingsSection(
                 SettingsSliderRow(
                     title = stringResource(Res.string.settings_playback_subtitle_vertical_offset),
                     value = subtitleStyle.bottomOffset,
-                    valueText = subtitleStyle.bottomOffset.toString(),
+                    valueText = { offset -> offset.toString() },
                     valueRange = 0..200,
                     step = 5,
                     isTablet = isTablet,

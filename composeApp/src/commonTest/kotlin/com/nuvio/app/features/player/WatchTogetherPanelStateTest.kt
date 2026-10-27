@@ -15,6 +15,7 @@ import com.nuvio.app.features.watchparty.WatchPartyControlMode
 import com.nuvio.app.features.watchparty.WatchPartyParticipant
 import com.nuvio.app.features.watchparty.WatchPartyState
 import com.nuvio.app.features.watchparty.WatchPartyStatus
+import com.nuvio.app.features.watchparty.partyHasNobodyToHearFrom
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -175,5 +176,36 @@ class WatchTogetherPanelStateTest {
         assertEquals(PartyConnectionChip.Delayed, partyConnectionChip(reachable.copy(realtime = PartyRealtimeHealth.SubscribedUnverified), 0, 60_000))
         assertEquals(PartyConnectionChip.Delayed, partyConnectionChip(reachable.copy(realtime = PartyRealtimeHealth.Detached), 0, 60_000))
         assertEquals(PartyConnectionChip.Offline, partyConnectionChip(PartyHealthState(api = PartyApiHealth.Unreachable), 0, 60_000))
+    }
+
+    // 2026-10-23, party f149124c: the host was killed, the phone's realtime went Degraded on 20 s of
+    // silence (`health-stale`) with its socket acked throughout, and the chip said "Reconnecting…" until
+    // the handover - then kept saying it with the phone hosting a party of one.
+    @Test fun silenceWithNobodyElseConnectedIsNotThisViewerReconnecting() {
+        val degraded = PartyHealthState(api = PartyApiHealth.Reachable, realtime = PartyRealtimeHealth.Degraded)
+        fun chip(party: WatchPartyState, health: PartyHealthState = degraded) =
+            assertIs<WatchTogetherPanelState.Active>(
+                projectWatchTogetherPanel(base.copy(party = party, health = health, realtimeSinceMs = 0, nowMs = 60_000)),
+            ).connection
+        val deadHost = party(
+            host = "seraph",
+            members = listOf(member("me", "Rayo", "2026-09-15T10:01:00Z"), member("seraph", "Seraph", "2026-09-15T10:00:00Z", connected = false)),
+        )
+        val partyOfOne = deadHost.copy(hostProfileId = "me")
+        val liveHost = party(
+            host = "seraph",
+            members = listOf(member("me", "Rayo", "2026-09-15T10:01:00Z"), member("seraph", "Seraph", "2026-09-15T10:00:00Z")),
+        )
+        assertTrue(partyHasNobodyToHearFrom(deadHost, "me"))
+        assertTrue(partyHasNobodyToHearFrom(partyOfOne, "me"))
+        assertEquals(PartyConnectionChip.Live, chip(deadHost))
+        assertEquals(PartyConnectionChip.Live, chip(partyOfOne))
+        assertEquals(PartyConnectionChip.Live, chip(partyOfOne, degraded.copy(realtime = PartyRealtimeHealth.SubscribedUnverified)))
+        // Somebody there to hear from: silence is this viewer's, as before.
+        assertEquals(false, partyHasNobodyToHearFrom(liveHost, "me"))
+        assertEquals(PartyConnectionChip.Reconnecting, chip(liveHost))
+        // Its own channel reopening still says so, alone or not, and so does a failed poll.
+        assertEquals(PartyConnectionChip.Reconnecting, chip(partyOfOne, degraded.copy(realtime = PartyRealtimeHealth.Connecting)))
+        assertEquals(PartyConnectionChip.Offline, chip(partyOfOne, degraded.copy(api = PartyApiHealth.Unreachable)))
     }
 }

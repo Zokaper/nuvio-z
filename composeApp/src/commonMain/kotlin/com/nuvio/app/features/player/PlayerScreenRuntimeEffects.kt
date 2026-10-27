@@ -2,6 +2,8 @@ package com.nuvio.app.features.player
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.party.PartyRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.shuffle.EpisodeShuffleRepository
 import com.nuvio.app.features.shuffle.ShuffleSurface
@@ -44,6 +46,8 @@ import com.nuvio.app.features.streams.CredentialRefreshDecision
 import com.nuvio.app.features.streams.credentialRefreshDecision
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
+import com.nuvio.app.features.servers.ServerPlayback
+import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsRepository
@@ -147,10 +151,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
-    LaunchedEffect(currentStreamBingeGroup, parentMetaId) {
+    LaunchedEffect(currentStreamBingeGroup, currentStreamFilename, currentStreamInfoHash, parentMetaId) {
         val bg = currentStreamBingeGroup
         if (bg != null && parentMetaId.isNotBlank()) {
-            BingeGroupCacheRepository.save(parentMetaId, bg)
+            BingeGroupCacheRepository.save(parentMetaId, bg, currentStreamFilename, currentStreamInfoHash)
         }
     }
 
@@ -388,6 +392,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
+    LaunchedEffect(activeSourceUrl, preferredAudioLanguageTargets) {
+        refreshServerTracks()
+        applyPreferredServerAudioTrack()
+    }
+
     LaunchedEffect(playbackSnapshot.isLoading, playerController, preferredAudioLanguageTargets) {
         if (!playbackSnapshot.isLoading && playerController != null) {
             refreshTracks()
@@ -457,7 +466,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             val outcome = probePlaybackSource(
                 url = activeSourceUrl,
                 headers = activeSourceHeaders,
-                expectedBytes = args.sourceFacts?.sizeBytes,
+                expectedBytes = activeSourceFacts?.sizeBytes,
             )
             startupLog.i {
                 val detail = when (outcome) {
@@ -503,7 +512,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         val startedAt = TimeSource.Monotonic.markNow()
         var watch = PlaybackStartupWatchdog.initial()
         startupLog.i {
-            "watchdog armed: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+            "watchdog armed: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                 "baselineMs=${args.initialPositionMs}ms"
         }
         var lastLoggedProgressMs = 0L
@@ -561,7 +570,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             ) {
                 startupLog.w {
                     "abandoning $activeStreamTitle: reason=ImplausibleDuration " +
-                        "attempt=${args.playbackAttempt} " +
+                        "attempt=${activePlaybackAttempt} " +
                         "duration=${snapshot.durationMs}ms " +
                         "expectedMinutes=${args.expectedRuntimeMinutes} " +
                         "engine=${snapshot.engineName}"
@@ -579,7 +588,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             // whether the party was holding it for twenty of them or not.
             if (partyStartupHold != lastLoggedHold) {
                 startupLog.i {
-                    "watchdog hold: attempt=${args.playbackAttempt} held=${partyStartupHold.isHeld} " +
+                    "watchdog hold: attempt=${activePlaybackAttempt} held=${partyStartupHold.isHeld} " +
                         "reason=${partyStartupHold.reason} gateReason=${partyStartupHold.gateReason} " +
                         "elapsed=${sample.elapsedMs}ms effective=${watch.effectiveElapsedMs}ms " +
                         // Whether this hold stops the clock at all, which is the whole difference
@@ -592,7 +601,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             if (!wasEvidenceOfLifeLogged && watch.hasEvidenceOfLife) {
                 wasEvidenceOfLifeLogged = true
                 startupLog.i {
-                    "watchdog evidence of life: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                    "watchdog evidence of life: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                         "elapsed=${sample.elapsedMs}ms duration=${sample.durationMs}ms " +
                         "buffered=${sample.bufferedPositionMs}ms probePassed=$probePassed"
                 }
@@ -600,7 +609,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             if (watch.bestProgressMs > lastLoggedProgressMs && watch.bestProgressMs > 0L) {
                 lastLoggedProgressMs = watch.bestProgressMs
                 startupLog.d {
-                    "watchdog progress: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                    "watchdog progress: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                         "elapsed=${sample.elapsedMs}ms progress=${watch.bestProgressMs}ms " +
                         "buffered=${sample.bufferedPositionMs}ms position=${sample.positionMs}ms"
                 }
@@ -609,7 +618,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 PlaybackStartupWatchdog.Verdict.Waiting -> Unit
                 PlaybackStartupWatchdog.Verdict.Started -> {
                     startupLog.i {
-                        "watchdog started: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                        "watchdog started: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle " +
                             "elapsed=${sample.elapsedMs}ms progress=${watch.bestProgressMs}ms " +
                             "duration=${sample.durationMs}ms engine=${snapshot.engineName}"
                     }
@@ -627,7 +636,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                         // that produced the second of those had no line saying a party was
                         // involved at all, so the abandonment read as a source fault for a day.
                         "abandoning $activeStreamTitle: reason=$reason " +
-                            "attempt=${args.playbackAttempt} " +
+                            "attempt=${activePlaybackAttempt} " +
                             "elapsed=${sample.elapsedMs}ms effective=${watch.effectiveElapsedMs}ms " +
                             "heldTotal=${watch.holdMs}ms " +
                             "progress=${watch.bestProgressMs}ms " +
@@ -692,6 +701,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         val controller = playerController ?: return@LaunchedEffect
         if (playerControllerSourceUrl != activeSourceUrl) return@LaunchedEffect
         if (initialSeekApplied || playbackSnapshot.isLoading) return@LaunchedEffect
+        if (isPartySynced && PartyRepository.playback.value != null) {
+            initialSeekApplied = true
+            return@LaunchedEffect
+        }
 
         // ⚠ **Bounded, and gated on a duration worth believing.** This used to be
         // `durationMs * fraction` with no ceiling, while `PlayerScreenRuntimeUi` bounds the
@@ -754,6 +767,12 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
     BindPlayerUiVisibilityEffects()
     BindPlayerMetadataAndSkipEffects()
+    if (com.nuvio.app.core.build.UPSTREAM_PARTY_UI_ENABLED) BindPartyEffects()
+
+    DisposableEffect(activeSourceUrl) {
+        val effectSourceUrl = activeSourceUrl
+        onDispose { ServerPlayback.stop(effectSourceUrl) }
+    }
 
     DisposableEffect(playbackSession.videoId, activeSourceUrl, activeSourceAudioUrl) {
         val effectVideoId = playbackSession.videoId
@@ -776,6 +795,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             args.launchId?.let { launchId -> PlayerLaunchStore.update(launchId) { currentLaunch(it) } }
             playerController?.clearNowPlayingInfo()
             P2pStreamingEngine.shutdown()
+            cancelNextEpisodePreload()
             PlayerStreamsRepository.clearAll()
         }
     }
@@ -834,6 +854,13 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
         playbackSnapshot.isEnded,
         playbackSnapshot.durationMs,
     ) {
+        ServerPlayback.onPlaybackSnapshot(
+            url = activeSourceUrl,
+            positionMs = playbackSnapshot.positionMs,
+            isPlaying = playbackSnapshot.isPlaying,
+            isLoading = playbackSnapshot.isLoading,
+            isEnded = playbackSnapshot.isEnded,
+        )
         if (playbackSnapshot.isEnded) {
             flushWatchProgress(TrackingScrobbleAction.STOP)
             previousIsPlaying = false
@@ -1008,6 +1035,8 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 // Upstream's guards: the controller belongs to the source now playing, and the
                 // resume seek has landed - a resumed episode reads 0:00, inside its intro, until it does.
                 playerControllerSourceUrl == activeSourceUrl &&
+                playerSettingsUiState.skipIntroEnabled && playbackSnapshot.isPlaying &&
+                !isPartyControlLocked &&
                 initialSeekApplied &&
                 initialLoadCompleted &&
                 !playbackSnapshot.isLoading &&
@@ -1037,6 +1066,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 if (!controller.trySeekTo(seekPositionMs)) return@LaunchedEffect
                 autoSkippedIntervalKeys.add(intervalKey)
                 scheduleProgressSyncAfterSeek()
+                publishPartyPlayback(positionMs = seekPositionMs)
                 skipIntervalDismissed = true
                 playerNotificationMessage = notification
                 playerNotificationToken += 1L
@@ -1112,6 +1142,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         } else null
     }
 
+    LaunchedEffect(playbackSnapshot.isEnded) {
+        if (playbackSnapshot.isEnded && nextEpisodeDismissedForVideoId == activeVideoId &&
+            playerSettingsUiState.streamAutoPlayNextEpisodeEnabled &&
+            nextEpisodeInfo?.hasAired == true
+        ) {
+            nextEpisodeDismissedForVideoId = null
+        }
+    }
+
     LaunchedEffect(
         activePlaybackKey,
         playbackSnapshot,
@@ -1151,7 +1190,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         )
         if (shouldShow && !showNextEpisodeCard && !nextEpisodeTransition.isActive) {
             showNextEpisodeCard = true
-            if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
+            if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked) {
                 playNextEpisode()
             }
         } else if (!shouldShow && !nextEpisodeTransition.isActive) {
@@ -1242,7 +1281,7 @@ internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
     // A scrub target held for a buffering engine will never be acknowledged by a failed one.
     scrubbingPositionMs = null
     startupLog.w {
-        "fatal player error: attempt=${args.playbackAttempt} candidate=$activeStreamTitle error=$message"
+        "fatal player error: attempt=${activePlaybackAttempt} candidate=$activeStreamTitle error=$message"
     }
     if (isDebugBuild && PlaybackDebugSettings.hudEnabled) {
         errorMessage = message
@@ -1272,6 +1311,7 @@ internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
 }
 
 internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message: String?): Boolean {
+    if (ServerStreams.isServerSourceId(activeProviderAddonId)) return retryServerSourceAfterError(message)
     val failedUrl = activeSourceUrl
     when (
         credentialRefreshDecision(
@@ -1369,6 +1409,9 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
         activeStreamSubtitle = stream.streamSubtitle
         activeProviderName = stream.addonName
         activeProviderAddonId = stream.addonId
+        activeStream = stream
+        currentStreamFilename = stream.behaviorHints.filename
+        currentStreamInfoHash = stream.infoHash
         activePartySourceDescriptor = stream.toPartySourceDescriptor()
         currentStreamBingeGroup = stream.behaviorHints.bingeGroup
         activeInitialPositionMs = savedPositionMs
@@ -1378,6 +1421,29 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
         } finally {
             PlayerStreamsRepository.stopSourcesLoading()
         }
+    }
+    return true
+}
+
+private fun PlayerScreenRuntime.retryServerSourceAfterError(message: String?): Boolean {
+    if (credentialRefreshJob?.isActive == true) return true
+    val failedUrl = activeSourceUrl
+    if (credentialRefreshAttemptedSourceUrl == failedUrl) return false
+    credentialRefreshAttemptedSourceUrl = failedUrl
+    val savedPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+    errorMessage = null
+    credentialRefreshJob = scope.launch {
+        val playback = ServerPlayback.fallback(failedUrl)
+        if (playback == null) {
+            errorMessage = message
+            controlsVisible = !playerControlsLocked
+            return@launch
+        }
+        externalSubtitles = playback.subtitles
+        activeSourceUrl = playback.url
+        activeSourceHeaders = playback.headers
+        activeInitialPositionMs = savedPositionMs
+        activeInitialProgressFraction = null
     }
     return true
 }

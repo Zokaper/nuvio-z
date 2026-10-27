@@ -2,6 +2,8 @@ package com.nuvio.app.core.sync
 
 import com.nuvio.app.features.home.HomePresentationSync
 import com.nuvio.app.features.shuffle.EpisodeShuffleSync
+import com.nuvio.app.features.language.LanguagePreferencesSync
+import com.nuvio.app.features.social.SocialHomeSync
 
 /**
  * ⚠ **The one per-repository file of the Z sync seam - never merge or copy it across.** `nuvio-z`
@@ -11,4 +13,6 @@ import com.nuvio.app.features.shuffle.EpisodeShuffleSync
 internal val zProfileSyncContributors: List<ZProfileSyncContributor> = listOf(
     HomePresentationSync,
     EpisodeShuffleSync,
+    SocialHomeSync,
+    LanguagePreferencesSync,
 )

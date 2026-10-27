@@ -15,100 +15,277 @@ failover; natural autoplay threshold triggering remains untested.
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/social-v2-design` | 131 (dispatched) | Social V2 final check on CI-built debug 130, then the maintainer's What's New text, then stable |
-| Mobile | `claude/social-v2` | 112 (dispatched) | Same final check on debug 112 (Android + iOS) |
-| Android USB experiment | `experiment/android-ios-usb-phase1` | local APK 0.2 | Real Galaxy Android 16 / iPhone15,2 iOS 26.5: permission, claim, mux + unpaired Lockdown info pass; recovery testing pending; Phase 2 not started |
+| Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
+| Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
 
-## Android-to-iPhone USB experiment (2026-10-23)
+## TV debug 16: coalesced native startup track refreshes (2026-10-27)
 
-**Real-device 0.2 pass (20:17:41 local):** pulled the maintainer's Galaxy log over adb after
-reconnecting it to the computer. The permission callback contains both expected extras and
-`granted=true`; the same live USB instance has permission. Java open and native nusb descriptor
-adoption succeed. rusbmux switches configuration **1 -> 3**, claims mux interface **1** with
-endpoints **0x85 IN / 0x04 OUT**, exchanges mux **2.0** version/setup, connects Lockdown port **62078**,
-and reads all four allowlisted fields without pairing or StartSession: `DeviceClass=iPhone`,
-`ProductType=iPhone15,2`, `ProductVersion=26.5`, `BuildVersion=23F77`. Final report has `ok=true`,
-`muxConnected=true`, `lockdownConnected=true`, `blocker=null`; transport/info work completes in
-about **90 ms** after Java open begins. Normal mux shutdown completes; a later physical detach is
-logged at 20:18:03. This satisfies the core Phase 1 transport/info acceptance on this device pair.
+`nuviozweb` `claude/phase-10-trunk`: native metadata/track bursts share a refresh after paint only
+while Tizen AVPlay's strict startup audio gate is closed before the first frame, with no track
+dialog open. Reentrant native refreshes leave the selection stack. Original preference matching,
+cache invalidation, support checks, gates and deadlines remain; manual/other-engine refresh stays
+synchronous. Mount/source/native-request fences and cleanup/error/retry checks retire stale work.
+All implementation is in Z-owned files; no upstream patch seam, UI or Kotlin change.
 
-Evidence saved locally (ignored): `build/usb-permission-fix/phone-retest-0.2.log` and extracted
-`phone-retest-0.2-report.json`. This is one successful physical probe, not a reliability campaign.
-Repeated reconnect/reprobe, real denial/retry, unplug during an active probe and physical
-re-enumeration remain unverified. Recommend a short Phase 1 recovery sweep before Phase 2;
-fresh pairing, TLS, signing, large transfers and installation remain outside this result.
-No Phase 2 work was started. No APK rebuild or code change was needed for this evidence update.
+493 tests and focused Samsung/subtitle-language/browser checks pass. Q60B coordination-only
+comparison: 35 requests become 16 refreshes, maximum 445 ms versus the debug 15 maximum 2,045 ms.
+The configured signed debug 16 is installed: first built-app inspection reaches preferred English
+audio/subtitles with loading and gate cleared; maximum refresh 796 ms. Startup gaps remain, so
+this is not maintainer smoothness acceptance. Final trace, manual audio/Next Episode checks and
+publication belong to `nuviozweb/STATUS.md` and `docs/TV-STARTUP-DEBUG16-2026-10-27.md` there.
 
-**Permission follow-up (APK 0.2):** maintainer's Galaxy S25+ / Android 16 loads JNI, detects
-Apple `05ac:12a8` including mux interface `ff/fe/02`, displays the permission dialog, and the
-maintainer explicitly taps Allow. The harness then reports a combined denial/disconnection.
-Saved filtered logs confirm the iPhone is still enumerated immediately after that message.
-The initial PendingIntent is immutable, which drops Android's fill-in result extras; the handler
-misclassifies missing extras as denial. Fixed with a mutable, explicit, one-shot PendingIntent to
-an unexported manifest receiver. Request UUIDs and private pending/result storage survive Activity
-recreation; system attach/detach notifications stay on a separate NOT_EXPORTED dynamic receiver.
-The controller checks the live USB instance + VID/PID and `hasPermission()` before opening it.
-Missing callback/extras, explicit false, stale/wrong device, detach, re-enumeration and permission
-loss have distinct diagnostics. Similar VID/PID never grants access to a replacement instance.
-Missing callbacks time out after 120 s, with recovery only when the same current instance already
-has permission. Java open, native FD adoption, interface configuration/claim, mux and Lockdown are
-reported separately. No pairing/signing/installation changes were made.
+Built-app replay trace: loadedmetadata 56.3 ms versus 3,928.3 ms in the prior trace; largest task
+1,075 ms versus 4,651 ms. Manual audio switch/restore passes without remembering the selection.
+Instant Next Episode reaches episode 2 with preferred audio/subtitles and loading/gate cleared;
+clock advances beyond 125 seconds, no spinner in 1,226 settled samples. Remaining startup pauses
+are documented; these individual traces do not establish maintainer physical smoothness.
 
-**0.2 verification on the real Galaxy:** **10/10 Android instrumentation tests**, zero failures/skips,
-on SM-S936B / Android 16 ARM64. Tests reproduce the original immutable intent losing Android fill-in
-extras, prove the corrected private mutable callback preserves true/false results without an Activity,
-reject stale requests, verify JNI/FD ownership and check debug/no-network isolation. These synthetic
-callbacks do not request access to an actual USB device. **15/15 JVM permission-state tests** cover
-denial, missing extras/callback, timeout, permission loss, device replacement and restart; **5/5 Rust
-protocol tests** still pass. Both ABIs build. Lint **0 errors, 13 prototype warnings**; signature and
-16 KB APK/ELF alignment verified. Final logs: `build/usb-permission-fix/final-{phone-verification,rust-tests}.log`.
-The connected test runner emits an unrelated optional test-services appops warning; all assertions pass.
+Code `dda418c1` is committed/pushed. Run `40552909171` succeeded: debug 16 WGT + IPK are published.
+Configured signed WGT is installed; app relaunched normally and inspector forwarding removed.
+CI packages use the optional unconfigured fallback, separate from the configured local TV build.
 
-Updated artifact: `Nuvio Z/release-artifacts/android-ios-usb-phase1/Nuvio-Z-USB-Probe-phase1-0.2.apk`,
-7,599,395 bytes; SHA-256 `245990059cd1e9badc9bbbef4e3f88fadb2b17b42327746431465b1724e4c5cb`.
-The updated package was installed over the existing test package. The real permission grant ->
-open -> claim -> mux -> unpaired Lockdown path subsequently passed, as recorded above. Recovery
-and physical re-enumeration checks remain pending. No Phase 2 work has begun.
+## TV debug 15: measured responsiveness and roomier Classic (2026-10-27)
 
-Authorized scope: a debug-only ARM64 Android harness for permission, raw USB mux and unpaired
-Lockdown device-info reads. No Apple login, signing, pairing or installation. Isolated worktree:
-`.codex-worktrees/android-ios-usb-phase1`; normal Android, desktop and iOS behavior stays unchanged.
-The maintainer confirms the existing desktop install / iPhone self-refresh flow works. The available
-iPhone is approximately a 13/14, exact iOS TBD; Android hardware observations are recorded above.
-Implemented `iosInstaller/android-probe/`: optional `:androidUsbProbe`, separate debug-only package
-`com.nuvio.app.z.usbprobe` (no release variant or Internet permission), USB permission/attachment UI,
-JNI descriptor adoption, direct rusbmux handshake and four unpaired GetValue queries. No production
-Android/desktop/iOS sources or installer lockfile changed. One upstream seam: opt-in module include
-in `settings.gradle.kts`; ledger C26 and PATCH-SURFACE record it.
+`nuviozweb` `claude/phase-10-trunk`: connection status is a native-read-free snapshot, invalidated
+on network changes; each estimate lookup samples identity once, with paint/cancellation ownership
+and actual-network completion checks retained. Q60B status reads fall from 13.5-34.4 ms to
+0.03-0.10 ms; repeated Streamlined renders from 51-128 ms to 6-9 ms. Six quality markup scenarios
+remain identical. A startup trace then exposed repeated player-language alias sorting: 1,377 sorts
+for three rebuilds of the same track choices. The two inference sites now reuse the same ordered
+immutable vocabulary through a Z helper; matching rules and subtitle-language parity are retained.
 
-Released rusbmux 0.3.0 needed a documented vendor patch: accept an already-open nusb handle, disable
-Android-inapplicable discovery, prefer the active configuration, use idevice 0.1.68 (matching the
-installer), and define a deliberately unusable path for unused pairing code. No preflight/daemon/
-pairing path is called. `VENDOR.md` records the archive hash and exact changed files. nusb 0.2.8 is
-unmodified. Routing identity is a Phase 1 placeholder; it must not be used for Phase 2 pairing.
+The maintainer chose the **roomier second Classic preview**: smaller complete cards, wider list,
+flat visible focus ring and matching virtual-row spacing. Q60B runtime navigation reaches row 321
+of 322 with a 20-card DOM window; the sampled roomier D-pad handler maximum is 13.7 ms.
+TMDB enhancement defaults on only when absent/null, preserving saved/synced opt-outs and modern
+Home's separate default. Two upstream seams are recorded in `Docs/PATCH-SURFACE.md`: the TMDB
+store default and the existing player language helper's ordered-alias calls. No Kotlin code changed.
 
-**Historical initial APK 0.1 verification (before phone tests):** ARM64 + x86_64 optimized Rust JNI libraries and the debug APK build;
-host Rust **5/5** (real idevice protocol against fake Lockdown peer, refusal and timeout included);
-Android API 34 x86_64 emulator **5/5**, zero failures/skips (JNI load, invalid/non-USB FD diagnostics,
-Java FD ownership, debug/no-network isolation, Activity startup). Lint **0 errors, 11 warnings**
-(test UI localization, target matching the app, backup declaration). APK signature and 16 KB ZIP/
-ELF segment alignment pass. Normal Gradle project graph excludes the module; opted-in module has
-no release variant. Screen and the self-test button were inspected on the emulator.
+480 tests and focused Samsung/subtitle-language/browser checks pass. Overall loading smoothness,
+automatic countdown/failover and other TV families are not accepted by this work. Final configured
+signed-build inspection, packages and debug publication are recorded in `nuviozweb/STATUS.md` and
+`docs/TV-PLAYBACK-DEBUG15-2026-10-27.md` there.
 
-The emulator tests caught a timeout constructed outside Tokio's runtime and poisoned busy state;
-both are corrected and the final five tests pass. This is **not physical USB evidence**: the AVD
-does not expose USB host hardware. Real Android permission grant/denial, nusb USB access/configuration,
-mux handshake, iPhone information reads, detach/reconnect and ARM64 runtime behavior remain untested.
-No real phone was attached to adb in this session. Do not declare Phase 1's USB criteria passed or
-start pairing/Phase 2 before reviewing the Galaxy/iPhone report.
+Final configured signed WGT installed/inspected: Instant advances to episode 2 with an advancing
+clock and settled loading. Final roomier list reaches row 240/241 with a 20-card window and 3 px
+focus ring. The 11-audio/84-subtitle rebuild performs zero repeated alias sorts; startup callback
+pauses still occur. Browser 1080p/720p layout checks pass. TV relaunched normally, inspector removed.
+Code `aa09976e` is pushed; debug publication run `40545507323` succeeded and debug 15 WGT + IPK
+are published. CI optional unconfigured fallback remains separate from the configured local WGT.
 
-Test APK (7,566,563 bytes), copied to `Nuvio Z/release-artifacts/android-ios-usb-phase1/`:
-`Nuvio-Z-USB-Probe-phase1.apk`; SHA-256
-`84b03d7f474f0961fd1692176e8a0ef044e4a70f23f810f9fab9422b033fff0c`.
-Build/reproduction/device checklist: `iosInstaller/android-probe/README.md`. Local evidence:
-`build/usb-probe-research/{android-smoke,rust-tests,normal-projects,probe-tasks}.log`, emulator screen,
-and app build's lint / connected-test XML reports. No tag, release, production deployment or
-full installer integration is part of this experiment.
+## Maintainer's focused debug 14 retest passed (2026-10-27)
+
+On the Q60B, the maintainer repeated Instant playback of a series episode followed by manual
+Next Episode and confirmed: "it worked, next episode loaded just fine." This passes the requested
+picture/motion and spinner-dismissal retest and closes the reported persistent-throbber issue
+for this path. Loading smoothness, automatic countdown/failover and other TV families remain
+outside this focused result.
+
+## TV debug 13 maintainer test and Debug 14 follow-up (2026-10-27)
+
+The maintainer tested the Q60B: Classic playback, loading Back, Details and audio menus work.
+Classic's oversized source list is explicitly deferred to UI polish. Instant still stutters
+between loading stages; Streamlined freezes before its panel. Instant Next Episode enters the
+player with a throbber; manual reopen resumes at 53 seconds. Automatic countdown/failover and
+other television families are not accepted by this report.
+
+Debug 14 is installed on the Q60B from `nuviozweb`: cooperative catalogue parsing/ranking with unchanged
+options/order, shared native timeline samples (250 ms, invalidated by play/prepare/seek/completion),
+and retiring the player's loading state with its first-frame handoff after its own gates pass.
+Q60B comparison on 322 sources: a 2127 ms synchronous calculation becomes 178 short turns, longest
+37.4 ms; total elapsed increases to 2869 ms. A transient frame/loading mismatch was observed, but
+the persistent throbber has not been conclusively reproduced. 468 tests pass. Installation and
+publication status belong to `nuviozweb/STATUS.md`. No Kotlin code changed. One new upstream seam
+in the TV controller delegates sampling to Z; recorded in `Docs/PATCH-SURFACE.md`.
+
+Final signed-build inspection: Instant switches episode 1 to episode 2, whose playback clock
+advances past 36 seconds with loading false and no presented-frame spinner in 430 samples.
+This does not establish the physical picture or the maintainer's smoothness acceptance; native
+startup still produces multi-second main-thread gaps. The TV app is relaunched normally, settings
+unchanged. Code `eefeb669` is pushed; debug 14 publication run `40507637986` succeeded (WGT + IPK).
+
+## TV loading performance and motion (2026-10-27)
+
+`nuviozweb` `claude/phase-10-trunk`, debug 13: the maintainer's first debug 12 test reported loading
+stutter and later clarified that overall performance is good; smooth transitions are the priority.
+Q60B timings found repeated quality calculation for 126 sources at 539-675 ms per call. The installed
+production build reuses unchanged results in 0.055-0.080 ms (initial calculation still 779 ms in
+that sample). Loading nodes persist across stage/fact changes and player handoff, with Kotlin's
+staggered entrance and a 300 ms fade only after the player's presented-frame flag. Inspector checks
+reach real Instant video and verify node continuity/motion; this is not maintainer smoothness
+acceptance or full mode/failover/next-episode QA. 459 tests, browser lifecycle/render checks, lint,
+formatting, configured build and both packages pass. No Kotlin code or upstream-owned seam changed.
+Initial calculation and native startup stalls remain; broader UI transitions, TMDB defaults and
+the later Details/audio review are still queued. See `nuviozweb/STATUS.md` and its linked measured
+report for publication and limits.
+
+## TV playback completion chunk (2026-10-26)
+
+`nuviozweb` `claude/phase-10-trunk`: debug 11 implements Instant, measured connection/re-test
+(N1-N3), coordinated next-episode transitions (P12), post-attach source probes and duration
+plausibility (P16). All three modes are selectable; imported Instant now becomes active without
+rewriting it. PC checks: 457 tests, real measured transfer/video/failover and remote navigation,
+countdown cancellation and next-episode first-frame coverage. Canonical TV cells and patch surface
+updated. No Kotlin code changed. The maintainer reports no new TV testing and explicitly asks for
+spaced, combined hardware chunks; this work and debug 10's restyle remain TV-pending. See
+`nuviozweb/STATUS.md` for the package, precise limits and next test chunk.
+
+## TV first-launch setup (2026-10-25)
+
+`nuviozweb` `claude/phase-10-trunk`: Stage 2 step 3.3 implements the standalone per-profile,
+device-local mode selector and explicit one-time Mobile/Desktop import of compatible playback/language
+preferences. Instant is visible but unavailable; imported Instant remains stored and uses Streamlined
+until enabled. Existing TV settings, picture/hardware values and other families are preserved.
+Browser automation covers actual stores, remote keys, import exclusion, safe-area fit, Back and
+once-only completion. P8 and PATCH-SURFACE updated; no Kotlin code changed. Debug 9 and the physical
+checkpoint are detailed in `nuviozweb/STATUS.md`.
+
+## TV playback source-screen continuation (2026-10-25)
+
+`nuviozweb` `claude/phase-10-trunk`: Stage 2 step 3.2 wires Streamlined's quality sheet,
+persistent loading host, capped fallback chain, progress watchdog and bounded in-player source list.
+394 tests pass; browser checks include an actual dead URL falling back to a working video in 20.1 s.
+Canonical TV cells and PATCH-SURFACE now match this step. No Kotlin code changed. TV verification,
+debug publication, remaining P12/P16 work and next step 3.3 are detailed in `nuviozweb/STATUS.md`.
+
+## Social V2 shipped (2026-10-24)
+
+Published on the maintainer's word, from the release branches above (both now contained in `main` / `Dev`):
+- **Mobile `0.6.2-z1+130`** (GitHub Latest, 22:41 UTC): four Android APKs, the unsigned iOS IPA, checksums and
+  the setup scripts. The release bot then committed the direct-install entry (`056ac8668`) and the sideload
+  `source.json` (`01e7e7f15`) to `main`, so iPhone users are offered the update.
+- **Desktop `0.1.31-alpha-z1+134`** (GitHub Latest, 20:58 UTC): Windows MSI and both unsigned macOS DMGs, with
+  checksums. The release needed one fix found at the verifier, `ced373783` (ship `nuvio_engine.dll` in the
+  Windows app-resources, drop the dead TorrServer copy); recorded in `nuvio-z/Docs/PATCH-SURFACE.md`.
+- Both release pages carry the text generated from What's New; the maintainer may swap in their own wording.
+- The promo still's harness is on desktop branch `claude/social-v2-promo-d5` (pushed; not for `Dev`).
+
+Social V2 is closed. The next work is **Phase 10, the TV / web port** (`Nuvio Z/PLAN-phase-10-tv-web-port.md`,
+repo `nuviozweb`).
+
+## Social V2 stable release (2026-10-24): mobile 0.6.2-z1 / desktop 0.1.31-alpha-z1
+
+Maintainer go-ahead after the 134/115 retest and a confirmed update over 132/113 (no device pop-up).
+What's New seq 5 gained Friend profiles + Choose who sees what you watch (features), Set up each device
+(improvement) and the second-device setup fix (maintainer's picks; mobile `4ea33c4b9`, desktop `aca1efc5c`).
+Release branches: mobile `release/0.6.2-z1` = `claude/social-v2` + `main` (installer split; docs conflicts kept
+the Social V2 side hunk by hunk, `.gitignore` keeps both blocks), desktop `release/0.1.31-alpha-z1` =
+`claude/social-v2-design` + `Dev` (two docs commits, clean). The bump is the last commit: mobile 0.6.2-z1 build
+129 serial 130, desktop 0.1.31-alpha-z1 code 48 serial 134, ship date 2026-10-24 on all three platforms of seq 5
+(a later publish date must be folded INTO the bump commits - see `Docs/RELEASES.md`). Then push to `main` / `Dev`,
+dry-run both, publish only on the maintainer's word. The maintainer writes the GitHub release notes.
+
+## Finishing setup cancelled its own upload (2026-10-24, debug 134 / 115)
+
+Maintainer's first Device Setup round on 133/114 (new profile made on desktop, then opened on the phone):
+"New settings available" followed a whole Initial Setup, and the phone ran **Initial Setup** instead of
+Device Setup's Welcome back. One cause, from the desktop Debug log at 18:07:32:
+`pushCurrentProfileToRemote() - FAILED ... CancellationException: rememberCoroutineScope left the composition`.
+`SetupWizardScreen.complete()` writes the revision (which drops a gating run's gate at the next frame and
+disposes the wizard), then pushed on the wizard's own scope and deferred `onFinished` until the push
+settled (Codex `f89098227`, 2026-09-30). The push was cancelled and `onFinished` never ran, so the debug
+offer was never marked answered; the server kept a mid-setup desktop blob (revision 0), so the phone's
+`CrossFamilySettingsImport` found nothing importable; and Home's full pull re-applied that blob over the
+wizard's last steps on desktop.
+**Fix (shared, byte-identical):** the push runs on a process-lifetime `setupUploadScope`, launched before
+`onFinished`, which now runs at once. Desktop `2e5951249`, mobile cherry-pick `f6639d151`.
+Verified: desktop setup + sync tests **272/272** (`build/setup-complete-fix.log`); mobile
+`:androidApp:compileFullDebugKotlin` + setup/sync host tests **226/226** (`build/setup-complete-fix-mobile.log`).
+No UI regression test: the gate teardown needs the real repositories.
+Also clarified to the maintainer: Initial Setup *ends with* the device steps (no separate Device Setup
+after it); "This computer" is skipped when the machine already answered it.
+**Retest needs a brand-new profile**: the 133 test profile now has a mobile blob, so it can never arrive
+from desktop again. Untested so far: update over 132/113, "Not now", per-device quality (items 1, 4, 5).
+Published: desktop 134 (run 40107250703). Mobile 115 (run 40107962513).
+**Maintainer retest on 134/115: all passed** (new desktop profile -> no offer after Initial Setup; phone
+opened Device Setup on Welcome back). The phone's later "New settings available" is the debug-only re-offer
+(a Device run does not answer it). Welcome back reworded at the maintainer's pick (option B + names Device
+Setup, no repeated subtitle): desktop `75baa9f1e`, mobile `428b00fab`; debug 135 (run 40112172449) / 116
+(run 40112230473; an earlier 116 run was cancelled because it lacked the copy commit).
+
+## Device Setup redesign (2026-10-24, debug 133 / 114)
+
+Maintainer request after debug 132/113: Device Setup becomes a setup type of its own - a **fixed** set of
+steps per platform family, once per profile per device, offered by a "First time on this device" pop-up
+(*Set up (recommended)* / *Not now*). Plan and as-built notes: `Nuvio Z/PLAN-device-setup.md`; ledger W13.
+- **Steps** (each an Advanced Setup panel narrowed by `deviceSetupControls`, no page of its own - the
+  maintainer's "routes, not pages" rule): mobile picture (+ metered cap in Instant), downloads (mobile data,
+  at once), navigation, player touch, notifications (episode alerts + the phone's Social alerts); desktop
+  picture, navigation, notifications (pop-ups), **This computer** (close, Start with Windows, Discord,
+  interface size). Machine-wide questions only while the machine revision (now **11**, both platforms) is owed.
+- **Order:** What's New -> device pop-up -> (next launch) "New settings available". Initial Setup ends with
+  the device steps; an arrival is still a gating Device run opening on Welcome back. Settings -> Setup &
+  About -> *Set up this device / computer* runs it on demand; leaving it early counts as "Not now".
+- **Per device:** once set up for a profile, pulls skip its navigation, quality/HDR/metered cap, player touch
+  and episode alerts (`core/sync/DeviceOwnedSettings.kt`); pushes continue and seed new devices.
+- **Seeding:** first launch marks an installation that predates this (revision 1-10, or none with cached
+  profiles) as legacy - every profile counts as set up. A fresh install writes revision 0.
+- The download step's old "alerts on this phone" row is gone (the notifications step covers it).
+Commits: desktop shared `12a0f27ca` + desktop-only `d5f9b1309`; mobile cherry-pick `f0257b590` + mobile-only
+(phone alerts area, Settings row, strings, docs). All 15 shared files byte-identical (CRLF-stripped).
+Verified: desktop setup / sync / storage / What's New tests + renders **328** with 2 failures fixed and
+rerun green (116/116 for the two model suites + sync filter); mobile host tests (setup, sync, storage,
+social, What's New) **457/457**; `:androidApp:compileFullDebugKotlin` exit 0. Renders inspected: the
+pop-up (420/1280), desktop Notifications and This computer, phone Notifications and Instant picture.
+**Not device-tested.** Phone checklist: fresh install (Initial Setup ends with device steps, no pop-up);
+update over 113 (no pop-up, nothing re-asked); second profile (pop-up; no machine questions); "Not now";
+Settings row; change quality on one device and confirm another device of the same family keeps its own.
+A low-memory reap killed one test run mid-way (no failure); leftover daemons were stopped before rerunning.
+
+Published: desktop [133](https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.1.26-alpha-z2.133) (run 40099445746, tag at `18b057faf`; MSI + arm64 DMG) and mobile [114](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.5.4-z3.114) (run 40099447644; APK + unsigned IPA + checksums + SideStore feed). Every job succeeded.
+
+## Debug 132/113 feedback: banner, Discord in New settings, debug re-offer (2026-10-24)
+
+Maintainer results on desktop 132 / mobile 113: items 1-10 of the test list passed, including iOS
+Watch Together host loss. Changes from the feedback, in both repos (shared files byte-identical):
+- **Friend profile banner**: lighter shade (phones 0.2 at the top, desktop 0.4 for the tab bar), and
+  the backdrop now dissolves into the page under the name. The banner is clipped: the artwork
+  placeholder's glow drew past its bounds and showed as a green haze under the name.
+- **Discord Rich Presence** (inherited from upstream NuvioDesktop PR #369 in August) is now in
+  Advanced Setup's desktop area, renamed **Startup & tray -> This computer**. That area is already in
+  `advancedSetupAreasChangedIn(11)`, so "New settings available -> Yes" offers it.
+- **Debug builds re-offer "New settings available"** once per profile per debug build
+  (`SetupProfileFlags.debugSettingsOfferAnswered`). Yes reviews this release's areas; a finished
+  Initial Setup counts as answered. Stable builds are unchanged.
+Verified: desktop setup + What's New tests and the profile / This computer renders **248/248**
+(`nuviozdesktop/build/device-discord-tests.log`); mobile `:androidApp:compileFullDebugKotlin` exit 0.
+Not yet in a debug build. **Next:** `Nuvio Z/PLAN-device-setup.md` (Device Setup as a fixed,
+per-profile-per-device setup type behind a pop-up; agreed, not started). Discord join is parked there.
+
+## Friend profile and audience privacy continuation (2026-10-24)
+
+Resumed desktop `078bffea5` after the previous session stopped. Both branches now carry the full
+profile page, month history, three audience settings with separately remembered lists, and the
+HTTPS banner dialog, reachable from Social settings. Saves show failures and prevent duplicate
+submission; audience mutations serialize and cannot publish across profile changes; cached state
+restores audiences; failed history loads have Retry. Narrow desktop Now cards preserve their titles.
+Mobile: strings `d41da3433`, original port `d06bb8e03`, wiring/recovery `352e64257`, card layout
+`6b6826b54`. Desktop counterparts `c9d340ff4`, `44a74ca04`; new render/recovery coverage `137408500`.
+All eight changed shared production files and the Social V2 strings block match across repos.
+Final local verification passes: desktop Social tests + real page renders **184/184** (22 suites,
+zero failures/errors/skips, Gradle exit 0; `build/profile-audience-final.log`), Android Social host
+tests **179/179** and `assembleFullDebug` (Gradle exit 0; `build/profile-audience-mobile-final.log`),
+and nine pure groups **1,088/1,088**. Renders inspected at 320/411 px phones and 1140/1920 desktop,
+including both phone tabs and audience pages. Desktop debug **132** is published (MSI + arm64 DMG, nonempty with SHA-256 digests verified);
+mobile **113** is published (APK + unsigned IPA + checksums + debug feed, all nonempty with
+SHA-256 digests verified).
+Hot Reload semantic smoke passed: the gear exposes all three audience rows and the banner; the
+Watching Now page opens its four choices, the friend picker selects and cancels without saving,
+the banner opens/cancels, and the profile loads real month history/together stats and switches to
+You two at phone width, with no UI exception. MCP screenshots were black; visual QA used the
+production render harness PNGs. The temporary source app was closed after verification.
+No new installed-device testing is claimed. Backend `8164eaf` / migration
+`202610240001` was already deployed by the previous session (551/551 pgTAP); this continuation
+makes no backend changes. S13/S14 record the new scope in `Docs/Z-FEATURES.md`.
+
+Debug workflows: [desktop 132](https://github.com/Zokaper/NuvioZDesktop/actions/runs/40050520980)
+at `847da5a26` (pre-created exact tag), [mobile 113](https://github.com/Zokaper/nuvio-z/actions/runs/40050524988)
+at `2527ace71`. Both workflows and every package/publication job succeeded.
+Desktop release: https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.1.26-alpha-z2.132
+Mobile release: https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.5.4-z3.113
+The full Android CI run `40049174316` is green. Full Linux desktop CI `40049154239` is still running
+(after 27 minutes installing Linux media dependencies); its clean Windows MSI job is green.
+The local counts above are focused Social checks, not a claim that the full desktop suite was rerun.
 
 ## Regional My language switched subtitles off (2026-10-23, debug 112 / 131)
 

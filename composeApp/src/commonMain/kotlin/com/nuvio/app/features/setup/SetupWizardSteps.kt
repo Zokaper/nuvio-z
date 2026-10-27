@@ -38,7 +38,7 @@ package com.nuvio.app.features.setup
  * launch - see `mergeMonotonicSyncInt` in `core/sync/SyncPreferenceJson.kt`. When testing this,
  * the launch that proves anything is the **second** one.
  */
-const val SETUP_WIZARD_REVISION: Int = 10
+const val SETUP_WIZARD_REVISION: Int = 11
 
 /**
  * Below this, a profile gets the **whole** wizard; from it up to [SETUP_WIZARD_REVISION], only the
@@ -49,23 +49,29 @@ const val SETUP_WIZARD_REVISION: Int = 10
 const val SETUP_WIZARD_FULL_REQUIRED_BELOW: Int = 8
 
 /**
- * The device-local revision (Phase 9). Profile answers sync; "may downloads use mobile data" is
- * about **this** phone, so a profile finished on another device still asks it once here.
+ * The machine's own revision: whether **this installation** has answered the questions that belong
+ * to the device itself rather than to any profile - downloads on mobile data and how many run at
+ * once, which Social alerts this phone shows; on desktop the close button, Start with Windows,
+ * Discord, the interface size and the pop-ups. Asked once, by whichever profile sets the device up
+ * first, so a second profile can never change the first one's machine (Device Setup redesign,
+ * 2026-10-24). Revision 11 is that redesign; 10 was the Phase 9 mobile-data question alone.
+ *
+ * Device-local and kept at sign-out (`LocalStoreRegistry`). 0 is written on a fresh install's first
+ * launch, so a later launch can tell "fresh, not answered yet" from an installation that predates
+ * the redesign - see [deviceSetupSeed].
  */
-const val SETUP_DEVICE_REVISION: Int = 10
+const val SETUP_DEVICE_REVISION: Int = 11
 
 /**
- * Which wizard, if any, this launch owes.
+ * Which wizard, if any, this launch owes **before the app opens**.
  *
  * - [Full]: a fresh profile, or one whose answers predate revision 8.
- * - [Upgrade]: revision 8 or 9 - only the steps [setupStepOfferedOnUpgradeFrom] names.
- * - [Device]: **Device Setup.** The profile is current, but either this phone has never been set up
- *   (mobile data), or the profile has just *arrived* on this platform family through the
- *   cross-family import and owes the few per-device choices the import deliberately left behind.
- * - [None]: nothing is owed.
- *
- * Device Setup is curated device-local configuration - the few per-device choices worth asking on
- * arrival - not a walk through every setting that happens to be stored locally.
+ * - [Upgrade]: revision 8 to 10 - only the steps [setupStepOfferedOnUpgradeFrom] names. Since
+ *   2026-10-20 this no longer gates: it is the "New settings available" offer.
+ * - [Device]: **Device Setup** - the per-device steps, once per profile per device. It gates only
+ *   for a cross-family arrival here; otherwise it is offered by a pop-up ([shouldOfferDeviceSetup])
+ *   and this run is what "Set up" opens.
+ * - [None]: nothing gates.
  *
  * **Skipping any of them counts as finishing it**: the revision is written either way, so nobody is
  * asked twice. Skipping an upgrade leaves the Download Mode unanswered, which means derived from
@@ -75,18 +81,18 @@ enum class SetupWizardRun { Full, Upgrade, Device, None }
 
 /**
  * @param profileRevision the synced `setup_wizard_completed_revision`.
- * @param deviceRevision this device's own setup revision, null when never written.
- * @param isPhone false on desktop, which has no device steps (no mobile data rule to ask).
  * @param arrivalPending this profile was just imported from the other platform family on this
  *   device (`CrossFamilySettingsImport`) and has not finished its Device Setup here yet.
  *
  * A stored revision **higher** than the current one never re-asks: that is a downgrade, and the
  * user has answered a superset of what this build would ask.
+ *
+ * The machine's revision no longer starts a run by itself (it did until 2026-10-24, as the phone's
+ * mobile-data question): a profile that has not set this device up is offered Device Setup, and the
+ * machine's questions ride along in it.
  */
 fun setupWizardRun(
     profileRevision: Int?,
-    deviceRevision: Int?,
-    isPhone: Boolean,
     currentRevision: Int = SETUP_WIZARD_REVISION,
     arrivalPending: Boolean = false,
 ): SetupWizardRun {
@@ -95,18 +101,50 @@ fun setupWizardRun(
         profile < minOf(currentRevision, SETUP_WIZARD_FULL_REQUIRED_BELOW) -> SetupWizardRun.Full
         profile < currentRevision -> SetupWizardRun.Upgrade
         arrivalPending -> SetupWizardRun.Device
-        isDeviceSetupStale(deviceRevision, isPhone) -> SetupWizardRun.Device
         else -> SetupWizardRun.None
     }
 }
 
 /**
- * Whether this device still owes its own questions. Device-global rather than per profile, on
- * purpose: every genuinely device-local setting (the mobile-data rule, the notification permission)
- * belongs to the installation, so a second profile on the same phone is not asked again.
+ * Whether this installation still owes the machine's own questions (see [SETUP_DEVICE_REVISION]).
+ * Device-global rather than per profile, on purpose: those settings belong to the installation.
  */
-fun isDeviceSetupStale(deviceRevision: Int?, isPhone: Boolean): Boolean =
-    isPhone && (deviceRevision ?: 0) < SETUP_DEVICE_REVISION
+fun isDeviceSetupStale(deviceRevision: Int?): Boolean =
+    (deviceRevision ?: 0) < SETUP_DEVICE_REVISION
+
+/**
+ * Whether to show the "First time on this device" pop-up (Device Setup redesign, 2026-10-24): the
+ * active profile has not set this device up, and nothing that gates the app is owed first. A Full
+ * run ends with the device steps itself, and an arrival *is* a Device run, so neither asks.
+ *
+ * [deviceSetupDone] is per profile and device-local (`SetupProfileFlags.deviceSetupDone`).
+ */
+fun shouldOfferDeviceSetup(run: SetupWizardRun, deviceSetupDone: Boolean): Boolean =
+    !deviceSetupDone && (run == SetupWizardRun.None || run == SetupWizardRun.Upgrade)
+
+/**
+ * What the first launch of the Device Setup redesign does to an existing installation.
+ *
+ * - [Fresh]: nothing was ever set up here. Write revision 0 and ask everything as profiles arrive.
+ * - [Legacy]: the installation predates the redesign. Every profile counts as set up on it, and the
+ *   machine's questions as answered, so nobody meets a wizard on update day; a profile *created*
+ *   later still sets the device up in its Initial Setup.
+ * - [None]: already decided on an earlier launch.
+ */
+enum class DeviceSetupSeed { Fresh, Legacy, None }
+
+/**
+ * @param deviceRevision [SETUP_DEVICE_REVISION]'s stored value, null when never written.
+ * @param hasCachedProfiles this installation already knows an account's profiles - what tells an
+ *   installation that never wrote a device revision (a desktop that never finished a wizard) from a
+ *   fresh one.
+ */
+fun deviceSetupSeed(deviceRevision: Int?, hasCachedProfiles: Boolean): DeviceSetupSeed = when {
+    deviceRevision == null -> if (hasCachedProfiles) DeviceSetupSeed.Legacy else DeviceSetupSeed.Fresh
+    // 1 to 10: written by a build before the redesign (every wizard run wrote 10 since Phase 9).
+    deviceRevision in 1 until SETUP_DEVICE_REVISION -> DeviceSetupSeed.Legacy
+    else -> DeviceSetupSeed.None
+}
 
 /**
  * Whether the profile's own answers are out of date - [SetupWizardRun.Full] or
@@ -124,6 +162,8 @@ fun shouldShowSetupWizard(
  */
 fun setupStepOfferedOnUpgradeFrom(step: SetupStep): Int? = when (step) {
     SetupStep.DownloadMode, SetupStep.DownloadSetup -> 10
+    // Revision 11 (2026-10-20): the language settings were rebuilt (`LanguageSettingsSections`).
+    SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles -> 11
     else -> null
 }
 
@@ -154,23 +194,6 @@ enum class SetupStep {
     WelcomeBack,
 
     /**
-     * Device Setup on arrival: **this** platform's navigation - the Android bar's style and glow, the
-     * iOS 26 Liquid Glass tab bar, or the desktop sidebar / top bar and its style. None of it crosses
-     * families (it is platform-specific, so the import leaves it at the default), and it is the first
-     * thing that makes the app feel different on a new kind of device. Only in an arrival plan with
-     * [SetupWizardPlan.offerDeviceNavigation].
-     */
-    DeviceNavigation,
-
-    /**
-     * Device Setup on arrival, mobile only: the in-app player's layout (new or legacy controls) and
-     * its touch behaviour (gestures, hold-to-speed). A desktop profile never answered any of it, and
-     * the defaults decide how every episode feels on a phone. Only in an arrival plan with
-     * [SetupWizardPlan.offerDevicePlayer].
-     */
-    DevicePlayer,
-
-    /**
      * How Nuvio picks sources - the first substantive decision, and the one that decides which
      * of the steps below are worth asking. Reuses `PlaybackModeCard`, so the copy can never
      * drift from the settings dialog.
@@ -191,8 +214,9 @@ enum class SetupStep {
 
     /**
      * The few download preferences the chosen Download Mode uses, plus the device's mobile-data
-     * rule on phones. Conditional: see [downloadSetupVariant]. A [SetupWizardRun.Device] run is
-     * this step alone, asking only the device question.
+     * rule on phones. Conditional: see [downloadSetupVariant]. In a [SetupWizardRun.Device] run it
+     * is the machine's download questions alone (mobile data, downloads at once), and only while
+     * the machine has not answered them.
      */
     DownloadSetup,
 
@@ -209,6 +233,16 @@ enum class SetupStep {
      * sentinel, so "Audio language matching: Require" was asked, stored, synced, and inert.
      */
     Language,
+
+    /**
+     * Subtitles for titles made in the user's language (2026-10-22). The Language step was all three
+     * Advanced Setup Language panels on one page; it is now those panels, one step each, with their
+     * previews - the same bodies Advanced Setup draws.
+     */
+    LanguageOwnTitles,
+
+    /** Audio and subtitles for titles made in any other language. See [LanguageOwnTitles]. */
+    LanguageOtherTitles,
 
     /** Addons. Optional, and the only step that can fail. */
     Sources,
@@ -228,6 +262,39 @@ enum class SetupStep {
 
     /** Accent palette and AMOLED. */
     Theme,
+
+    // --- the device steps (Device Setup redesign, 2026-10-24) ---------------------------------
+    // Last, before Done: a Full run ends with them, and a Device run is them. Each is an Advanced
+    // Setup panel narrowed by `deviceSetupControls`, never a page of its own. Their settings are kept
+    // per profile *and* per device: once this device is set up for the profile, sync no longer
+    // overwrites them here (`DeviceOwnedSettings`).
+
+    /**
+     * **This** platform's navigation - the Android bar's style and glow, the iOS 26 Liquid Glass tab
+     * bar, or the desktop sidebar / top bar and its style. Only with
+     * [SetupWizardPlan.offerDeviceNavigation].
+     */
+    DeviceNavigation,
+
+    /**
+     * Mobile only: the in-app player's layout (new or legacy controls) and its touch behaviour
+     * (gestures, hold-to-speed). Only with [SetupWizardPlan.offerDevicePlayer].
+     */
+    DevicePlayer,
+
+    /**
+     * What may interrupt you here: new-episode alerts on phones (per profile), and - when this
+     * installation has not answered it yet - the phone's Social alerts or the desktop's pop-ups. Only
+     * with [SetupWizardPlan.offerDeviceNotifications].
+     */
+    DeviceNotifications,
+
+    /**
+     * Desktop only, and only while the machine has not answered it ([SetupWizardPlan.deviceStale]):
+     * the close button, Start with Windows, Discord Rich Presence and the interface size - Advanced
+     * Setup's This computer area. Only with [SetupWizardPlan.offerThisComputer].
+     */
+    ThisComputer,
 
     /** Records the revision. */
     Done,
@@ -293,7 +360,7 @@ fun playbackSetupVariant(modeName: String?): PlaybackSetupVariant = when (modeNa
  * | --- | --- |
  * | [Automatic] | resolution, size level, fallback, + mobile data on phones |
  * | [Assisted] | size level, + mobile data on phones |
- * | [DeviceOnly] | mobile data (Manual on a phone, and every [SetupWizardRun.Device] run) |
+ * | [DeviceOnly] | mobile data (Manual on a phone); a [SetupWizardRun.Device] run adds downloads at once |
  * | [None] | nothing - Manual on desktop; the step is dropped |
  *
  * Assisted asks no resolution because the user picks one per download; Manual asks no preference at
@@ -380,22 +447,31 @@ data class SetupWizardPlan(
      */
     val arrival: Boolean = false,
 
-    /** This device still owes its own questions (see [isDeviceSetupStale]). Read by a Device run. */
+    /**
+     * This installation still owes the machine's own questions (see [isDeviceSetupStale]): the Device
+     * run's download step and [SetupStep.ThisComputer], and the machine-wide rows the screen draws.
+     */
     val deviceStale: Boolean = true,
 
     /**
-     * This platform has a navigation choice of its own worth asking on arrival: Android (style, glow),
-     * iPhone on iOS 26+ (Liquid Glass) and desktop (sidebar / top bar, style). False on iOS before 26,
-     * which has nothing to choose. A platform fact, passed in as a plain boolean.
+     * This platform has a navigation choice of its own: Android (style, glow), iPhone on iOS 26+
+     * (Liquid Glass) and desktop (sidebar / top bar, style). False on iOS before 26, which has nothing
+     * to choose. The screen passes `deviceSetupControls(...).isNotEmpty()`, so the step can never be
+     * offered with nothing on it.
      */
     val offerDeviceNavigation: Boolean = false,
 
     /**
-     * This platform's in-app player has layout and touch choices worth asking on arrival: Android and
-     * iOS, and not while an external player is chosen (the in-app player's settings would do nothing).
-     * False on desktop.
+     * This platform's in-app player has layout and touch choices: Android and iOS, and not while an
+     * external player is chosen (the in-app player's settings would do nothing). False on desktop.
      */
     val offerDevicePlayer: Boolean = false,
+
+    /** [SetupStep.DeviceNotifications] has something to ask here (see `deviceSetupControls`). */
+    val offerDeviceNotifications: Boolean = false,
+
+    /** [SetupStep.ThisComputer] has something to ask here: desktop, while [deviceStale]. */
+    val offerThisComputer: Boolean = false,
 )
 
 /** What the download-setup step asks in this plan. */
@@ -405,8 +481,9 @@ fun downloadSetupVariant(plan: SetupWizardPlan): DownloadSetupVariant =
 /**
  * The steps this run will actually show, in order.
  *
- * A Device run whose only step would be Done shows nothing at all - a desktop that is current and
- * was not just imported has nothing to ask, and a screen that only says "done" is not a wizard.
+ * A Device run whose only step would be Done shows nothing at all - a Classic profile on an iPhone
+ * before iOS 26, say, with an external player and the machine already answered - and a screen that
+ * only says "done" is not a wizard.
  */
 fun setupWizardSteps(plan: SetupWizardPlan): List<SetupStep> {
     val steps = setupWizardStepsUnpruned(plan)
@@ -417,36 +494,47 @@ private fun setupWizardStepsUnpruned(plan: SetupWizardPlan): List<SetupStep> = S
     val offeredHere = when (plan.run) {
         SetupWizardRun.Full -> true
         SetupWizardRun.Upgrade -> (setupStepOfferedOnUpgradeFrom(step) ?: 0) > plan.fromRevision
-        SetupWizardRun.Device -> when (step) {
-            SetupStep.DownloadSetup -> plan.deviceStale
-            SetupStep.Done -> true
-            else -> false
-        }
+        // Device Setup (2026-10-24): a fixed set per platform family, whatever the profile answered
+        // elsewhere. The picture questions are PlaybackSetup's own (quality limit and HDR depend on
+        // the screen and the connection); the download step is the machine's questions alone.
+        SetupWizardRun.Device -> step in DeviceRunSteps
         SetupWizardRun.None -> false
     }
     val arrivalStep = isArrivalStep(step, plan)
     (offeredHere || arrivalStep) && when (step) {
         SetupStep.WelcomeBack -> plan.arrival
-        // Never in a Full run: Initial Setup asks the profile's questions, and these are the device's.
-        SetupStep.DeviceNavigation, SetupStep.DevicePlayer -> arrivalStep
+        SetupStep.DeviceNavigation -> plan.offerDeviceNavigation
+        SetupStep.DevicePlayer -> plan.offerDevicePlayer
+        SetupStep.DeviceNotifications -> plan.offerDeviceNotifications
+        SetupStep.ThisComputer -> plan.offerThisComputer
         SetupStep.PlaybackSetup ->
             playbackSetupVariant(plan.playbackModeName) != PlaybackSetupVariant.None
-        SetupStep.DownloadSetup -> downloadSetupVariant(plan) != DownloadSetupVariant.None
+        SetupStep.DownloadSetup ->
+            downloadSetupVariant(plan) != DownloadSetupVariant.None &&
+                (plan.run != SetupWizardRun.Device || plan.deviceStale)
         SetupStep.SocialIdentity -> plan.socialEnabled && plan.offerSocialIdentity
         else -> true
     }
 }
 
+/** Every step a Device run can show; the plan's flags decide which of them it does. */
+private val DeviceRunSteps: Set<SetupStep> = setOf(
+    SetupStep.WelcomeBack,
+    SetupStep.PlaybackSetup,
+    SetupStep.DownloadSetup,
+    SetupStep.DeviceNavigation,
+    SetupStep.DevicePlayer,
+    SetupStep.DeviceNotifications,
+    SetupStep.ThisComputer,
+    SetupStep.Done,
+)
+
 /**
- * The curated "this device" steps an arrival adds (setup polish, physical QA): the greeting, then the
- * platform's navigation and player choices the other family could never have answered, then the
+ * What an arrival adds to an **Upgrade** (the imported revision was 8 to 10): the greeting, the
  * device-sensitive playback preferences the import deliberately left behind (quality and HDR - only
- * for a mode that picks, see [playbackSetupVariant]). The device-global questions (mobile data,
- * alerts) are *not* here: they follow [SetupWizardPlan.deviceStale], so a phone another profile
- * already set up is not asked them again just because a new profile arrived.
- *
- * In a Device run, and in an Upgrade that arrived (the imported revision was 8 or 9): the arrival is
- * the same arrival whatever the profile's own revision owes.
+ * for a mode that picks, see [playbackSetupVariant]), and the platform's navigation and player
+ * choices the other family could never have answered. An arrival that owes no upgrade is a Device
+ * run, which carries all of these anyway.
  */
 private fun isArrivalStep(step: SetupStep, plan: SetupWizardPlan): Boolean {
     if (!plan.arrival) return false

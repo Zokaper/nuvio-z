@@ -566,6 +566,22 @@ class WatchPartyBarrierTest {
         assertTrue(WatchPartyGuestBufferingGraceMs > WatchPartySeekRecoveryLeadMs)
     }
 
+    /** 2026-10-22: a guest parks its next corrective seek as far ahead as its last reload took. */
+    @Test
+    fun aCorrectiveSeekLeadFollowsTheMeasuredReload() {
+        assertEquals(WatchPartySeekRecoveryLeadMs, watchPartySeekRecoveryLeadMs(null))
+        assertEquals(WatchPartySeekRecoveryLeadMs, watchPartySeekRecoveryLeadMs(0L))
+        // A fast reload never shortens the hold below the fixed lead.
+        assertEquals(WatchPartySeekRecoveryLeadMs, watchPartySeekRecoveryLeadMs(400L))
+        // The phone that rejoined took ~3.5s: the next seek parks that far ahead, plus slack.
+        assertEquals(3_500L + WatchPartySeekReloadMarginMs, watchPartySeekRecoveryLeadMs(3_500L))
+        // A pathological reload is capped, so one bad stream cannot park the guest for half a minute.
+        assertEquals(WatchPartySeekMaxRecoveryLeadMs, watchPartySeekRecoveryLeadMs(30_000L))
+        val plan = partySeekPlan(tick(positionMs = 1_000, capturedAtPartyMs = 0), partyNowMs = 10_000, recoveryLeadMs = 3_800L)
+        assertEquals(10_000 + 3_800L, plan.resumeAtPartyMs)
+        assertEquals(1_000 + 10_000 + 3_800L, plan.seekToMs)
+    }
+
     /**
      * The hold ends once the member it is holding is full again, however that member reads.
      *

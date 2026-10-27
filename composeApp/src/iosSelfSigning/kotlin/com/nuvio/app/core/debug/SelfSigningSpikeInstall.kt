@@ -98,7 +98,7 @@ internal actual val selfSigningActive: Boolean by lazy {
     documents != null && NSFileManager.defaultManager.fileExistsAtPath("$documents/$PAIRING_FILE")
 }
 
-/** What the installer names the connection file it places (iosInstaller/core/src/pairing.rs, NUVIO_FILE). */
+/** What the installer names the connection file it places (Zokaper/nuviozinstaller core/src/pairing.rs, NUVIO_FILE). */
 private const val PAIRING_FILE = "NuvioZPairing.plist"
 
 /** Swift entry points (App Intent, background task) need the platform without the UI. */

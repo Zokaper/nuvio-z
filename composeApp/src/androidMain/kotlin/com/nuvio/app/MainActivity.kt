@@ -2,6 +2,7 @@ package com.nuvio.app
 
 import android.content.Intent
 import android.content.res.Configuration
+import com.nuvio.app.features.autosync.AutoSyncPreferencesAndroid
 import android.os.Bundle
 import androidx.activity.compose.setContent
 
@@ -58,6 +59,7 @@ import com.nuvio.app.features.trakt.TraktLibraryStorage
 import com.nuvio.app.features.trakt.TraktSettingsStorage
 import com.nuvio.app.features.mdblist.PlatformMdbListAuthPersistence
 import com.nuvio.app.features.mdblist.PlatformMdbListSyncStorage
+import com.nuvio.app.features.servers.ServerStorage
 import com.nuvio.app.features.simkl.SimklAuthStorage
 import com.nuvio.app.features.simkl.SimklSyncStorage
 import com.nuvio.app.features.tmdb.TmdbSettingsStorage
@@ -92,6 +94,7 @@ open class MainActivity : AppCompatActivity() {
         SentrySettingsStorage.initialize(applicationContext)
         SentryInitializer.start(application)
         super.onCreate(savedInstanceState)
+        AutoSyncPreferencesAndroid.initialize(applicationContext) // AutoSync hook
         window.setBackgroundDrawableResource(R.color.nuvio_background)
         pipRemoteActionReceiver = PipRemoteActionReceiver.register(this)
         SyncClientIdentityStorage.initialize(applicationContext)
@@ -131,6 +134,7 @@ open class MainActivity : AppCompatActivity() {
         TraktLibraryStorage.initialize(applicationContext)
         TraktSettingsStorage.initialize(applicationContext)
         PlatformMdbListAuthPersistence.initialize(applicationContext)
+        ServerStorage.initialize(applicationContext)
         PlatformMdbListSyncStorage.initialize(applicationContext)
         SimklAuthStorage.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)
@@ -141,6 +145,10 @@ open class MainActivity : AppCompatActivity() {
         EpisodeReleaseNotificationsStorage.initialize(applicationContext)
         // Never initialized before Phase 9: the Social on/off answer was not persisted on Android.
         com.nuvio.app.features.social.SocialFeaturePreferencesStorage.initialize(applicationContext)
+        com.nuvio.app.features.social.PhoneSocialAlertsStorage.initialize(applicationContext)
+        com.nuvio.app.features.social.PhoneSocialAlerts.install()
+        com.nuvio.app.features.social.SocialPush.start(applicationContext)
+        com.nuvio.app.features.language.LanguagePreferencesStorage.initialize(applicationContext)
         WatchProgressStorage.initialize(applicationContext)
         StreamBadgeSettingsStorage.initialize(applicationContext)
         BingeGroupCacheStorage.initialize(applicationContext)
@@ -156,6 +164,8 @@ open class MainActivity : AppCompatActivity() {
         PlatformLocalAccountDataCleaner.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.bindActivity(this)
+        if (savedInstanceState == null) com.nuvio.app.features.watchparty.WatchPartySessionCoordinator.appOpened() // Z
+        com.nuvio.app.features.watchparty.WatchPartyTaskRemovalService.install(applicationContext) // Z
         handleIncomingAppIntent(intent)
 
         setContent {
@@ -189,6 +199,7 @@ open class MainActivity : AppCompatActivity() {
             runCatching { unregisterReceiver(receiver) }
             pipRemoteActionReceiver = null
         }
+        if (isFinishing && !isChangingConfigurations) com.nuvio.app.features.watchparty.WatchPartySessionCoordinator.appClosed() // Z
         super.onDestroy()
     }
 
@@ -204,7 +215,8 @@ open class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIncomingAppIntent(intent: Intent?) {
-        val appUrl = intent?.dataString?.trim().orEmpty()
+        com.nuvio.app.features.social.SocialPush.handleIntent(intent)
+        val appUrl = (intent?.dataString ?: intent?.getStringExtra(LinkActivity.EXTRA_LINK))?.trim().orEmpty()
         if (appUrl.isBlank()) return
         handleAppUrl(appUrl)
     }

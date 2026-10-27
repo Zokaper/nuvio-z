@@ -101,16 +101,6 @@ private fun describedHeight(resolution: DownloadResolutionPreference): Int =
         resolution.height
     }
 
-/**
- * A gigabyte figure as a person reads it: one decimal below 10 ("0.4", "1.5", "3"), whole numbers
- * above ("12"). Never "3.0" and never "0".
- */
-internal fun downloadSizeFigure(gigabytes: Double): String {
-    if (gigabytes >= 10.0) return kotlin.math.round(gigabytes).toLong().toString()
-    val tenths = kotlin.math.round(gigabytes * 10.0).toLong().coerceAtLeast(1L)
-    return if (tenths % 10L == 0L) (tenths / 10L).toString() else "${tenths / 10L}.${tenths % 10L}"
-}
-
 /** The two resolutions every level is quoted at, whatever is chosen: the ones people pick between. */
 private val QUOTED_HEIGHTS = listOf(DownloadResolutionPreference.P1080.height, DownloadResolutionPreference.P2160.height)
 

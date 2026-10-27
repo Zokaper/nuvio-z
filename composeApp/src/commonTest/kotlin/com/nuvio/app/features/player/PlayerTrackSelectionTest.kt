@@ -281,6 +281,44 @@ class PlayerTrackSelectionTest {
     }
 
     @Test
+    fun persistedTrackIdDoesNotCrossIntoAnotherLanguage() {
+        // English was track id "track-1" in last episode's release; in this one that id is Spanish.
+        val selectedIndex = findPersistedSubtitleTrackIndex(
+            tracks = listOf(
+                subtitleTrack(index = 0, language = "en", isForced = true),
+                subtitleTrack(index = 1, language = "es", isForced = false),
+                subtitleTrack(index = 2, language = "en", isForced = false),
+            ),
+            preference = PersistedPlayerTrackPreference(
+                subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+                subtitleLanguage = "en",
+                subtitleTrackId = "track-1",
+                subtitleIsForced = false,
+            ),
+        )
+
+        assertEquals(2, selectedIndex)
+    }
+
+    @Test
+    fun persistedTrackIdStillWinsWhenItsLanguageAgrees() {
+        val selectedIndex = findPersistedSubtitleTrackIndex(
+            tracks = listOf(
+                subtitleTrack(index = 0, language = "en", isForced = false),
+                subtitleTrack(index = 1, language = "en", isForced = false),
+            ),
+            preference = PersistedPlayerTrackPreference(
+                subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+                subtitleLanguage = "en",
+                subtitleTrackId = "track-1",
+                subtitleIsForced = false,
+            ),
+        )
+
+        assertEquals(1, selectedIndex)
+    }
+
+    @Test
     fun forcedAddonMatchIgnoresRegularTranslationAddons() {
         val regular = addonSubtitle(id = "english", language = "en")
         val forced = addonSubtitle(

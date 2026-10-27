@@ -8,6 +8,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.watchparty.PartyStatusOutgoingOutcome
 import com.nuvio.app.features.watchparty.PartyPlaybackStatusInputs
 import com.nuvio.app.features.watchparty.PartySourceActivityInputs
 import com.nuvio.app.features.watchparty.PartySourceHandoff
@@ -17,7 +18,8 @@ import com.nuvio.app.features.watchparty.decidePartySourceHandoff
 import com.nuvio.app.features.watchparty.partySourceActivity
 import com.nuvio.app.features.watchparty.PartyPresentationProjector
 import com.nuvio.app.features.watchparty.partyRealizationPhaseFor
-import com.nuvio.app.features.watchparty.PartyRealtimeHealth
+import com.nuvio.app.features.watchparty.partyHasNobodyToHearFrom
+import com.nuvio.app.features.watchparty.partyRealtimeReadsReconnecting
 import com.nuvio.app.features.watchparty.PartySourceRealizationState
 import com.nuvio.app.features.watchparty.PartySourceRealizer
 import com.nuvio.app.features.watchparty.PartyStatusDebounceState
@@ -56,6 +58,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
     incomingRequester: PartyStatusPerson?,
     outgoingTarget: PartyStatusPerson?,
     panelOpen: Boolean,
+    outgoingOutcome: PartyStatusOutgoingOutcome? = null,
 ): PartyStatusLine? {
     val partyUi by WatchPartyRepository.uiState.collectAsStateWithLifecycle()
     val syncState by WatchPartySync.state.collectAsStateWithLifecycle()
@@ -99,8 +102,10 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
     val barrierHolding = party != null && (partyHoldingForBarrier || partyPendingSeek != null)
     LaunchedEffect(barrierHolding) { barrierSinceMs = if (barrierHolding) currentEpochMs() else 0L }
     var realtimeUnhealthySinceMs by remember { mutableStateOf(0L) }
-    val realtimeUnhealthy = partyUi.health.realtime == PartyRealtimeHealth.Connecting ||
-        partyUi.health.realtime == PartyRealtimeHealth.Degraded
+    val realtimeUnhealthy = partyRealtimeReadsReconnecting(
+        partyUi.health.realtime,
+        nobodyToHearFrom = party != null && partyHasNobodyToHearFrom(party, viewerId),
+    )
     LaunchedEffect(realtimeUnhealthy) { realtimeUnhealthySinceMs = if (realtimeUnhealthy) currentEpochMs() else 0L }
 
     val presentation = PartyPresentationProjector.project(
@@ -118,6 +123,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 incomingRequester = incomingRequester,
                 panelOpen = panelOpen,
                 outgoingRequestTarget = outgoingTarget,
+                outgoingRequestOutcome = outgoingOutcome,
             ),
         )
     } else {
@@ -155,7 +161,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 ) is PartySourceHandoff.Adopt,
                 hostAdvancingPartySource = isHost &&
                     partyReportedTimelineDecision == PartySourceTimelineDecision.AdvancePartySource,
-                localAttempt = args.playbackAttempt,
+                localAttempt = activePlaybackAttempt,
                 needsPartyMatch =
                     partyReportedTimelineDecision == PartySourceTimelineDecision.NeedsPartyMatch,
                 usingCompatibleAlternate = partyLocalSourceMatch == PartySourceMatch.alternate,
@@ -206,9 +212,11 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 incomingRequester = incomingRequester,
                 panelOpen = panelOpen,
                 realtimeUnhealthyMs = if (realtimeUnhealthy && realtimeUnhealthySinceMs > 0L) nowMs - realtimeUnhealthySinceMs else 0L,
+                hostOffline = party.members.firstOrNull { it.profileId == party.hostProfileId }?.connected == false,
                 capability = partyUi.health.capability(),
                 pausedBy = pausedBy,
                 outgoingRequestTarget = outgoingTarget,
+                outgoingRequestOutcome = outgoingOutcome,
             ),
         )
     }
@@ -232,3 +240,12 @@ private fun WatchPartyParticipant.toStatusPerson() = PartyStatusPerson(
     avatarUrl = profile?.avatarUrl,
     avatarColorHex = profile?.avatarColorHex ?: "#1E88E5",
 )
+
+/** The status pill's wording for how an outgoing join request ended; null for the ones it does not voice. */
+internal fun com.nuvio.app.features.social.OutgoingJoinOutcome.statusOutcome(): PartyStatusOutgoingOutcome? = when (this) {
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Declined -> PartyStatusOutgoingOutcome.Declined
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Expired -> PartyStatusOutgoingOutcome.NoAnswer
+    com.nuvio.app.features.social.OutgoingJoinOutcome.TargetStopped -> PartyStatusOutgoingOutcome.Stopped
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Cancelled,
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Failed -> null
+}

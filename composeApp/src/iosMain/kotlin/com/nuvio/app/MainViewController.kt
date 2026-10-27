@@ -1,5 +1,6 @@
 package com.nuvio.app
 
+import com.nuvio.app.core.ui.NativeSocialBadge
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.uikit.OnFocusBehavior
 import androidx.compose.ui.window.ComposeUIViewController
@@ -30,6 +31,8 @@ fun MainViewController(
     appGateController: AppGateController,
 ): UIViewController {
     val initialTab = AppScreenTab.fromName(initialTabName)
+    NativeSocialBadge.start()
+    com.nuvio.app.features.social.PhoneSocialAlerts.install()
     return nuvioComposeViewController {
         App(
             initialTab = initialTab,

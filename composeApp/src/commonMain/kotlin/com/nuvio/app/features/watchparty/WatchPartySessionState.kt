@@ -214,6 +214,19 @@ fun decidePartyPromotionPreflight(
     return if (builtFromThisPlayback) PartyPromotionPreflight.Adopt(active) else PartyPromotionPreflight.AlreadyInAnotherParty
 }
 
+/**
+ * Whether the lobby's "lobby" report has to wait for this party's player to detach (2026-10-23).
+ *
+ * Backing out composes the lobby while the player is still running its exit transition, and that
+ * player re-registers on every position tick. Sent in that window, the report flipped the phase to
+ * Lobby, the next tick no longer counted as the same attachment and published "player" over it - the
+ * server held "player" for as long as the guest sat in the lobby, so the host read Playing and the
+ * guest itself read Ready. Only the party's own player waits: a lobby opened over some other playback
+ * says where it is at once, because that player may stay composed underneath it.
+ */
+fun lobbyLocationWaitsForPlayer(state: PartySessionState, partyId: String): Boolean =
+    state.playback != null && state.phase == PartyClientPhase.ActivePlayer && state.generation?.partyId == partyId
+
 fun PartyGenerationKey.accepts(other: PartyGenerationKey): Boolean =
     partyId==other.partyId && contentGeneration==other.contentGeneration &&
         sourceGeneration==other.sourceGeneration && authorityEpoch==other.authorityEpoch

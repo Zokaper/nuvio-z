@@ -1,5 +1,6 @@
 package com.nuvio.app.core.network
 
+import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.user.UserSession
 import io.github.jan.supabase.exceptions.RestException
@@ -247,6 +248,11 @@ object ZSessionBridge {
 
         boundProfileId = profileId
         lastFailure = null
+        // ⚠ The realtime socket keeps the token it joined with. Until 2026-10-18 only opening a channel
+        // passed it a new one, so a renewal reached every RPC but not the open Social channel, which an
+        // hour later was refused ("InvalidJWTToken: Token has expired") and stopped delivering
+        // pop-ups until something else refreshed the app. Joined channels take the new token here.
+        runCatching { ZSupabaseProvider.client.realtime.setAuth(accessToken) }
         return true
     }
 

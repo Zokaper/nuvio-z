@@ -36,6 +36,7 @@ import com.nuvio.app.core.ui.nuvio
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
+import nuvio.composeapp.generated.resources.compose_auth_sign_in
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.auth_account_deletion_failed
 import nuvio.composeapp.generated.resources.settings_account_delete_account
@@ -112,10 +113,19 @@ private fun AccountSettingsBody(
             }
         }
 
-        NuvioPrimaryButton(
-            text = stringResource(Res.string.settings_account_sign_out),
-            onClick = { showSignOutConfirm = true },
-        )
+        if (authState is AuthState.Unauthenticated) {
+            // Nuvio Z: signed out while running on cached profiles. Sign Out was the only way to
+            // the sign-in screen, and it wipes the account data first.
+            NuvioPrimaryButton(
+                text = stringResource(Res.string.compose_auth_sign_in),
+                onClick = { com.nuvio.app.features.auth.SignInNavigation.request() },
+            )
+        } else {
+            NuvioPrimaryButton(
+                text = stringResource(Res.string.settings_account_sign_out),
+                onClick = { showSignOutConfirm = true },
+            )
+        }
 
         if (canDeleteAccount) {
             DeleteAccountCard(

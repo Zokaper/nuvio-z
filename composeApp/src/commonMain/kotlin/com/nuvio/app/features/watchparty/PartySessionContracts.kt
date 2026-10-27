@@ -165,6 +165,8 @@ interface DurablePartyGateway {
     suspend fun promotePlaybackPresence(sessionId: String): Result<Unit>
     suspend fun leaveParty(): Result<Unit>
     suspend fun endParty(): Result<Unit>
+    /** Leaves whatever party the server still lists this profile in from before the app was reopened. */
+    suspend fun leaveLeftoverParty()
     fun updatePlaybackTelemetry(telemetry: PartyPlaybackTelemetry?)
 }
 

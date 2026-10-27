@@ -143,7 +143,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${
   "$T/features/playback/ContentIdentityGuardTest.kt" \
   "$T/features/playback/PlaybackLoadingSessionTest.kt" \
   "$T/features/playback/PlaybackEntranceMotionTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.core.language.LanguageCodesTest \
@@ -163,9 +163,10 @@ java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.features.playback.PlaybackEntranceMotionTest \
   com.nuvio.app.features.playback.ContentIdentityGuardTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
-# --- Group 2: files with no dependencies at all, so no stubs are involved --------------------
+# --- Group 2: standalone rules; download queue models are data-only neighbours ---------------
 rm -rf "$WORK/out-standalone"
 kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
+  "$STUBS/downloads/DownloadQueueNeighbours.kt" \
   "$M/features/downloads/DownloadTransfer.kt" \
   "$M/features/downloads/IosBackgroundTransferReconciler.kt" \
   "$M/features/downloads/DownloadsLiveStatusPolicy.kt" \
@@ -198,7 +199,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$T/features/playback/PlaybackPositionTest.kt" \
   "$T/features/playback/PlaybackSourceProbeTest.kt" \
   "$T/features/playback/VideoPresentationTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.downloads.DownloadTransferTest \
@@ -240,7 +241,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-setup" \
   "$T/features/setup/OptimisticSettingTest.kt" \
   "$T/features/player/SubtitleRenderGeometryTest.kt" \
   "$T/core/ui/DesktopNavigationTrackWidthTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-setup:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.setup.SetupWizardStepsTest \
@@ -261,7 +262,7 @@ rm -rf "$WORK/out-sync"
 kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -d "$WORK/out-sync" \
   "$M/core/sync/SyncPreferenceJson.kt" \
   "$T/core/sync/SyncKeysToClearTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-sync:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.core.sync.SyncKeysToClearTest 2>&1 | grep -v "Picked up JAVA_TOOL"
@@ -289,7 +290,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" \
   "$T/features/debrid/DebridProviderTest.kt" \
   "$T/features/debrid/DebridSettingsTest.kt" \
   "$T/features/debrid/DebridStreamPresentationTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-debrid:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUnitCore \
   com.nuvio.app.features.debrid.DebridProviderTest \
@@ -309,6 +310,7 @@ java -cp "$WORK/out-debrid:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUn
 rm -rf "$WORK/out-watchparty"
 kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-watchparty" \
+  "$STUBS/watchparty/Clock.kt" \
   "$M/features/watchparty/WatchPartyModels.kt" \
   "$M/features/watchparty/PartySourceDescriptorV2.kt" \
   "$M/features/watchparty/PartySessionContracts.kt" \
@@ -320,6 +322,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$M/features/watchparty/PartyAwayRecovery.kt" \
   "$M/features/watchparty/WatchPartyBarrier.kt" \
   "$M/features/watchparty/WatchPartySyncProtocol.kt" \
+  "$M/features/watchparty/WatchPartyPresentation.kt" \
   "$M/features/watchparty/PartyPresence.kt" \
   "$M/features/watchparty/PartySourceActivity.kt" \
   "$M/features/watchparty/PartyPlaybackStatus.kt" \
@@ -332,7 +335,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$T/features/watchparty/WatchPartyPlaybackLifecycleTest.kt" \
   "$T/features/watchparty/WatchPartySyncTest.kt" \
   "$T/features/watchparty/WatchPartyJoinBarrierTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-watchparty:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUnitCore \
   com.nuvio.app.features.watchparty.WatchPartyModelsTest \
@@ -356,6 +359,7 @@ java -cp "$WORK/out-watchparty:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner
 rm -rf "$WORK/out-social"
 kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-social" \
+  "$STUBS/watchparty/Clock.kt" \
   "$M/features/watchparty/WatchPartyModels.kt" \
   "$M/features/watchparty/PartySourceDescriptorV2.kt" \
   "$M/features/watchparty/PartySessionContracts.kt" \
@@ -383,7 +387,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$T/features/social/OutgoingJoinRequestTest.kt" \
   "$T/features/player/WatchTogetherPanelStateTest.kt" \
   "$T/features/player/WatchTogetherBridgeTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-social:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUnitCore \
   com.nuvio.app.features.social.SocialNotificationsTest \
@@ -401,7 +405,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-title-presentation" \
   "$STUBS/title/ContinueWatchingSectionStyleStub.kt" \
   "$M/features/home/components/TitlePresentation.kt" \
   "$T/features/home/components/TitlePresentationTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-title-presentation:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.home.components.TitlePresentationTest 2>&1 | grep -v "Picked up JAVA_TOOL"
@@ -415,7 +419,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-boundaries" \
   "$M/core/sync/CrossFamilyImportRules.kt" \
   "$T/core/storage/LocalStoreRegistryTest.kt" \
   "$T/core/sync/CrossFamilyImportRulesTest.kt" \
-  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+  2>&1 | { grep -v "^warning:" | grep -v "Picked up JAVA" || true; }
 
 java -cp "$WORK/out-boundaries:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.core.storage.LocalStoreRegistryTest \

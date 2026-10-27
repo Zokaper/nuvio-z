@@ -21,6 +21,46 @@
       "category": "developer-tools",
       "versions": [
         {
+          "version": "0.5.4-z3.116",
+          "buildVersion": "116",
+          "date": "2026-10-24T17:04:44Z",
+          "localizedDescription": "Debug build 0.5.4-z3.116 (build 116) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.116/Nuvio-Z-iOS-0.5.4-z3-116-debug-unsigned.ipa",
+          "size": 104523039,
+          "sha256": "eed94b9a9fb0bfc21cc92c6872f1ef14d35db6be3c2cbe1cb1ce91442f4ef9d3",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.115",
+          "buildVersion": "115",
+          "date": "2026-10-24T16:07:55Z",
+          "localizedDescription": "Debug build 0.5.4-z3.115 (build 115) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.115/Nuvio-Z-iOS-0.5.4-z3-115-debug-unsigned.ipa",
+          "size": 104576819,
+          "sha256": "6f2266acc7790faf8a88d2d3e672d4731284481e3f4a6b671a7f8b9bc0975a7b",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.114",
+          "buildVersion": "114",
+          "date": "2026-10-24T14:23:36Z",
+          "localizedDescription": "Debug build 0.5.4-z3.114 (build 114) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.114/Nuvio-Z-iOS-0.5.4-z3-114-debug-unsigned.ipa",
+          "size": 104527172,
+          "sha256": "2fe4156d6882ab95607670bb84622f5a233ca10dbf6ea041db9ce8c0a60fc0db",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.5.4-z3.113",
+          "buildVersion": "113",
+          "date": "2026-10-24T02:02:11Z",
+          "localizedDescription": "Debug build 0.5.4-z3.113 (build 113) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z3.113/Nuvio-Z-iOS-0.5.4-z3-113-debug-unsigned.ipa",
+          "size": 104526457,
+          "sha256": "da4da0db05891b67a6e6e5d66d35feb050505e9ae7dcbde59ffe825fc9968764",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.4-z3.112",
           "buildVersion": "112",
           "date": "2026-10-23T15:58:45Z",

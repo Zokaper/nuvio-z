@@ -365,6 +365,8 @@ interface NuvioNavigationBarScope {
         contentDescription: String?,
         modifier: Modifier = Modifier,
         label: String? = null,
+        /** Nuvio Z: an unread dot on the icon. */
+        badge: Boolean = false,
     )
 
     @Composable
@@ -404,6 +406,7 @@ private class NuvioNavigationBarScopeImpl(
         contentDescription: String?,
         modifier: Modifier,
         label: String?,
+        badge: Boolean,
     ) {
         val tokens = MaterialTheme.nuvio
         val palette = MaterialTheme.themePalette
@@ -428,6 +431,7 @@ private class NuvioNavigationBarScopeImpl(
             ) {
                 Icon(
                     modifier = Modifier
+                        .navBadgeDot(badge)
                         .size(iconSize)
                         .then(if (selected) Modifier.gradientMask(palette.accentBrush()) else Modifier),
                     imageVector = icon,
@@ -699,6 +703,7 @@ private class NuvioClassicNavigationBarScopeImpl(
         contentDescription: String?,
         modifier: Modifier,
         label: String?,
+        badge: Boolean,
     ) {
         val tokens = MaterialTheme.nuvio
         val palette = MaterialTheme.themePalette
@@ -720,6 +725,7 @@ private class NuvioClassicNavigationBarScopeImpl(
                         onClick = onClick,
                     )
                     .padding(NuvioTokens.Space.s10)
+                    .navBadgeDot(badge)
                     .size(tokens.components.navIconSize)
                     .then(if (selected) Modifier.gradientMask(palette.accentBrush()) else Modifier),
                 imageVector = icon,

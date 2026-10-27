@@ -1,46 +1,33 @@
 package com.nuvio.app.features.player
 
-import com.nuvio.app.features.details.MetaVideo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+/**
+ * A next episode and a first launch draw the same opening surface: the presentation no longer takes the
+ * starting episode at all. ⚠ Regressions it guards: hardware Bug 4 (2026-09-15), a next episode printed
+ * the episode title where a first launch drew the logo; and 2026-10-19, a next episode drew the episode's
+ * small still where a first launch drew the show's backdrop.
+ */
 class PlayerOpeningPresentationTest {
-    private val nextEpisode = MetaVideo(
-        id = "tt2:2:10",
-        title = "The Episode After",
-        season = 2,
-        episode = 10,
-        thumbnail = "https://img/still-2x10.jpg",
+    private fun presentation(
+        logo: String? = "https://img/logo.png",
+        background: String? = "https://img/backdrop.jpg",
+    ) = playerOpeningPresentation(
+        showLogo = logo,
+        showTitle = "A Show",
+        background = background,
+        poster = "https://img/poster.jpg",
     )
 
-    private fun presentation(startingEpisode: MetaVideo?, logo: String? = "https://img/logo.png") =
-        playerOpeningPresentation(
-            showLogo = logo,
-            showTitle = "A Show",
-            background = "https://img/backdrop.jpg",
-            poster = "https://img/poster.jpg",
-            startingEpisode = startingEpisode,
-        )
-
-    @Test fun aNextEpisodeDrawsTheSameLogoAsAFirstLaunch() {
-        // ⚠ Regression, hardware Bug 4 (2026-09-15): the starting-episode branch passed a null logo
-        // and the episode title, so every next episode printed plain text where a first launch drew
-        // the logo - in ordinary playback and in Watch Together alike.
-        val first = presentation(startingEpisode = null)
-        val next = presentation(startingEpisode = nextEpisode)
-        assertEquals("https://img/logo.png", next.logo)
-        assertEquals(first.logo, next.logo)
-        assertEquals(first.title, next.title)
+    @Test fun theLogoAndTitleAreTheShows() {
+        assertEquals("https://img/logo.png", presentation().logo)
+        assertEquals("A Show", presentation(logo = null).title)
+        assertEquals(null, presentation(logo = " ").logo)
     }
 
-    @Test fun theTextFallbackIsTheShowTitleExactlyAsOnAFirstLaunch() {
-        assertEquals("A Show", presentation(startingEpisode = nextEpisode, logo = null).title)
-        assertEquals(null, presentation(startingEpisode = nextEpisode, logo = " ").logo)
-    }
-
-    @Test fun theBackdropStillPrefersTheStartingEpisodesOwnStill() {
-        assertEquals("https://img/still-2x10.jpg", presentation(nextEpisode).artwork)
-        assertEquals("https://img/backdrop.jpg", presentation(null).artwork)
-        assertEquals("https://img/backdrop.jpg", presentation(nextEpisode.copy(thumbnail = "")).artwork)
+    @Test fun theBackdropIsTheShowsFallingBackToThePoster() {
+        assertEquals("https://img/backdrop.jpg", presentation().artwork)
+        assertEquals("https://img/poster.jpg", presentation(background = null).artwork)
     }
 }

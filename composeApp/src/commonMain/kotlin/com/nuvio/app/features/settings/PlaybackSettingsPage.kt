@@ -53,6 +53,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +89,13 @@ import com.nuvio.app.features.playback.PlaybackModeCard
 import com.nuvio.app.features.playback.playbackModeName
 import com.nuvio.app.features.player.AddonSubtitleStartupMode
 import com.nuvio.app.features.player.AndroidLibmpvVideoOutput
+import com.nuvio.app.features.player.PlaybackBufferSettings
+import com.nuvio.app.features.player.playbackHeapBufferMaxMb
+import com.nuvio.app.features.player.VodCacheSizeMode
+import com.nuvio.app.features.player.VodCacheSizing
+import com.nuvio.app.features.player.exoNativeMemoryInfo
+import com.nuvio.app.features.player.isExoNativeMemorySupported
+import com.nuvio.app.features.player.playbackCacheUsableSpaceBytes
 import com.nuvio.app.features.player.AndroidPlaybackEngine
 import com.nuvio.app.features.player.AudioLanguageOption
 import com.nuvio.app.features.player.AvailableLanguageOptions
@@ -223,6 +231,7 @@ fun calculateSteps(
     return (totalSteps - 1).coerceAtLeast(0)
 }
 
+
 @Composable
 fun ValueBox(
     text: String,
@@ -247,7 +256,7 @@ fun ValueBox(
 internal fun SettingsSliderRow(
     title: String,
     value: Int,
-    valueText: String,
+    valueText: @Composable (Int) -> String,
     valueRange: IntRange,
     step: Int,
     isTablet: Boolean,
@@ -255,7 +264,16 @@ internal fun SettingsSliderRow(
     onValueChange: (Int) -> Unit,
 ) {
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
-    var sliderValue by remember(value) { mutableFloatStateOf(value.toFloat()) }
+    val rangeStart = valueRange.first.toFloat()
+    val rangeEnd = valueRange.last.toFloat()
+    var isDragging by remember { mutableStateOf(false) }
+    var sliderValue by remember { mutableFloatStateOf(value.toFloat()) }
+    LaunchedEffect(value) {
+        if (!isDragging) {
+            sliderValue = value.toFloat().coerceIn(rangeStart, rangeEnd)
+        }
+    }
+    val shownValue = sliderValue.roundToInt().coerceIn(valueRange.first, valueRange.last)
 
     Column(
         modifier = Modifier
@@ -275,13 +293,25 @@ internal fun SettingsSliderRow(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
-            ValueBox(text = valueText, modifier = Modifier.wrapContentWidth())
+            ValueBox(text = valueText(shownValue), modifier = Modifier.wrapContentWidth())
         }
         Slider(
-            value = sliderValue.coerceIn(valueRange.first.toFloat(), valueRange.last.toFloat()),
-            onValueChange = { if (enabled) sliderValue = snapToStep(it, step.toFloat()) },
+            value = sliderValue.coerceIn(rangeStart, rangeEnd),
+            onValueChange = { raw ->
+                if (enabled) {
+                    isDragging = true
+                    val snapped = snapToStep(raw, step.toFloat()).coerceIn(rangeStart, rangeEnd)
+                    sliderValue = snapped
+                    val next = snapped.roundToInt().coerceIn(valueRange.first, valueRange.last)
+                    if (next != value) onValueChange(next)
+                }
+            },
             onValueChangeFinished = {
-                if (enabled) onValueChange(sliderValue.roundToInt().coerceIn(valueRange.first, valueRange.last))
+                isDragging = false
+                if (enabled) {
+                    val next = sliderValue.roundToInt().coerceIn(valueRange.first, valueRange.last)
+                    if (next != value) onValueChange(next)
+                }
             },
             enabled = enabled,
             valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
@@ -547,61 +577,13 @@ private fun PlaybackSettingsSection(
         // This section is deliberately **not** gated on playback mode. Everything below it feeds
         // the automatic source picker and is inert in Classic; these four also drive the player's
         // own track selection, which runs in every mode including Classic.
-        SettingsSection(
-            title = stringResource(Res.string.settings_playback_section_language),
+        // Z: the language settings (2026-10-20) replace upstream's four language pickers here - see
+        // `LanguageSettingsSections`. An external player picks its own tracks, so with one on, the
+        // controls only matter when subtitles are forwarded to it.
+        LanguageSettingsSections(
             isTablet = isTablet,
-        ) {
-            // An external player picks its own audio track, so the audio rows are its to ignore.
-            // The subtitle rows survive one step further: with subtitle forwarding on, the track
-            // they choose is the one handed over.
-            val isExternalPlayer = autoPlayPlayerSettings.externalPlayerEnabled
-            val audioLanguageEnabled = !isExternalPlayer
-            val subtitleLanguageEnabled =
-                !isExternalPlayer || autoPlayPlayerSettings.externalPlayerForwardSubtitles
-            SettingsGroup(isTablet = isTablet) {
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_preferred_audio_language),
-                    description = when (preferredAudioLanguage) {
-                        AudioLanguageOption.DEFAULT -> stringResource(Res.string.settings_playback_option_default)
-                        AudioLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-                        AudioLanguageOption.ORIGINAL -> stringResource(Res.string.settings_playback_option_original)
-                        else -> languageLabelForCode(preferredAudioLanguage)
-                    },
-                    enabled = audioLanguageEnabled,
-                    isTablet = isTablet,
-                    onClick = { showPreferredAudioDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_secondary_audio_language),
-                    description = languageLabelForCode(secondaryPreferredAudioLanguage),
-                    enabled = audioLanguageEnabled,
-                    isTablet = isTablet,
-                    onClick = { showSecondaryAudioDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-                    description = when (preferredSubtitleLanguage) {
-                        SubtitleLanguageOption.NONE -> stringResource(Res.string.settings_playback_option_none)
-                        SubtitleLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-                        SubtitleLanguageOption.FORCED -> stringResource(Res.string.settings_playback_option_forced)
-                        else -> languageLabelForCode(preferredSubtitleLanguage)
-                    },
-                    enabled = subtitleLanguageEnabled,
-                    isTablet = isTablet,
-                    onClick = { showPreferredSubtitleDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_secondary_subtitle_language),
-                    description = languageLabelForCode(secondaryPreferredSubtitleLanguage),
-                    enabled = subtitleLanguageEnabled,
-                    isTablet = isTablet,
-                    onClick = { showSecondarySubtitleDialog = true },
-                )
-            }
-        }
+            enabled = !autoPlayPlayerSettings.externalPlayerEnabled || autoPlayPlayerSettings.externalPlayerForwardSubtitles,
+        )
 
         SettingsSection(
             title = stringResource(Res.string.settings_playback_section_source_preferences),
@@ -867,6 +849,14 @@ private fun PlaybackSettingsSection(
                         )
                     }
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_preload_next_episode),
+                    description = stringResource(Res.string.settings_playback_preload_next_episode_description),
+                    checked = autoPlayPlayerSettings.preloadNextEpisodeSources,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setPreloadNextEpisodeSources,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 var showThresholdModeDialog by remember { mutableStateOf(false) }
                 SettingsNavigationRow(

@@ -44,6 +44,24 @@ internal fun PlayerScreenRuntime.isNextEpisodeSnapshotSettled(): Boolean =
 
 internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
     if (!isNextEpisodeSnapshotSettled()) return false
+    // Preload: trigger source fetch before the button appears
+    if (playerSettingsUiState.preloadNextEpisodeSources && !nextEpisodePreloadTriggered && nextEpisodeInfo != null) {
+        val preloadLeadMs = maxOf(playerSettingsUiState.streamAutoPlayTimeoutSeconds.toLong() * 1_000L, 10_000L)
+            .coerceAtMost(30_000L)
+        val shouldPreloadByCard = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
+            positionMs = playbackSnapshot.positionMs + preloadLeadMs,
+            durationMs = playbackSnapshot.durationMs,
+            skipIntervals = skipIntervals,
+            thresholdMode = playerSettingsUiState.nextEpisodeThresholdMode,
+            thresholdPercent = playerSettingsUiState.nextEpisodeThresholdPercent,
+            thresholdMinutesBeforeEnd = playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
+        )
+        val shouldPreloadByEnd = playbackSnapshot.durationMs > 0L &&
+            (playbackSnapshot.durationMs - playbackSnapshot.positionMs) <= preloadLeadMs
+        if (shouldPreloadByCard || shouldPreloadByEnd) {
+            preloadNextEpisodeSources()
+        }
+    }
     return playbackSnapshot.isEnded || PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
         positionMs = playbackSnapshot.positionMs,
         durationMs = playbackSnapshot.durationMs,
@@ -315,7 +333,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
         val timeoutMs = timeoutSeconds * 1_000L
         val isBoundedClassicTimeout = settings.playbackMode == PlaybackMode.CLASSIC && timeoutSeconds in 1..30
         if (isBoundedClassicTimeout) {
-            delay(timeoutMs)
+            withTimeoutOrNull(timeoutMs) { autoSelectSettled.await() }
         }
         val latestStreamsState = PlayerStreamsRepository.episodeStreamsState.value
         applySelectionDecision(
@@ -361,4 +379,27 @@ private suspend fun waitForNextEpisodeCountdownTick(shouldContinue: () -> Boolea
         if (!shouldContinue()) return
         delay(100L)
     }
+}
+internal fun PlayerScreenRuntime.preloadNextEpisodeSources() {
+    if (nextEpisodePreloadTriggered) return
+    val nextEp = nextEpisodeInfo ?: return
+    if (nextEp.hasAired != true) return
+    val type = contentType ?: return
+
+    nextEpisodePreloadTriggered = true
+    nextEpisodePreloadJob?.cancel()
+    nextEpisodePreloadJob = scope.launch {
+        PlayerStreamsRepository.loadEpisodeStreams(
+            type = type,
+            videoId = nextEp.videoId,
+            season = nextEp.season,
+            episode = nextEp.episode
+        )
+    }
+}
+
+internal fun PlayerScreenRuntime.cancelNextEpisodePreload() {
+    nextEpisodePreloadJob?.cancel()
+    nextEpisodePreloadJob = null
+    nextEpisodePreloadTriggered = false
 }

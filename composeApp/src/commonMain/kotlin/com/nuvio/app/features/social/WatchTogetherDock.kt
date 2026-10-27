@@ -6,9 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +40,26 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.watchparty.currentEpochMs
 import com.nuvio.app.features.watchparty.partyPossessive
 import kotlinx.coroutines.delay
+import nuvio.composeapp.generated.resources.social_ask_again
+import nuvio.composeapp.generated.resources.social_cancel
+import nuvio.composeapp.generated.resources.social_cancelling
+import nuvio.composeapp.generated.resources.social_couldnt_join
+import nuvio.composeapp.generated.resources.social_dismiss
+import nuvio.composeapp.generated.resources.social_dock_asking
+import nuvio.composeapp.generated.resources.social_dock_asking_join
+import nuvio.composeapp.generated.resources.social_dock_auto_join
+import nuvio.composeapp.generated.resources.social_dock_cancelled
+import nuvio.composeapp.generated.resources.social_dock_declined
+import nuvio.composeapp.generated.resources.social_dock_joining_party
+import nuvio.composeapp.generated.resources.social_dock_let_in
+import nuvio.composeapp.generated.resources.social_dock_let_in_countdown
+import nuvio.composeapp.generated.resources.social_dock_no_answer
+import nuvio.composeapp.generated.resources.social_dock_stopped
+import nuvio.composeapp.generated.resources.social_join
+import nuvio.composeapp.generated.resources.social_not_now
+import nuvio.composeapp.generated.resources.social_try_again
+import nuvio.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * What an outgoing Join / Ask to join is doing, as a persistent pill in the app shell.
@@ -70,12 +87,15 @@ fun WatchTogetherDock(
         enter = fadeIn() + slideInVertically { it / 2 },
         exit = fadeOut() + slideOutVertically { it / 2 },
     ) {
-        shown?.let { DockContent(it, narrow = windowWidth < 720.dp) }
+        // ⚠ Always the full pill. Narrow windows used to collapse it to the avatar until hovered, which on
+        // a phone (no hover) left a bare avatar nobody noticed - and a decline drew nothing at all
+        // (maintainer, 2026-10-16). The window only caps its width now.
+        shown?.let { DockContent(it, maxWidth = minOf(340.dp, windowWidth - 32.dp)) }
     }
 }
 
 @Composable
-private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) {
+private fun DockContent(state: OutgoingJoinRequestState.Bound, maxWidth: Dp) {
     var nowMs by remember { mutableLongStateOf(currentEpochMs()) }
     LaunchedEffect(state::class) {
         while (true) {
@@ -83,14 +103,10 @@ private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) 
             delay(250)
         }
     }
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
     val presentation = dockPresentation(state, nowMs)
     val accent = state is OutgoingJoinRequestState.Accepted
     Surface(
-        modifier = Modifier.hoverable(interaction).then(
-            if (narrow && !hovered) Modifier else Modifier.widthIn(max = 340.dp),
-        ),
+        modifier = Modifier.widthIn(max = maxWidth),
         shape = RoundedCornerShape(28.dp),
         color = if (accent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         contentColor = if (accent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
@@ -98,7 +114,7 @@ private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) 
         shadowElevation = 8.dp,
     ) {
         Row(
-            Modifier.padding(start = 6.dp, end = if (narrow && !hovered) 6.dp else 8.dp, top = 6.dp, bottom = 6.dp),
+            Modifier.padding(start = 6.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -116,35 +132,33 @@ private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) 
                 }
                 SocialAvatar(state.target.displayName, state.target.avatarUrl, state.target.avatarColorHex, 34.dp)
             }
-            if (!narrow || hovered) {
-                Column(Modifier.weight(1f, fill = false).widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(
-                        presentation.headline,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val muted = if (accent) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                    presentation.subline?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = muted)
-                    }
-                    presentation.detail?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = muted)
-                    }
+            Column(Modifier.weight(1f, fill = false).widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    presentation.headline,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val muted = if (accent) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                else MaterialTheme.colorScheme.onSurfaceVariant
+                presentation.subline?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = muted)
                 }
-                presentation.actions.forEach { action ->
-                    TextButton(
-                        onClick = action.onClick,
-                        enabled = action.enabled,
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) { Text(action.label, maxLines = 1, softWrap = false) }
+                presentation.detail?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = muted)
                 }
-                presentation.onDismiss?.let { dismiss ->
-                    IconButton(onClick = dismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
-                    }
+            }
+            presentation.actions.forEach { action ->
+                TextButton(
+                    onClick = action.onClick,
+                    enabled = action.enabled,
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                ) { Text(action.label, maxLines = 1, softWrap = false) }
+            }
+            presentation.onDismiss?.let { dismiss ->
+                IconButton(onClick = dismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(Res.string.social_dismiss), modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -165,6 +179,7 @@ private data class DockPresentation(
     val detail: String? = null,
 )
 
+@Composable
 private fun dockPresentation(state: OutgoingJoinRequestState.Bound, nowMs: Long): DockPresentation {
     val name = state.target.displayName
     val what = listOfNotNull(
@@ -174,7 +189,7 @@ private fun dockPresentation(state: OutgoingJoinRequestState.Bound, nowMs: Long)
     val store = OutgoingJoinRequestStore
     return when (state) {
         is OutgoingJoinRequestState.Sending -> DockPresentation(
-            headline = "Asking $name…",
+            headline = stringResource(Res.string.social_dock_asking, name),
             subline = what,
             ring = null,
             spinning = true,
@@ -183,71 +198,71 @@ private fun dockPresentation(state: OutgoingJoinRequestState.Bound, nowMs: Long)
         is OutgoingJoinRequestState.Pending -> {
             val remainingMs = (state.expiresAtMs - nowMs).coerceAtLeast(0L)
             DockPresentation(
-                headline = "Asking $name to join",
+                headline = stringResource(Res.string.social_dock_asking_join, name),
                 subline = "$what · ${clock(remainingMs)}",
                 ring = (remainingMs.toFloat() / OutgoingJoinDefaultLifetimeMs).coerceIn(0f, 1f),
                 spinning = false,
-                actions = listOf(DockAction("Cancel", onClick = { store.cancel() })),
-                detail = "You'll join automatically when $name lets you in",
+                actions = listOf(DockAction(stringResource(Res.string.social_cancel), onClick = { store.cancel() })),
+                detail = stringResource(Res.string.social_dock_auto_join, name),
             )
         }
         is OutgoingJoinRequestState.Cancelling -> DockPresentation(
-            headline = "Cancelling…",
+            headline = stringResource(Res.string.social_cancelling),
             subline = what,
             ring = null,
             spinning = true,
-            actions = listOf(DockAction("Cancel", enabled = false, onClick = {})),
+            actions = listOf(DockAction(stringResource(Res.string.social_cancel), enabled = false, onClick = {})),
         )
         is OutgoingJoinRequestState.Accepted -> {
             val deadline = state.countdownDeadlineMs
             if (deadline != null) {
                 val seconds = ((deadline - nowMs + 999) / 1000).coerceAtLeast(0)
                 DockPresentation(
-                    headline = "$name let you in · Joining in $seconds…",
+                    headline = stringResource(Res.string.social_dock_let_in_countdown, name, seconds),
                     subline = what,
                     ring = ((deadline - nowMs).toFloat() / OutgoingJoinAcceptCountdownMs).coerceIn(0f, 1f),
                     spinning = false,
-                    actions = listOf(DockAction("Not now", onClick = { store.notNow() })),
+                    actions = listOf(DockAction(stringResource(Res.string.social_not_now), onClick = { store.notNow() })),
                 )
             } else {
                 DockPresentation(
-                    headline = "$name let you in",
+                    headline = stringResource(Res.string.social_dock_let_in, name),
                     subline = what,
                     ring = null,
                     spinning = false,
                     actions = listOf(
-                        DockAction("Join", onClick = { store.joinNow() }),
-                        DockAction("Not now", onClick = { store.notNow() }),
+                        DockAction(stringResource(Res.string.social_join), onClick = { store.joinNow() }),
+                        DockAction(stringResource(Res.string.social_not_now), onClick = { store.notNow() }),
                     ),
                 )
             }
         }
         is OutgoingJoinRequestState.Joining -> DockPresentation(
-            headline = "Joining ${partyPossessive(name)} party…",
+            headline = stringResource(Res.string.social_dock_joining_party, partyPossessive(name)),
             subline = what,
             ring = null,
             spinning = true,
             actions = emptyList(),
         )
         is OutgoingJoinRequestState.Outcome -> when (state.kind) {
-            OutgoingJoinOutcome.Cancelled -> DockPresentation("Request cancelled", what, null, false, emptyList())
+            OutgoingJoinOutcome.Cancelled -> DockPresentation(stringResource(Res.string.social_dock_cancelled), what, null, false, emptyList())
             OutgoingJoinOutcome.Declined -> DockPresentation(
-                "$name can't have company right now", what, null, false,
-                listOf(DockAction("Ask again", onClick = { store.askAgain() })),
+                stringResource(Res.string.social_dock_declined, name), what, null, false,
+                listOf(DockAction(stringResource(Res.string.social_ask_again), onClick = { store.askAgain() })),
                 onDismiss = { store.dismiss() },
             )
             OutgoingJoinOutcome.Expired -> DockPresentation(
-                "No answer from $name", what, null, false,
-                listOf(DockAction("Ask again", onClick = { store.askAgain() })),
+                stringResource(Res.string.social_dock_no_answer, name), what, null, false,
+                listOf(DockAction(stringResource(Res.string.social_ask_again), onClick = { store.askAgain() })),
                 onDismiss = { store.dismiss() },
             )
             OutgoingJoinOutcome.TargetStopped -> DockPresentation(
-                "$name stopped watching", what, null, false, emptyList(),
+                stringResource(Res.string.social_dock_stopped, name), what, null, false, emptyList(),
                 onDismiss = { store.dismiss() },
             )
             OutgoingJoinOutcome.Failed -> DockPresentation(
-                state.message ?: "Couldn't join", what, null, false,
-                listOf(DockAction("Try again", onClick = { store.askAgain() })),
+                state.message ?: stringResource(Res.string.social_couldnt_join), what, null, false,
+                listOf(DockAction(stringResource(Res.string.social_try_again), onClick = { store.askAgain() })),
                 onDismiss = { store.dismiss() },
             )
         }

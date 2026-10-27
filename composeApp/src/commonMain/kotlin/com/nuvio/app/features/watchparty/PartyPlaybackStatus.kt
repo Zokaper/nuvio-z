@@ -37,6 +37,8 @@ enum class PartyStatusKind {
     WaitingForHostStart,
     CatchingUp,
     IncomingJoinRequest,
+    /** The host's connection is gone and this viewer's is fine. */
+    HostOffline,
     Reconnecting,
     Offline,
     PausedBy,
@@ -143,11 +145,28 @@ data class PartyPlaybackStatusInputs(
     val panelOpen: Boolean = false,
     /** How long realtime has been Connecting or Degraded, 0 when not. */
     val realtimeUnhealthyMs: Long = 0L,
+    /** The durable snapshot has the host disconnected. Their broadcasts stopped with them, which is what
+     *  makes this viewer's own realtime read unhealthy - so this outranks [realtimeUnhealthyMs]. */
+    val hostOffline: Boolean = false,
     val capability: PartySyncCapability = PartySyncCapability.FullSync,
     /** The actor of the last accepted `pause` still in force, when it was not this viewer. */
     val pausedBy: PartyStatusPerson? = null,
     val outgoingRequestTarget: PartyStatusPerson? = null,
+    /** How the viewer's request to [outgoingRequestTarget] ended, while that is still on screen. */
+    val outgoingRequestOutcome: PartyStatusOutgoingOutcome? = null,
 )
+
+/**
+ * Whether [realtime] says this viewer is reconnecting, for [PartyPlaybackStatusInputs.realtimeUnhealthyMs].
+ * Connecting is always its own channel. Degraded is also what silence reads as, and silence with
+ * nobody else connected ([partyHasNobodyToHearFrom]) is the party going quiet, not this viewer.
+ */
+fun partyRealtimeReadsReconnecting(realtime: PartyRealtimeHealth, nobodyToHearFrom: Boolean): Boolean =
+    realtime == PartyRealtimeHealth.Connecting ||
+        (realtime == PartyRealtimeHealth.Degraded && !nobodyToHearFrom)
+
+/** An outgoing join request's answer, for the few seconds the player says so (2026-10-16). */
+enum class PartyStatusOutgoingOutcome { Declined, NoAnswer, Stopped }
 
 /** First match wins. See the table in `PLAN-social-watch-together-ux-pass.md` §5. */
 fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLine? = with(inputs) {
@@ -294,6 +313,11 @@ fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLi
     if (inParty && capability == PartySyncCapability.OfflineLocalPlayback) {
         return PartyStatusLine(PartyStatusKind.Offline, "Connection lost · playing on your own", tone = PartyStatusTone.Error)
     }
+    // 11a (2026-10-23). A killed host read as "Reconnecting to the party…" on the guest for the minute
+    // the server took to hand the party over: the guest blamed its own connection for the host's.
+    if (inParty && !isHost && hostOffline) {
+        return PartyStatusLine(PartyStatusKind.HostOffline, "$hostName lost connection · waiting for them", hostPeople, tone = PartyStatusTone.Warning)
+    }
     // 11.
     if (inParty && realtimeUnhealthyMs > PartyStatusReconnectVisibleMs) {
         return PartyStatusLine(PartyStatusKind.Reconnecting, "Reconnecting to the party…", tone = PartyStatusTone.Warning)
@@ -302,7 +326,20 @@ fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLi
     if (inParty && pausedBy != null) {
         return PartyStatusLine(PartyStatusKind.PausedBy, "Paused by ${pausedBy.name}", listOf(pausedBy))
     }
-    // 14.
+    // 14. A refusal used to vanish without a word while watching: the dock is hidden over the player.
+    if (outgoingRequestTarget != null && outgoingRequestOutcome != null) {
+        val name = outgoingRequestTarget.name
+        return PartyStatusLine(
+            PartyStatusKind.OutgoingJoinRequest,
+            when (outgoingRequestOutcome) {
+                PartyStatusOutgoingOutcome.Declined -> "$name can't have company right now"
+                PartyStatusOutgoingOutcome.NoAnswer -> "No answer from $name"
+                PartyStatusOutgoingOutcome.Stopped -> "$name stopped watching"
+            },
+            listOf(outgoingRequestTarget),
+            tone = PartyStatusTone.Warning,
+        )
+    }
     if (outgoingRequestTarget != null) {
         return PartyStatusLine(
             PartyStatusKind.OutgoingJoinRequest,

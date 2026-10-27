@@ -1,7 +1,5 @@
 package com.nuvio.app.features.player
 
-import com.nuvio.app.features.details.MetaVideo
-
 /** What the player's opening surface draws: the backdrop, the centred logo, and the text fallback. */
 internal data class PlayerOpeningPresentation(
     val artwork: String?,
@@ -21,19 +19,21 @@ internal data class PlayerOpeningPresentation(
  *
  * The logo and the fallback title are the canonical content identity a normal launch hands
  * `PlaybackLoadingController` (`launch.logo`, `launch.title`), so a next episode now draws the same
- * thing. What stays episode-specific is what always was: the backdrop prefers the starting
- * episode's still, and the "starting next episode" message the caller supplies carries the episode.
+ * thing. Only the "starting next episode" message the caller supplies carries the episode.
  * One function rather than three copies, because three copies is how they came to agree on the
  * wrong answer.
+ *
+ * ⚠ **The backdrop too.** It used to prefer the starting episode's still, which arrives at `w500`
+ * (or an addon's own small thumbnail) and looked visibly low quality stretched over the window,
+ * where a first launch draws the show's backdrop. Now both draw `launch.background ?: launch.poster`.
  */
 internal fun playerOpeningPresentation(
     showLogo: String?,
     showTitle: String,
     background: String?,
     poster: String?,
-    startingEpisode: MetaVideo?,
 ): PlayerOpeningPresentation = PlayerOpeningPresentation(
-    artwork = startingEpisode?.thumbnail?.takeIf { it.isNotBlank() } ?: background ?: poster,
+    artwork = background ?: poster,
     logo = showLogo?.takeIf { it.isNotBlank() },
     title = showTitle,
 )

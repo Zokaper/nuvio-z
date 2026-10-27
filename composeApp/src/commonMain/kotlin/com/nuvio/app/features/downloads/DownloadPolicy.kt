@@ -197,3 +197,13 @@ object DownloadEntryRouter {
         }
     }
 }
+
+/**
+ * A gigabyte figure as a person reads it: one decimal below 10 ("0.4", "1.5", "3"), whole numbers
+ * above ("12"). Never "3.0" and never "0".
+ */
+internal fun downloadSizeFigure(gigabytes: Double): String {
+    if (gigabytes >= 10.0) return kotlin.math.round(gigabytes).toLong().toString()
+    val tenths = kotlin.math.round(gigabytes * 10.0).toLong().coerceAtLeast(1L)
+    return if (tenths % 10L == 0L) (tenths / 10L).toString() else "${tenths / 10L}.${tenths % 10L}"
+}

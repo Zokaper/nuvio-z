@@ -1,9 +1,12 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.social.SocialInboxEvent
+import com.nuvio.app.features.social.SocialInboxPayload
 import com.nuvio.app.features.social.SocialNotification
 import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
 import com.nuvio.app.features.social.SocialProfileSummary
+import com.nuvio.app.features.social.parseSocialTimestampMs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -77,6 +80,18 @@ class MobileWatchTogetherPanelTest {
             )
             assertEquals("Sam let you in", mobileOutgoingRequestTitle(answered))
         }
+        val declined = pending.copy(outgoingPhase = "declined")
+        assertEquals("Sam can't have company right now", mobileOutgoingRequestTitle(declined))
+        assertEquals(listOf("wtAskAgainOutgoing" to 0.0, "wtDismissOutgoing" to 0.0), events(mobileOutgoingRequestActions(declined)))
+        assertEquals("No answer from Sam", mobileOutgoingRequestTitle(pending.copy(outgoingPhase = "expired")))
+        assertEquals(listOf("wtDismissOutgoing" to 0.0), events(mobileOutgoingRequestActions(pending.copy(outgoingPhase = "stopped"))))
+    }
+
+    @Test fun theInviteButtonSaysWhereTheInviteIs() {
+        assertEquals("Invite", mobileInviteLabel("invite"))
+        assertEquals("Sent", mobileInviteLabel("sent"))
+        assertEquals("Declined", mobileInviteLabel("declined"))
+        assertEquals("Cancelling…", mobileInviteLabel("cancelling"))
     }
 
     @Test fun theHeaderButtonStaysReachableWhileThePartyHasSomethingToSay() {
@@ -135,5 +150,29 @@ class MobileWatchTogetherPanelTest {
         assertNull(inPlayerSocialCardNotification(listOf(joinRequest)))
         assertNull(inPlayerSocialCardNotification(listOf(friendRequest.copy(readAt = "2026-09-18T00:00:01Z"))))
         assertNull(inPlayerSocialCardNotification(listOf(friendRequest.copy(availableActions = emptySet()))))
+    }
+
+    private fun watching(id: String, at: String, actorId: String = "p", readAt: String? = null) = SocialInboxEvent(
+        id = id,
+        kind = SocialInboxEvent.FriendWatching,
+        actor = SocialProfileSummary(actorId, "friend", "Friend"),
+        createdAt = at,
+        readAt = readAt,
+        payload = SocialInboxPayload(title = "Andor", season = 1, episode = 2),
+    )
+
+    @Test fun aFriendStartingToWatchIsSaidOnceAndOnlyIfAskedFor() {
+        val since = parseSocialTimestampMs("2026-10-17T13:00:00Z")!!
+        val old = watching("old", "2026-10-17T12:59:00Z")
+        val new = watching("new", "2026-10-17T13:02:34Z")
+        val newer = watching("newer", "2026-10-17T13:03:00Z", actorId = "quiet")
+        val all = listOf(old, new, newer)
+        assertEquals("newer", inPlayerFriendWatchingEvent(all, { true }, since, emptySet())?.id)
+        assertEquals("new", inPlayerFriendWatchingEvent(all, { it == "p" }, since, emptySet())?.id)
+        assertNull(inPlayerFriendWatchingEvent(all, { it == "p" }, since, setOf("new")))
+        assertNull(inPlayerFriendWatchingEvent(listOf(old), { true }, since, emptySet()))
+        assertNull(inPlayerFriendWatchingEvent(listOf(new.copy(readAt = "2026-10-17T13:03:00Z")), { true }, since, emptySet()))
+        assertEquals("is watching Andor · S1 E2", friendWatchingLine(new))
+        assertEquals("started watching", friendWatchingLine(new.copy(payload = SocialInboxPayload())))
     }
 }

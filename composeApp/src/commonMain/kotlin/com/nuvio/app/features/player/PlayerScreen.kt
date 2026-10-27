@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.nuvio.app.features.watchparty.PartyContent
 import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
+import com.nuvio.app.features.party.PartyMedia
 
 @Composable
 internal fun PlayerScreen(
@@ -28,6 +29,7 @@ internal fun PlayerScreen(
     onPlaybackStarted: (() -> Unit)? = null,
     onStartWatchTogether: ((PartyContent, PartySourceDescriptorV2, Long, Float) -> Unit)? = null,
     onPartyLobbyRequested: ((String) -> Unit)? = null,
+    onOpenPartyMedia: (PartyMedia) -> Unit = {},
     modifier: Modifier = Modifier,
     logo: String? = null,
     poster: String? = null,
@@ -54,6 +56,8 @@ internal fun PlayerScreen(
     partySourceDescriptor: PartySourceDescriptorV2? = null,
     automaticSourceSelection: Boolean = false,
     launchId: Long? = null,
+    sourceFilename: String? = null,
+    stream: com.nuvio.app.features.streams.StreamItem? = null,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -104,6 +108,9 @@ internal fun PlayerScreen(
             partySourceDescriptor = partySourceDescriptor,
             automaticSourceSelection = automaticSourceSelection,
             launchId = launchId,
+            sourceFilename = sourceFilename,
+            onOpenPartyMedia = onOpenPartyMedia,
+            stream = stream,
         )
     )
 }

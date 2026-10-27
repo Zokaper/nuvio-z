@@ -122,3 +122,5 @@ internal fun String.hasLikelyExpiringPlaybackCredentials(): Boolean {
                 }
         }
 }
+
+internal fun String.redactedForLogs(): String = substringBefore('?').substringBefore('#')

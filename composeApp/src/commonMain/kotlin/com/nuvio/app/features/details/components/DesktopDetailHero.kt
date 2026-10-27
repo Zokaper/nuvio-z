@@ -1,5 +1,7 @@
 package com.nuvio.app.features.details.components
 
+import com.nuvio.app.features.social.SocialRecommendedByLine
+import com.nuvio.app.features.social.socialRecommendAction
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -346,11 +348,13 @@ fun DesktopDetailHero(
                             onClick = action,
                         )
                     },
+                    socialRecommendAction(),
                 ),
                 isTablet = true,
                 onPlayClick = onPlayClick,
                 onPlayLongClick = onPlayLongClick,
             )
+            SocialRecommendedByLine(meta.id, Modifier.padding(top = 16.dp).widthIn(max = 520.dp))
         }
 
         if (heroTrailerSourceUrl != null) {
@@ -472,26 +476,3 @@ private fun DesktopHeroMetaRow(meta: MetaDetails) {
         }
     }
 }
-
-@Composable
-private fun ImdbRatingSourceLabel(
-    storeTextStyle: TextStyle,
-    storeTextColor: Color,
-) {
-    if (AppFeaturePolicy.imdbRatingLogoEnabled) {
-        Image(
-            painter = painterResource(Res.drawable.rating_imdb),
-            contentDescription = stringResource(Res.string.source_imdb),
-            modifier = Modifier.size(width = 30.dp, height = 16.dp),
-        )
-    } else {
-        Text(
-            text = stringResource(Res.string.source_imdb),
-            style = storeTextStyle,
-            color = storeTextColor,
-            maxLines = 1,
-        )
-    }
-}
-
-private val ImdbYellow = Color(0xFFF5C518)

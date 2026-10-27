@@ -32,6 +32,8 @@ FAMILIES = {"mobile": ["android", "ios"], "desktop": ["desktop"]}
 LABELS = {"desktop": "Desktop", "android": "Android", "ios": "iOS"}
 CATEGORIES = [("feature", "New features"), ("improvement", "Improvements"), ("fix", "Bug fixes")]
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# `ChangelogAction` keys. An unknown one is dropped by the app, but never belongs in the file.
+ACTIONS = ("advanced_setup", "review_settings")
 UNRELEASED = "unreleased"
 
 
@@ -50,8 +52,23 @@ def is_released(ship):
     return ship.get("date") not in (None, "", UNRELEASED)
 
 
-def validate(data):
-    """Every structural problem in a parsed changelog.json, as strings. Mirrors `validateChangelog`."""
+def image_problems(where, owner, images):
+    """An `image` is a bare file name in `files/whatsnew/`, and - when [images] is that folder - it exists."""
+    if "image" not in owner:
+        return []
+    name = owner["image"]
+    if not isinstance(name, str) or not name.strip() or "/" in name or "\\" in name:
+        return [f"{where} image must be a bare file name in files/whatsnew/"]
+    if images is not None and not (images / name).is_file():
+        return [f"{where} image {name} is missing from {images}"]
+    return []
+
+
+def validate(data, images=None):
+    """Every structural problem in a parsed changelog.json, as strings. Mirrors `validateChangelog`.
+
+    [images] is the `files/whatsnew/` folder next to the file, to check that pictures exist; None skips it.
+    """
     problems = []
     events = data.get("events")
     if not isinstance(events, list) or not events:
@@ -71,6 +88,7 @@ def validate(data):
         summary = event.get("summary")
         if summary is not None and (not isinstance(summary, str) or not summary.strip()):
             problems.append(f"{where} summary must be a non-empty string when present")
+        problems += image_problems(where, event, images)
         ships = event.get("ships")
         if not isinstance(ships, dict) or not ships:
             problems.append(f"{where} ships nowhere")
@@ -115,8 +133,9 @@ def validate(data):
                     problems.append(f"{label} names unknown platform '{platform}'")
                 elif platform not in ships:
                     problems.append(f"{label} names {platform}, which the event does not ship on")
-            if "action" in entry and entry["action"] not in ("advanced_setup",):
+            if "action" in entry and entry["action"] not in ACTIONS:
                 problems.append(f"{label} has unknown action '{entry['action']}'")
+            problems += image_problems(label, entry, images)
             if "qa" in entry and (not isinstance(entry["qa"], str) or not entry["qa"].strip()):
                 problems.append(f"{label} qa must describe the open acceptance item")
     duplicates = sorted({s for s in seqs if seqs.count(s) > 1})
@@ -257,7 +276,8 @@ def main():
         print(f"changelog.json matches {args.peer}{' (ignoring ship dates)' if args.ignore_dates else ''}.")
         return 0
 
-    problems = validate(data)
+    local = not str(args.file).startswith(("http://", "https://"))
+    problems = validate(data, images=pathlib.Path(args.file).with_name("whatsnew") if local else None)
     debug_file = pathlib.Path(args.file).with_name("changelog-debug.json")
     if args.mode == "validate" and debug_file.exists():
         problems += validate_debug(json.loads(debug_file.read_text(encoding="utf-8")))

@@ -57,6 +57,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Groups
@@ -141,6 +142,7 @@ import com.nuvio.app.features.downloads.AudioPreference
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.settings.DesktopNavigationLayout
+import com.nuvio.app.features.settings.LanguageSettingsSection
 import com.nuvio.app.features.settings.LanguageSelectionDialog
 import com.nuvio.app.features.settings.LanguageSelectionOption
 import com.nuvio.app.features.settings.NavBarStyle
@@ -167,6 +169,17 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
+import androidx.compose.material.icons.rounded.Notifications
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
+import com.nuvio.app.features.settings.DesktopUiZoom
+import nuvio.composeapp.generated.resources.advanced_setup_category_notifications
+import nuvio.composeapp.generated.resources.advanced_setup_panel_notifications_desktop
+import nuvio.composeapp.generated.resources.advanced_setup_panel_notifications_mobile
+import nuvio.composeapp.generated.resources.advanced_setup_episode_alerts_short
+import nuvio.composeapp.generated.resources.advanced_setup_ui_zoom_detail
+import nuvio.composeapp.generated.resources.settings_notifications_episode_release_alerts
+import nuvio.composeapp.generated.resources.settings_notifications_episode_release_alerts_description
+import nuvio.composeapp.generated.resources.settings_appearance_desktop_ui_zoom
 
 // String keys by wildcard, as `SetupWizardScreen.kt` does: this screen reads about a hundred.
 
@@ -187,6 +200,9 @@ import kotlin.math.abs
  *   hub. It is the same panels, not a second flow.
  * - Always dismissible: ✕, system back from the hub, or Done on the last panel. Its only side
  *   effects are the settings themselves and the "opened" flag behind the Settings badge.
+ * - **A review** ([review], 2026-10-22) is what What's New and the "New settings available" offer
+ *   open: the areas a release changed, each whole, one after another - then it closes. Back from its
+ *   first panel still reaches the hub, so nothing else is out of reach.
  *
  * ## Layout
  *
@@ -202,6 +218,8 @@ import kotlin.math.abs
 fun AdvancedSetupScreen(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Open straight onto these areas and close after the last of them (`advancedSetupAreasChangedSince`). */
+    review: List<AdvancedSetupCategory>? = null,
 ) {
     val scope = rememberCoroutineScope()
     val live = rememberAdvancedSetupLive()
@@ -216,8 +234,11 @@ fun AdvancedSetupScreen(
     // Opening the hub is what clears Settings' "New" badge, for this profile on this device.
     LaunchedEffect(Unit) { AdvancedSetupBadge.markOpened(ProfileRepository.activeProfileId) }
 
-    var panelName by rememberSaveable { mutableStateOf<String?>(null) }
-    var touring by rememberSaveable { mutableStateOf(false) }
+    var panelName by rememberSaveable { mutableStateOf(review?.let { advancedSetupTour(facts, it).firstOrNull()?.panel?.name }) }
+    var touring by rememberSaveable { mutableStateOf(review != null && panelName != null) }
+    // While reviewing, the tour is only these areas, and its end closes the screen instead of showing the hub.
+    var reviewing by rememberSaveable { mutableStateOf(review != null && panelName != null) }
+    val tourAreas = if (reviewing) review else null
     // "Set up in Settings": the real page, drawn over the hub (which stays exactly where it was).
     var nestedSettingsName by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmLeaveParty by remember { mutableStateOf(false) }
@@ -230,10 +251,11 @@ fun AdvancedSetupScreen(
     LaunchedEffect(facts, panel) {
         val current = panel ?: return@LaunchedEffect
         if (advancedSetupControls(current, facts).isEmpty()) {
-            val next = if (touring) nextAdvancedSetupTourStop(current, facts)?.panel else nextAdvancedSetupPanel(current, facts)
+            val next = if (touring) nextAdvancedSetupTourStop(current, facts, tourAreas)?.panel else nextAdvancedSetupPanel(current, facts)
             if (next == null) {
                 if (current.category !in reviewed) reviewed.add(current.category)
                 touring = false
+                if (reviewing) onClose()
             }
             panelName = next?.name
         }
@@ -245,23 +267,29 @@ fun AdvancedSetupScreen(
 
     fun openCategory(category: AdvancedSetupCategory) {
         touring = false
+        reviewing = false
         panelName = advancedSetupPanels(category, facts).firstOrNull()?.name
     }
 
     fun startTour() {
         val first = advancedSetupTour(facts).firstOrNull() ?: return
         touring = true
+        reviewing = false
         panelName = first.panel.name
     }
 
     fun advance() {
         val current = panel ?: return
         val next = if (touring) {
-            nextAdvancedSetupTourStop(current, facts)?.panel
+            nextAdvancedSetupTourStop(current, facts, tourAreas)?.panel
         } else {
             nextAdvancedSetupPanel(current, facts)
         }
         if (next == null || next.category != current.category) markReviewed(current.category)
+        if (next == null && reviewing) {
+            onClose()
+            return
+        }
         if (next == null) touring = false
         panelName = next?.name
     }
@@ -269,11 +297,14 @@ fun AdvancedSetupScreen(
     fun back() {
         val current = panel ?: return
         val previous = if (touring) {
-            previousAdvancedSetupTourStop(current, facts)?.panel
+            previousAdvancedSetupTourStop(current, facts, tourAreas)?.panel
         } else {
             previousAdvancedSetupPanel(current, facts)
         }
-        if (previous == null) touring = false
+        if (previous == null) {
+            touring = false
+            reviewing = false
+        }
         panelName = previous?.name
     }
 
@@ -333,7 +364,8 @@ fun AdvancedSetupScreen(
                     val held = lastPanelShown(panel)
                     val current = panel ?: held
                     if (current != null) {
-                        val position = if (touring) {
+                        // A review counts within each area ("Language · 2 of 3"), as opening that area would.
+                        val position = if (touring && !reviewing) {
                             val tour = advancedSetupTour(facts)
                             (tour.indexOfFirst { it.panel == current } + 1).coerceAtLeast(1) to tour.size
                         } else {
@@ -341,7 +373,7 @@ fun AdvancedSetupScreen(
                             (panels.indexOf(current) + 1).coerceAtLeast(1) to panels.size
                         }
                         val isLast = if (touring) {
-                            nextAdvancedSetupTourStop(current, facts) == null
+                            nextAdvancedSetupTourStop(current, facts, tourAreas) == null
                         } else {
                             nextAdvancedSetupPanel(current, facts) == null
                         }
@@ -349,7 +381,7 @@ fun AdvancedSetupScreen(
                             panel = current,
                             facts = facts,
                             values = values,
-                            touring = touring,
+                            touring = touring && !reviewing,
                             position = position,
                             isLast = isLast,
                             wideDesktop = wideDesktop,
@@ -490,6 +522,11 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
     }.collectAsStateWithLifecycle()
     val profileState by remember { ProfileRepository.state }.collectAsStateWithLifecycle()
     val randomEpisodeAvailable = rememberAdvancedRandomEpisodeAvailable()
+    val episodeAlerts by remember {
+        EpisodeReleaseNotificationsRepository.ensureLoaded()
+        EpisodeReleaseNotificationsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val uiZoom by remember { ThemeSettingsRepository.desktopUiZoom }.collectAsStateWithLifecycle()
 
     val effectiveDownloadMode = downloadPolicy.effectiveMode(player.playbackMode.forDownloads())
     val platformFacts = remember {
@@ -502,6 +539,8 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
             downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
             hasTrackingCredentials = TraktAuthRepository.hasRequiredCredentials() || SimklAuthRepository.hasRequiredCredentials(),
             inAppTrailers = AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP,
+            startupAvailable = AdvancedSetupExtensions.startupAndTray != null,
+            alertsAvailable = AdvancedSetupExtensions.alerts != null,
         )
     }
     val facts = platformFacts.copy(
@@ -558,6 +597,8 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
         joinPolicy = socialState.me?.defaultJoinPolicy ?: WatchJoinPolicy.approval,
         tmdbEnabled = tmdb.enabled,
         tmdbLanguage = tmdb.language,
+        episodeAlerts = episodeAlerts.isEnabled,
+        uiZoom = uiZoom,
     )
     return AdvancedSetupLive(facts = facts, values = values)
 }
@@ -714,6 +755,10 @@ internal data class AdvancedSetupValues(
     val joinPolicy: WatchJoinPolicy = WatchJoinPolicy.approval,
     val tmdbEnabled: Boolean = true,
     val tmdbLanguage: String = "en",
+    /** Phones: new-episode alerts for this profile on this device. */
+    val episodeAlerts: Boolean = false,
+    /** Desktop: the interface size. */
+    val uiZoom: DesktopUiZoom = DesktopUiZoom.Default,
 )
 
 // --- hub ---------------------------------------------------------------------------------
@@ -977,6 +1022,7 @@ internal fun advancedCategorySummary(
             stringResource(Res.string.settings_playback_skip_intro_outro_recap) + " " + (if (p.skipIntroEnabled) on else off).lowercase(),
             stringResource(if (p.streamAutoPlayNextEpisodeEnabled) Res.string.advanced_setup_next_auto else Res.string.advanced_setup_next_ask),
         )
+        AdvancedSetupCategory.Language -> listOf(stringResource(Res.string.setup_language_subtitle))
         AdvancedSetupCategory.Subtitles -> listOf(
             stringResource(Res.string.compose_player_font_size_value, p.subtitleStyle.fontSizeSp),
             stringResource(if (p.subtitleStyle.outlineEnabled) Res.string.settings_playback_subtitle_outline else Res.string.advanced_setup_subtitle_no_outline),
@@ -1020,6 +1066,18 @@ internal fun advancedCategorySummary(
         AdvancedSetupCategory.Social -> listOf(if (values.socialEnabled) on else off)
         AdvancedSetupCategory.Metadata -> if (values.tmdbEnabled) listOf(on, languageName(values.tmdbLanguage)) else listOf(off)
         AdvancedSetupCategory.Tracking -> listOf(stringResource(Res.string.advanced_setup_tracking_summary))
+        AdvancedSetupCategory.Notifications -> listOfNotNull(
+            if (facts.isMobile) {
+                stringResource(Res.string.advanced_setup_episode_alerts_short) + " " + (if (values.episodeAlerts) on else off).lowercase()
+            } else {
+                null
+            },
+            AdvancedSetupExtensions.alerts?.summary?.invoke(),
+        )
+        AdvancedSetupCategory.Startup -> listOfNotNull(
+            AdvancedSetupExtensions.startupAndTray?.summary?.invoke(),
+            if (facts.isDesktop) values.uiZoom.label else null,
+        )
     }
     return parts.filter { it.isNotBlank() }.joinToString(" · ")
 }
@@ -1037,6 +1095,7 @@ private val AdvancedSetupGroup.labelRes: StringResource
         AdvancedSetupGroup.Look -> Res.string.advanced_setup_group_look
         AdvancedSetupGroup.Screens -> Res.string.advanced_setup_group_screens
         AdvancedSetupGroup.SocialAndServices -> Res.string.advanced_setup_group_social
+        AdvancedSetupGroup.ThisDevice -> Res.string.advanced_setup_group_this_pc
     }
 
 internal val AdvancedSetupCategory.titleRes: StringResource
@@ -1044,6 +1103,7 @@ internal val AdvancedSetupCategory.titleRes: StringResource
         AdvancedSetupCategory.PlaybackMode -> Res.string.advanced_setup_category_playback_mode
         AdvancedSetupCategory.Player -> Res.string.advanced_setup_category_player
         AdvancedSetupCategory.Skipping -> Res.string.advanced_setup_category_skipping
+        AdvancedSetupCategory.Language -> Res.string.settings_playback_section_language
         AdvancedSetupCategory.Subtitles -> Res.string.advanced_setup_category_subtitles
         AdvancedSetupCategory.Downloads -> Res.string.advanced_setup_category_downloads
         AdvancedSetupCategory.Navigation -> Res.string.advanced_setup_category_navigation
@@ -1055,6 +1115,8 @@ internal val AdvancedSetupCategory.titleRes: StringResource
         AdvancedSetupCategory.Social -> Res.string.advanced_setup_category_social
         AdvancedSetupCategory.Metadata -> Res.string.advanced_setup_category_metadata
         AdvancedSetupCategory.Tracking -> Res.string.advanced_setup_category_tracking
+        AdvancedSetupCategory.Notifications -> Res.string.advanced_setup_category_notifications
+        AdvancedSetupCategory.Startup -> Res.string.advanced_setup_category_startup
     }
 
 private val AdvancedSetupCategory.icon: ImageVector
@@ -1062,6 +1124,7 @@ private val AdvancedSetupCategory.icon: ImageVector
         AdvancedSetupCategory.PlaybackMode -> Icons.Rounded.PlayCircleOutline
         AdvancedSetupCategory.Player -> Icons.Rounded.Tv
         AdvancedSetupCategory.Skipping -> Icons.Rounded.SkipNext
+        AdvancedSetupCategory.Language -> Icons.Rounded.Subtitles
         AdvancedSetupCategory.Subtitles -> Icons.Rounded.Subtitles
         AdvancedSetupCategory.Downloads -> Icons.Rounded.Download
         AdvancedSetupCategory.Navigation -> Icons.Rounded.Explore
@@ -1073,6 +1136,8 @@ private val AdvancedSetupCategory.icon: ImageVector
         AdvancedSetupCategory.Social -> Icons.Rounded.Groups
         AdvancedSetupCategory.Metadata -> Icons.Rounded.Tune
         AdvancedSetupCategory.Tracking -> Icons.Rounded.Sync
+        AdvancedSetupCategory.Notifications -> Icons.Rounded.Notifications
+        AdvancedSetupCategory.Startup -> Icons.Rounded.PowerSettingsNew
     }
 
 // --- one panel ---------------------------------------------------------------------------
@@ -1322,11 +1387,13 @@ private val AdvancedSetupPanel.previewKey: String
         AdvancedSetupPanel.PosterShape, AdvancedSetupPanel.PosterEffects -> "posters"
         AdvancedSetupPanel.HomeHero, AdvancedSetupPanel.HomeContinueWatching -> "home"
         AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> "social"
+        AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles -> "language-moments"
         else -> name
     }
 
 /** How tall a panel's preview band is on a phone (capped against the window by the caller). */
 private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this) {
+    AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles -> 250.dp
     AdvancedSetupPanel.PlaybackModeChoice,
     AdvancedSetupPanel.PlaybackSourcePreferences,
     AdvancedSetupPanel.PlaybackSourceFormat,
@@ -1349,6 +1416,8 @@ private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this)
     AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> 200.dp
     AdvancedSetupPanel.EnhancedMetadata -> 360.dp
     AdvancedSetupPanel.TrackingServices -> 160.dp
+    AdvancedSetupPanel.Notifications -> 200.dp
+    AdvancedSetupPanel.StartupTray -> 200.dp
 }.let { if (desktop) it * DesktopSpecimenScale else it }
 
 /** The renderer this device's player will draw subtitles with (`SubtitleRenderGeometry.kt`). */
@@ -1377,6 +1446,8 @@ internal fun AdvancedPanelPreview(
         AdvancedSpecimenBand(panel = panel, specimen = specimen, step = step, values = values, desktop = desktop, scale = scale)
     }
     when (panel) {
+        AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles ->
+            AdvancedLanguagePreview(panel = panel, desktop = desktop)
         AdvancedSetupPanel.PlaybackModeChoice,
         AdvancedSetupPanel.PlaybackSourcePreferences,
         AdvancedSetupPanel.PlaybackSourceFormat,
@@ -1485,6 +1556,16 @@ internal fun AdvancedPanelPreview(
         )
         AdvancedSetupPanel.EnhancedMetadata -> SpecimenMetadata(enriched = values.tmdbEnabled, desktop = desktop || facts.isDesktop)
         AdvancedSetupPanel.TrackingServices -> SpecimenTracking(scale = scale)
+        // The platform's own picture of an alert; Friend activity where it has none (alerts only).
+        AdvancedSetupPanel.Notifications -> {
+            val alerts = AdvancedSetupExtensions.alerts
+            if (alerts != null) {
+                alerts.preview(desktop)
+            } else {
+                SpecimenFriendActivity(socialEnabled = true, shareWatchingNow = true, shareWatched = true, scale = scale)
+            }
+        }
+        AdvancedSetupPanel.StartupTray -> AdvancedSetupExtensions.startupAndTray?.preview?.invoke(desktop)
     }
 }
 
@@ -1573,6 +1654,21 @@ internal fun AdvancedPanelBody(
     controlsOverride: List<AdvancedSetupControl>? = null,
 ) {
     val controls = controlsOverride ?: advancedSetupControls(panel, facts)
+    val languageSection = when {
+        AdvancedSetupControl.MyLanguage in controls -> LanguageSettingsSection.Languages
+        AdvancedSetupControl.OwnTitleSubtitles in controls -> LanguageSettingsSection.OwnTitles
+        AdvancedSetupControl.OtherTitleAudio in controls -> LanguageSettingsSection.OtherTitles
+        else -> null
+    }
+    if (languageSection != null) {
+        val languagePanel = when (languageSection) {
+            LanguageSettingsSection.Languages -> AdvancedSetupPanel.Languages
+            LanguageSettingsSection.OwnTitles -> AdvancedSetupPanel.OwnLanguageTitles
+            LanguageSettingsSection.OtherTitles -> AdvancedSetupPanel.OtherLanguageTitles
+        }
+        AdvancedLanguageBody(panel = languagePanel, isTablet = facts.isDesktop)
+        return
+    }
     when (panel) {
         // Whole-panel bodies shared with the wizard, so the two can never ask differently.
         AdvancedSetupPanel.PlaybackModeChoice -> {
@@ -1593,6 +1689,7 @@ internal fun AdvancedPanelBody(
                 languageStrictness = values.player.playbackLanguageStrictness,
                 dynamicRangePolicy = values.player.playbackDynamicRangePolicy,
                 qualityCeilingMbps = values.player.playbackQualityCeilingMbps,
+                meteredCapHeight = values.player.playbackMeteredCapHeight.takeIf { AdvancedSetupControl.MeteredCap in controls },
             )
             return
         }
@@ -1675,10 +1772,18 @@ private fun AdvancedControl(
 ) {
     val p = values.player
     when (control) {
+        AdvancedSetupControl.MyLanguage,
+        AdvancedSetupControl.FallbackLanguage,
+        AdvancedSetupControl.SubtitleLanguage,
+        AdvancedSetupControl.OwnTitleSubtitles,
+        AdvancedSetupControl.OtherTitleAudio,
+        AdvancedSetupControl.OtherTitleSubtitles,
+        -> Unit // Drawn by AdvancedLanguageBody above.
         AdvancedSetupControl.PlaybackModeCards,
         AdvancedSetupControl.QualityLimit,
         AdvancedSetupControl.LanguageMatching,
         AdvancedSetupControl.DynamicRange,
+        AdvancedSetupControl.MeteredCap,
         AdvancedSetupControl.DownloadModeCards,
         AdvancedSetupControl.DownloadResolution,
         AdvancedSetupControl.DownloadSize,
@@ -2224,8 +2329,40 @@ private fun AdvancedControl(
             action = stringResource(Res.string.advanced_setup_open_integrations),
             onClick = { onOpenSettings(SettingsPage.TraktAuthentication) },
         )
+        AdvancedSetupControl.StartupAndTray -> AdvancedSetupExtensions.startupAndTray?.controls?.invoke()
+        AdvancedSetupControl.PlatformAlerts -> AdvancedSetupExtensions.alerts?.controls?.invoke()
+        // The Settings row's own setter: turning it on asks the OS, and only this device's answer counts
+        // since Device Setup made alerts device-owned.
+        AdvancedSetupControl.EpisodeAlerts -> SetupToggleRow(
+            title = stringResource(Res.string.settings_notifications_episode_release_alerts),
+            description = stringResource(Res.string.settings_notifications_episode_release_alerts_description),
+            checked = values.episodeAlerts,
+            onCheckedChange = EpisodeReleaseNotificationsRepository::setEnabled,
+        )
+        AdvancedSetupControl.UiZoom -> SetupQuestion(
+            title = stringResource(Res.string.settings_appearance_desktop_ui_zoom),
+            detail = stringResource(Res.string.advanced_setup_ui_zoom_detail),
+        ) {
+            NuvioSegmentedChoice(
+                segments = AdvancedUiZoomChoices.map { NuvioSegment(it.label, it) },
+                // Settings offers more steps than fit here; snap to the nearest rather than light none.
+                selected = AdvancedUiZoomChoices.minByOrNull { abs(it.percent - values.uiZoom.percent) },
+                onSelected = ThemeSettingsRepository::setDesktopUiZoom,
+                compact = true,
+            )
+        }
     }
 }
+
+/** The interface sizes Advanced Setup offers; Settings → Appearance has every step. */
+private val AdvancedUiZoomChoices: List<DesktopUiZoom> = listOf(
+    DesktopUiZoom.P75,
+    DesktopUiZoom.P90,
+    DesktopUiZoom.P100,
+    DesktopUiZoom.P110,
+    DesktopUiZoom.P125,
+    DesktopUiZoom.P150,
+)
 
 /** Explanation + a way to the real Settings page. Never a connect flow of its own (plan §12). */
 @Composable
@@ -2394,6 +2531,9 @@ private fun detailBackgroundLabel(mode: MetaScreenBackgroundMode): String = stri
 
 internal val AdvancedSetupPanel.titleRes: StringResource
     get() = when (this) {
+        AdvancedSetupPanel.Languages -> Res.string.settings_playback_section_language
+        AdvancedSetupPanel.OwnLanguageTitles -> Res.string.zlang_own_titles
+        AdvancedSetupPanel.OtherLanguageTitles -> Res.string.zlang_titles_other
         AdvancedSetupPanel.PlaybackModeChoice -> Res.string.playback_mode_selector_title
         AdvancedSetupPanel.PlaybackSourcePreferences -> Res.string.advanced_setup_panel_source_prefs
         AdvancedSetupPanel.PlaybackSourceFormat -> Res.string.advanced_setup_panel_source_format
@@ -2420,9 +2560,14 @@ internal val AdvancedSetupPanel.titleRes: StringResource
         AdvancedSetupPanel.SocialIdentity -> Res.string.setup_social_identity_title
         AdvancedSetupPanel.EnhancedMetadata -> Res.string.advanced_setup_category_metadata
         AdvancedSetupPanel.TrackingServices -> Res.string.advanced_setup_category_tracking
+        AdvancedSetupPanel.Notifications -> Res.string.advanced_setup_category_notifications
+        AdvancedSetupPanel.StartupTray -> Res.string.advanced_setup_category_startup
     }
 
 internal fun AdvancedSetupPanel.subtitleRes(facts: AdvancedSetupFacts): StringResource = when (this) {
+    AdvancedSetupPanel.Languages -> Res.string.setup_language_subtitle
+    AdvancedSetupPanel.OwnLanguageTitles -> Res.string.advanced_setup_panel_own_titles_subtitle
+    AdvancedSetupPanel.OtherLanguageTitles -> Res.string.advanced_setup_panel_other_titles_subtitle
     AdvancedSetupPanel.PlaybackModeChoice -> Res.string.playback_mode_selector_subtitle
     AdvancedSetupPanel.PlaybackSourcePreferences ->
         if (playbackSetupVariant(facts.playbackModeName) == PlaybackSetupVariant.AutomaticBand) {
@@ -2459,4 +2604,7 @@ internal fun AdvancedSetupPanel.subtitleRes(facts: AdvancedSetupFacts): StringRe
     AdvancedSetupPanel.SocialIdentity -> Res.string.setup_social_identity_subtitle
     AdvancedSetupPanel.EnhancedMetadata -> Res.string.advanced_setup_panel_metadata_subtitle
     AdvancedSetupPanel.TrackingServices -> Res.string.advanced_setup_panel_tracking_subtitle
+    AdvancedSetupPanel.Notifications ->
+        if (facts.isDesktop) Res.string.advanced_setup_panel_notifications_desktop else Res.string.advanced_setup_panel_notifications_mobile
+    AdvancedSetupPanel.StartupTray -> Res.string.advanced_setup_panel_startup_subtitle
 }

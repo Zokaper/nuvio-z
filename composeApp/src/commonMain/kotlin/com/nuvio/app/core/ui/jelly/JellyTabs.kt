@@ -1,5 +1,7 @@
 package com.nuvio.app.core.ui.jelly
 
+import com.nuvio.app.core.ui.navBadgeDot
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -80,8 +82,8 @@ internal fun JellyTabRow(
             ) {
                 JellyTabContent(item.label, labelFraction, compactSize, horizontalLabels, iconSize, color, active) {
                     when {
-                        item.icon != null -> Icon(item.icon, null, iconModifier, tint = iconTint)
-                        item.drawable != null -> Icon(painterResource(item.drawable), null, iconModifier, tint = iconTint)
+                        item.icon != null -> Icon(item.icon, null, Modifier.navBadgeDot(item.badge).then(iconModifier), tint = iconTint)
+                        item.drawable != null -> Icon(painterResource(item.drawable), null, Modifier.navBadgeDot(item.badge).then(iconModifier), tint = iconTint)
                     }
                 }
             }

@@ -87,7 +87,7 @@ fun FriendActivityGroup.friendNamesLabel(): String {
 }
 
 /**
- * The third line: "Movie", "S1 E5", "S2 E4–E9 · 6 episodes".
+ * The third line: "Movie", "S1 E5", "S2 E4–E9 · 6 episodes", "Latest S2 E6 · 225 watched".
  *
  * A run carries only its *latest* episode, so the span is drawn from what the loaded runs name and the
  * count from the events they add up to - whichever is larger, since both undercount in different ways.
@@ -101,16 +101,17 @@ fun FriendActivityGroup.contextLabel(): String {
     val count = maxOf(totalEvents, known.size)
     val latest = episodeCode(latestRun.season, latestRun.episode)
     val seasons = known.map { it.first }.distinct()
-    val lead = if (known.size > 1 && seasons.size == 1) {
+    if (known.size > 1 && seasons.size == 1) {
         val season = seasons.single()
         val first = known.minOf { it.second }
         val last = known.maxOf { it.second }
         val prefix = if (season > 0) "S$season " else ""
-        "${prefix}E$first–E$last"
-    } else {
-        latest
+        return "${prefix}E$first–E$last · $count episodes"
     }
-    return if (count > 1) "$lead · $count episodes" else lead
+    // ⚠ Not "S2 E6 · 225 episodes": that read as if S2 E6 were part of a 225-episode stretch, when it
+    // was only the last of 225 episodes watched across 29 seasons (production, 2026-10-06). Nor
+    // "225 episodes · last S2 E6", which read as the show's final episode (maintainer, 2026-10-16).
+    return if (count > 1) "Latest $latest · $count watched" else latest
 }
 
 private fun episodeCode(season: Int?, episode: Int?): String = when {
@@ -141,6 +142,7 @@ enum class FriendActivityBucket(val label: String) {
     Today("Today"),
     Yesterday("Yesterday"),
     ThisWeek("This week"),
+    LastWeek("Last week"),
     Earlier("Earlier"),
 }
 
@@ -156,6 +158,7 @@ fun friendActivityBucket(eventMs: Long?, nowMs: Long, utcOffsetMs: Long = 0L): F
         day >= today -> FriendActivityBucket.Today
         day == today - 1 -> FriendActivityBucket.Yesterday
         day > today - 7 -> FriendActivityBucket.ThisWeek
+        day > today - 14 -> FriendActivityBucket.LastWeek
         else -> FriendActivityBucket.Earlier
     }
 }
@@ -168,6 +171,73 @@ fun bucketFriendActivity(
 ): List<Pair<FriendActivityBucket, List<FriendActivityGroup>>> {
     val byBucket = groups.groupBy { friendActivityBucket(it.lastEventMs, nowMs, utcOffsetMs) }
     return FriendActivityBucket.entries.mapNotNull { bucket -> byBucket[bucket]?.let { bucket to it } }
+}
+
+/**
+ * One card of the Recently watched timeline (Social V2, 2026-10-06 redesign): either one friend's
+ * titles in one bucket, or one title that several friends watched in that bucket.
+ *
+ * The feed reads per person - faye's five films that week are one card, a deck of their stills -
+ * while the buckets keep it a timeline. A title watched by two or more friends in the same bucket is
+ * pulled out into its own entry and left out of each person's card, so it is shown once and as the
+ * shared thing it is.
+ */
+data class FriendActivityEntry(
+    val bucket: FriendActivityBucket,
+    /** The person, or the friends who watched [titles] (a single shared title). */
+    val people: List<SocialProfileSummary>,
+    /** Newest first. One element for a shared entry. */
+    val titles: List<FriendActivityGroup>,
+) {
+    val isShared: Boolean get() = people.size > 1
+    val lastEventMs: Long? get() = titles.firstNotNullOfOrNull { it.lastEventMs }
+
+    /** Stable while later pages load: the person (or shared title) within its bucket. */
+    val key: String
+        get() = if (isShared) "${bucket.name}:title:${titles.first().contentId}" else "${bucket.name}:person:${people.first().profileId}"
+}
+
+/**
+ * Builds the timeline from every page loaded so far. Buckets in calendar order, entries newest first
+ * within a bucket; an entry whose time did not parse sorts after the ones that did, keeping its order.
+ */
+fun friendActivityTimeline(
+    runs: List<RecentActivityRun>,
+    nowMs: Long,
+    utcOffsetMs: Long = 0L,
+): List<FriendActivityEntry> {
+    val byBucket = runs.groupBy { friendActivityBucket(parseSocialTimestampMs(it.lastEventTime), nowMs, utcOffsetMs) }
+    return FriendActivityBucket.entries.flatMap { bucket ->
+        val titles = groupFriendActivity(byBucket[bucket].orEmpty())
+        val shared = titles.filter { it.friends.size > 1 }.map { FriendActivityEntry(bucket, it.friends, listOf(it)) }
+        val solo = titles.filter { it.friends.size == 1 }
+            .groupBy { it.friends.single().profileId }
+            .values.map { personTitles -> FriendActivityEntry(bucket, listOf(personTitles.first().friends.single()), personTitles) }
+        (shared + solo).withIndex()
+            .sortedWith(compareByDescending<IndexedValue<FriendActivityEntry>> { it.value.lastEventMs ?: Long.MIN_VALUE }.thenBy { it.index })
+            .map { it.value }
+    }
+}
+
+/** "2 films", "1 show", "3 films · 1 show". */
+fun FriendActivityEntry.countLabel(): String {
+    val films = titles.count { !it.isEpisodic }
+    val shows = titles.size - films
+    return listOfNotNull(
+        films.takeIf { it > 0 }?.let { if (it == 1) "1 film" else "$it films" },
+        shows.takeIf { it > 0 }?.let { if (it == 1) "1 show" else "$it shows" },
+    ).joinToString(" · ")
+}
+
+/** "faye", "faye & jules", "faye + 2". */
+fun FriendActivityEntry.peopleLabel(): String {
+    val names = people.map { it.displayName.ifBlank { it.handle } }
+    return when (names.size) {
+        0 -> ""
+        1 -> names[0]
+        2 -> "${names[0]} & ${names[1]}"
+        else -> "${names[0]} + ${names.size - 1}"
+    }
 }
 
 private const val DayMs = 86_400_000L

@@ -1,3 +1,4 @@
+import AVKit
 import Combine
 import SwiftUI
 import UIKit
@@ -382,8 +383,11 @@ final class NativeTabIconStore: ObservableObject {
     private static let profileColorKey = "NuvioNativeProfileAvatarColor"
     private static let profileURLKey = "NuvioNativeProfileAvatarURL"
     private static let profileBackgroundKey = "NuvioNativeProfileAvatarBackgroundColor"
+    private static let socialBadgeKey = "NuvioNativeSocialBadge"
 
     @Published private(set) var revision = 0
+    /// Unread Social items, published by Kotlin's `NativeSocialBadge`. Zero draws no badge.
+    @Published private(set) var socialBadge = 0
     @Published private(set) var accentColor = UIColor(
         red: 0.96,
         green: 0.96,
@@ -436,8 +440,13 @@ final class NativeTabIconStore: ObservableObject {
         )
     }
 
+    func badge(for tab: NuvioAppTab) -> Int {
+        tab == .social ? socialBadge : 0
+    }
+
     private func reload() {
         let defaults = UserDefaults.standard
+        socialBadge = max(0, defaults.integer(forKey: Self.socialBadgeKey))
         accentColor = UIColor(hexString: defaults.string(forKey: Self.accentKey))
             ?? UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1)
 
@@ -1289,6 +1298,7 @@ struct NativeNavContentView: View {
                         )
                     }
                 }
+                .badge(iconStore.badge(for: tab))
                 .tag(tab)
             }
         }
@@ -1361,6 +1371,7 @@ struct NativeNavContentView: View {
                             )
                         }
                     }
+                    .badge(iconStore.badge(for: tab))
                 }
             }
         }
@@ -1395,19 +1406,54 @@ struct NativeNavContentView: View {
 }
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var systemUI = SystemUI.shared
 
     var body: some View {
         Group {
             if #available(iOS 16.0, *) {
                 NativeNavContentView()
+                    .accessibilityHidden(systemUI.pictureInPictureMessage != nil)
+                    .allowsHitTesting(systemUI.pictureInPictureMessage == nil)
             } else {
                 ComposeView()
                     .ignoresSafeArea(.all)
+                    .accessibilityHidden(systemUI.pictureInPictureMessage != nil)
+                    .allowsHitTesting(systemUI.pictureInPictureMessage == nil)
             }
         }
         .persistentSystemOverlays(systemUI.isPlayerImmersive ? .hidden : .automatic)
         .statusBarHidden(systemUI.isPlayerImmersive)
+        .overlay {
+            if let message = systemUI.pictureInPictureMessage {
+                Color.black
+                    .ignoresSafeArea()
+                    .overlay {
+                        VStack(spacing: 16) {
+                            Image(uiImage: AVPictureInPictureController.pictureInPictureButtonStartImage)
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 96, height: 72)
+                                .accessibilityHidden(true)
+                            Text(message)
+                                .font(.body)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .foregroundStyle(.gray)
+                        .padding(24)
+                        .accessibilityElement(children: .combine)
+                    }
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: playerSceneDidActivateNotification, object: nil)
+                }
+            }
+        }
     }
 }
 

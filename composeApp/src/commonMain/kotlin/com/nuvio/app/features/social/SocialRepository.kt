@@ -1,5 +1,6 @@
 package com.nuvio.app.features.social
 
+import kotlinx.coroutines.delay
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.currentCoroutineContext
@@ -15,6 +16,7 @@ import com.nuvio.app.core.network.ZSupabaseProvider
 import com.nuvio.app.core.network.shouldReexchangeZSession
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.broadcastFlow
 import io.github.jan.supabase.realtime.channel
@@ -26,12 +28,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
@@ -48,10 +53,14 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import com.nuvio.app.features.watchparty.PartySourceContractVersion
 import com.nuvio.app.features.watchparty.WatchPartyState
+import com.nuvio.app.features.watchparty.currentEpochMs
 import com.nuvio.app.features.setup.SocialIdentityProbe
 
 /** How long to wait for the social channel to report itself subscribed before giving up on it. */
 private const val SocialChannelSubscribeTimeoutMs = 12_000L
+/** Inside the bridge's 2-minute renewal window, so a tick always lands before the token runs out. Cheap: an in-memory check until renewal is due. */
+private const val SocialRealtimeKeepAliveMs = 60_000L
+private val realtimeLog = co.touchlab.kermit.Logger.withTag("SocialRealtime")
 
 /** How long to wait for it to be given up, over a socket that may be exactly what failed. */
 private const val SocialChannelCloseTimeoutMs = 3_000L
@@ -81,6 +90,7 @@ object SocialRepository {
 
     private var realtimeChannel: RealtimeChannel? = null
     private var realtimeCollector: Job? = null
+    private var realtimeKeeper: Job? = null
     private val authorityLock = SynchronizedObject()
     private var authority = SocialOperation(null)
     private var sessionAccess: SocialSessionAccess = LiveSocialSessionAccess
@@ -134,6 +144,7 @@ object SocialRepository {
     private var recovery: Job? = null
     private var recoveryTriggers: Job? = null
     private val recoveryLock = Mutex()
+    private val audienceLock = Mutex()
     @Volatile
     private var capabilitiesLoaded = false
 
@@ -166,6 +177,8 @@ object SocialRepository {
         realtimeChannel = null
         realtimeCollector?.cancel()
         realtimeCollector = null
+        realtimeKeeper?.cancel()
+        realtimeKeeper = null
         val previousDevices = publishedPresenceDeviceIds.toList()
         publishedPresenceDeviceIds.clear()
         val boundary = CompletableDeferred<Unit>()
@@ -207,6 +220,11 @@ object SocialRepository {
                 notifications = cached?.notifications.orEmpty(),
                 watchingNow = cached?.watchingNow.orEmpty(),
                 activity = cached?.activity.orEmpty(),
+                sentRequests = cached?.sentRequests.orEmpty(),
+                friendPrefs = cached?.friendPrefs.orEmpty(),
+                inbox = cached?.inbox.orEmpty(),
+                socialV2Backend = cached?.inbox != null,
+                audiences = cached?.audiences,
                 isOfflineCache = cached != null,
                 isLoading = true,
             ) }
@@ -312,7 +330,15 @@ object SocialRepository {
             publish { it.copy(
                 me = payload.me, friends = payload.friends, requests = payload.requests, partyInvites = payload.partyInvites,
                 notifications = payload.notifications,
-                watchingNow = payload.watchingNow.take(SocialHomeItemLimit), activity = activity,
+                watchingNow = stableWatchingNowOrder(it.watchingNow, payload.watchingNow).take(SocialHomeItemLimit),
+                activity = activity,
+                sentRequests = payload.sentRequests.orEmpty(), friendPrefs = payload.friendPrefs.orEmpty(),
+                inbox = payload.inbox.orEmpty(), socialV2Backend = payload.inbox != null,
+                // Fresh only, never from the offline cache: a stale "Sent" could not be cancelled. The
+                // time is only the base for a running cooldown, so it is stamped only when one runs.
+                sentPartyInvites = payload.sentPartyInvites,
+                sentPartyInvitesAtMs = if (payload.sentPartyInvites.orEmpty().any { it.cooldownSeconds != null }) currentEpochMs() else 0L,
+                audiences = payload.audiences,
                 nextCursor = next, isLoading = false, isLoadingMore = false, isOfflineCache = false, errorMessage = null,
             ) }
             val owner = operation()
@@ -495,11 +521,134 @@ object SocialRepository {
     suspend fun cancelFriendRequest(requestId: String): Result<Unit> = socialMutation("social_cancel_friend_request") {
         put("p_profile_id", requireActiveProfile()); put("p_request_id", requestId)
     }
+    /** Withdraws a pending party invite; an invite answered first is left as it is (`stale`). */
+    suspend fun cancelPartyInvite(inviteId: String): Result<Unit> = socialMutation("party_cancel_invite") {
+        put("p_profile_id", requireActiveProfile()); put("p_invite_id", inviteId)
+    }
     suspend fun respondFriendRequest(requestId: String, accept: Boolean): Result<Unit> = socialMutation("social_respond_friend_request") {
         put("p_profile_id", requireActiveProfile()); put("p_request_id", requestId); put("p_accept", accept)
     }
     suspend fun removeFriend(friendProfileId: String): Result<Unit> = socialMutation("social_remove_friend") {
         put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)
+    }
+
+    /** Social V2: this profile's switches for one friend. Null leaves a switch as it is. */
+    suspend fun setFriendPrefs(friendProfileId: String, hideActivity: Boolean? = null, notifyWhenWatching: Boolean? = null): Result<Unit> =
+        socialMutation("social_set_friend_prefs") {
+            put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)
+            hideActivity?.let { put("p_hide_activity", it) }
+            notifyWhenWatching?.let { put("p_notify_when_watching", it) }
+        }
+
+    /**
+     * One setting's audience (2026-10-24): [mode], and the list that mode uses when [members] is given.
+     * Shown at once and put back if the server refuses.
+     */
+    suspend fun setAudience(setting: SocialAudienceSetting, mode: SocialAudienceMode, members: List<String>? = null): Result<Unit> =
+        updateAudience(setting, { it.withMode(mode, members) }) {
+            socialRpc("social_set_audience", buildJsonObject {
+                put("p_profile_id", requireActiveProfile()); put("p_setting", setting.wire)
+                put("p_mode", json.encodeToJsonElement(mode))
+                members?.let { put("p_members", json.encodeToJsonElement(it)) }
+            })
+        }
+
+    /** A friend's profile switch: let [friendProfileId] in, or keep them out, under the current mode. */
+    suspend fun setAudienceMember(setting: SocialAudienceSetting, friendProfileId: String, allowed: Boolean): Result<Unit> =
+        updateAudience(setting, { it.withMember(friendProfileId, allowed) }) {
+            socialRpc("social_set_audience_member", buildJsonObject {
+                put("p_profile_id", requireActiveProfile()); put("p_setting", setting.wire)
+                put("p_friend_profile_id", friendProfileId); put("p_allowed", allowed)
+            })
+        }
+
+    private suspend fun updateAudience(
+        setting: SocialAudienceSetting,
+        change: (SocialAudience) -> SocialAudience,
+        call: suspend () -> PostgrestResult,
+    ): Result<Unit> = owned { audienceLock.withLock {
+        checkAuthority()
+        val before = _uiState.value.audiences ?: return@withLock Result.failure(IllegalStateException("Audiences need a newer backend"))
+        publish { it.copy(audiences = before.with(setting, change(before[setting]))) }
+        socialCall {
+            val saved = call().decodeAs<SocialAudiences>()
+            publish { it.copy(audiences = saved) }
+            refresh(false)
+        }.onFailure { publish { it.copy(audiences = before) } }
+    } }
+
+    /** The profile page's banner (2026-10-24): an https picture, or null for the strip of recent titles. */
+    suspend fun setBanner(url: String?): Result<Unit> = socialMutation("social_set_banner") {
+        put("p_profile_id", requireActiveProfile()); put("p_banner_url", url?.trim().orEmpty())
+    }
+
+    /**
+     * One friend's Recently watched for their profile page, a page at a time and apart from the feed,
+     * so opening a profile never reshuffles the Social tab.
+     */
+    suspend fun friendHistory(friendProfileId: String, before: SocialActivityCursor? = null): Result<FriendHistoryPage> = socialCall {
+        val payload = socialRpc("social_get_state_v2", buildJsonObject {
+            put("p_profile_id", requireActiveProfile())
+            before?.let { put("p_before_time", it.lastEventTime); put("p_before_run_id", it.runId) }
+            put("p_limit", SocialPageSize)
+            put("p_filter_profile_id", friendProfileId)
+        }).decodeAs<SocialStatePayload>()
+        val runs = payload.activity.filter { it.profile.profileId == friendProfileId }
+        FriendHistoryPage(
+            runs = runs,
+            next = payload.activity.takeIf { it.size >= SocialPageSize }?.lastOrNull()
+                ?.let { SocialActivityCursor(it.lastEventTime, it.runId) },
+        )
+    }
+
+    /**
+     * This phone's push token, for the active profile (Android, Stage 4). Registering moves a token that
+     * another profile held, so a profile switch needs no unregister.
+     */
+    suspend fun registerPushToken(token: String): Result<Unit> = socialCall {
+        socialRpc("social_register_push_token", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_token", token)
+        })
+        Unit
+    }
+
+    /** Social or its notifications turned off on this phone: stop pushing to it. */
+    suspend fun unregisterPushToken(token: String): Result<Unit> = socialCall {
+        socialRpc("social_unregister_push_token", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_token", token)
+        })
+        Unit
+    }
+
+    suspend fun markInboxRead(ids: Set<String>): Result<Unit> = socialMutation("social_mark_inbox_read") {
+        put("p_profile_id", requireActiveProfile()); put("p_ids", json.encodeToJsonElement(ids.toList()))
+    }
+
+    suspend fun dismissInbox(ids: Set<String>): Result<Unit> = socialMutation("social_dismiss_inbox") {
+        put("p_profile_id", requireActiveProfile()); put("p_ids", json.encodeToJsonElement(ids.toList()))
+    }
+
+    /** Returns how many of [friendProfileIds] it reached; anyone who is not a friend is skipped. */
+    suspend fun recommendTitle(friendProfileIds: Set<String>, content: SocialInboxPayload, note: String? = null): Result<Int> = socialCall {
+        socialRpc("social_recommend_title", buildJsonObject {
+            put("p_profile_id", requireActiveProfile())
+            put("p_friend_profile_ids", json.encodeToJsonElement(friendProfileIds.toList()))
+            put("p_content", json.encodeToJsonElement(content))
+            note?.takeIf(String::isNotBlank)?.let { put("p_note", it) }
+        }).decodeAs<SocialRecommendResult>().delivered
+    }
+
+    /** Friends who already have [contentId] from you: the picker shows them as Sent. */
+    suspend fun recommendationSentTo(contentId: String): Result<Set<String>> = socialCall {
+        socialRpc("social_recommendation_sent_to", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_content_id", contentId)
+        }).decodeAs<List<String>>().toSet()
+    }
+
+    suspend fun togetherStats(friendProfileId: String): Result<SocialTogetherStats> = socialCall {
+        socialRpc("social_get_together_stats", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)
+        }).decodeAs<SocialTogetherStats>()
     }
 
     fun selectFriend(profileId: String?) = synchronized(authorityLock) {
@@ -565,6 +714,43 @@ object SocialRepository {
             }
     }
 
+    /**
+     * Keeps the open Social channel working while nothing else happens (2026-10-18).
+     *
+     * An idle app makes no Social calls, so nothing renewed the Z session ahead of expiry and the channel
+     * was refused an hour after it joined: friend requests sat on the server, unpopped, until the window
+     * came back to the front. Each tick renews the session when it is close to expiry (the bridge hands
+     * the new token to the socket), and if the channel is still not subscribed for any reason, fetches
+     * the state by hand - so a dead socket delays a pop-up by minutes, never by hours.
+     */
+    private suspend fun keepRealtime(profileId: String, channel: RealtimeChannel, owner: SocialOperation) = coroutineScope {
+        // What was broadcast while the channel was down is gone: fetch by hand the moment it is back.
+        launch {
+            var liveness = SocialChannelLiveness()
+            combine(ZSupabaseProvider.client.realtime.status, channel.status) { socket, joined ->
+                (socket == Realtime.Status.CONNECTED) to (joined == RealtimeChannel.Status.SUBSCRIBED)
+            }.distinctUntilChanged().collect { (socketConnected, channelSubscribed) ->
+                val (next, cameBack) = liveness.observe(socketConnected, channelSubscribed)
+                liveness = next
+                if (cameBack) {
+                    checkAuthority(owner)
+                    realtimeLog.i { "social channel back: refreshing by hand" }
+                    runCatching { refresh(false) }.onFailure { if (it is CancellationException) throw it }
+                }
+            }
+        }
+        while (true) {
+            delay(SocialRealtimeKeepAliveMs)
+            checkAuthority(owner)
+            if (!ensureSession(profileId)) continue
+            val status = channel.status.value
+            if (status != RealtimeChannel.Status.SUBSCRIBED) {
+                realtimeLog.i { "social channel $status: refreshing by hand" }
+                runCatching { refresh(false) }.onFailure { if (it is CancellationException) throw it }
+            }
+        }
+    }
+
     private suspend fun openRealtime(profileId: String) {
         if (!_uiState.value.capabilities.socialEnabled) return
         // The social topic is a private channel authorized by RLS on realtime.messages, so the
@@ -588,6 +774,7 @@ object SocialRepository {
             }.launchIn(CoroutineScope(scope.coroutineContext + owner))
                 realtimeCollector = collector
                 realtimeChannel = created
+                realtimeKeeper = CoroutineScope(scope.coroutineContext + owner).launch { keepRealtime(profileId, created, owner) }
                 created
             }
             // A topic the server refuses is retried in the background and never reports itself
@@ -663,6 +850,9 @@ data class SocialActionResult(
     @SerialName("expires_at") val expiresAt:String?=null,
     val party:WatchPartyState?=null,
 )
+
+@Serializable
+internal data class SocialRecommendResult(val delivered: Int = 0)
 
 @Serializable
 data class JoinRequestStatusResult(

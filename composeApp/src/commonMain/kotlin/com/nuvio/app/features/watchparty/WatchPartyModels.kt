@@ -331,6 +331,18 @@ fun partyMembersAwaitingSource(
 }
 
 /**
+ * No other member is connected, so nothing can arrive that would prove this viewer's realtime live.
+ *
+ * The transport calls realtime Degraded after `WatchPartyClockStaleMs` without a message from another
+ * member (`health-stale`). That reading is right while somebody is there to send one and wrong when
+ * nobody is: on 2026-10-23 (party f149124c) a guest whose host was killed read "Reconnecting…" in the
+ * panel, and then "Reconnecting to the party…" once the server made it host of a party of one, with
+ * its socket heartbeats acked and every poll succeeding throughout.
+ */
+fun partyHasNobodyToHearFrom(party: WatchPartyState, viewerProfileId: String?): Boolean =
+    party.members.none { it.profileId != viewerProfileId && it.connected }
+
+/**
  * Whether this client may play, and what it is waiting for when it may not.
  *
  * The host used to begin the moment their own source opened, which started the authoritative clock

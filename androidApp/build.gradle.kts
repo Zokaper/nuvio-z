@@ -1,3 +1,5 @@
+import com.android.build.api.variant.ResValue
+import java.util.Base64
 import java.util.Properties
 
 fun readXcconfigValue(file: File, key: String): String? {
@@ -104,6 +106,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    buildFeatures {
+        // The Firebase resources below are res values; AGP 9 no longer generates them by default.
+        resValues = true
+    }
+
     flavorDimensions += "distribution"
     productFlavors {
         create("full") {
@@ -180,7 +187,47 @@ android {
     }
 }
 
+// Firebase, for Social push (2026-10-18). The Google Services plugin is deliberately not applied: it
+// fails the build without google-services.json, and the repository is public, so the file is never
+// committed. Instead the same resources the plugin would generate (google_app_id and friends) are added
+// per variant from `androidApp/google-services.json` (gitignored) or NUVIO_GOOGLE_SERVICES_JSON (CI,
+// raw JSON or base64). Firebase then initialises itself; with neither present it does not, and the app
+// simply has no system notifications for Social.
+class FirebaseClientConfig(val appId: String, val apiKey: String)
+
+val googleServicesJsonText: String? = project.file("google-services.json").takeIf { it.isFile }?.readText()
+    ?: System.getenv("NUVIO_GOOGLE_SERVICES_JSON")?.trim()?.takeIf { it.isNotEmpty() }?.let { raw ->
+        if (raw.startsWith("{")) raw else String(Base64.getMimeDecoder().decode(raw), Charsets.UTF_8)
+    }
+
+val googleServicesRoot: Map<*, *>? = googleServicesJsonText?.let { groovy.json.JsonSlurper().parseText(it) as Map<*, *> }
+// project id to sender id (the project number).
+val firebaseProject: Pair<String, String>? = (googleServicesRoot?.get("project_info") as? Map<*, *>)
+    ?.let { (it["project_id"] as String) to (it["project_number"] as String) }
+val firebaseClients: Map<String, FirebaseClientConfig> =
+    (googleServicesRoot?.get("client") as? List<*>).orEmpty().mapNotNull { entry ->
+        val client = entry as Map<*, *>
+        val clientInfo = client["client_info"] as Map<*, *>
+        val packageName = (clientInfo["android_client_info"] as Map<*, *>)["package_name"] as String
+        val apiKey = ((client["api_key"] as List<*>).first() as Map<*, *>)["current_key"] as String
+        packageName to FirebaseClientConfig(clientInfo["mobilesdk_app_id"] as String, apiKey)
+    }.toMap()
+
 androidComponents {
+    onVariants { variant ->
+        val project = firebaseProject ?: return@onVariants
+        // The debug id is set by the block below; resolve it the same way rather than read it back.
+        val packageName = if (variant.buildType == "debug") "com.nuvio.app.z.debug" else "com.nuvio.app.z"
+        val client = firebaseClients[packageName] ?: return@onVariants
+        fun put(name: String, value: String) {
+            variant.resValues.put(variant.makeResValueKey("string", name), ResValue(value, "google-services.json"))
+        }
+        put("google_app_id", client.appId)
+        put("google_api_key", client.apiKey)
+        put("google_crash_reporting_api_key", client.apiKey)
+        put("gcm_defaultSenderId", project.second)
+        put("project_id", project.first)
+    }
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.applicationId.set("com.nuvio.app.z.debug")
         // Must rise with every published debug build: Android refuses to install an APK whose

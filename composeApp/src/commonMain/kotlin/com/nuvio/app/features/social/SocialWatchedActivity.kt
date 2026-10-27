@@ -1,5 +1,6 @@
 package com.nuvio.app.features.social
 
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watched.watchedItemKey
 import kotlinx.coroutines.CoroutineScope
@@ -26,16 +27,22 @@ object SocialWatchedActivity {
         if (!SocialFeatureGate.isEnabled) return
         items.filterNot(::isSeriesSummaryMarker).forEach { item ->
             scope.launch {
+                // An episode marked watched from the episode list carries the *episode's* name and still
+                // (`toEpisodeWatchedItem`), which Social then showed as the title. The show's own name
+                // and poster come from the metadata the episode list was drawn from.
+                val show = if (item.season != null || item.episode != null) MetaDetailsRepository.peek(item.type, item.id) else null
+                val showName = show?.name?.takeIf(String::isNotBlank)
                 SocialRepository.publishWatched(
                     SocialWatchedPublish(
                         originKey = originKey(item),
                         contentId = item.id,
                         contentType = item.type,
                         videoId = item.videoId,
-                        title = item.name,
-                        poster = item.poster,
+                        title = showName ?: item.name,
+                        poster = show?.poster?.takeIf(String::isNotBlank) ?: item.poster,
                         season = item.season,
                         episode = item.episode,
+                        episodeTitle = item.name.takeIf { showName != null && it.isNotBlank() && it != showName },
                         watchedAtEpochMs = item.markedAtEpochMs,
                     ),
                 )

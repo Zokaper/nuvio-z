@@ -20,6 +20,8 @@ interface NuvioPlayerBridge {
     fun seekTo(positionMs: Long)
     fun seekToExact(positionMs: Long)
     fun seekBy(offsetMs: Long)
+    fun setSystemControlHandler(handler: PlayerSystemControlHandler?)
+    fun getKeepsPlaybackInBackground(): Boolean
     fun retry()
     fun updateNowPlayingMetadata(
         title: String,
@@ -104,6 +106,7 @@ interface NuvioPlayerBridge {
      * or null to move mpv directly. See [PlayerRemoteCommands].
      */
     fun setRemoteCommands(commands: PlayerRemoteCommands?)
+    fun getProperty(name: String): String
     fun destroy()
 }
 

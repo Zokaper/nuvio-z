@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.social.SentPartyInvite
 import com.nuvio.app.features.social.WatchJoinPolicy
 import com.nuvio.app.features.watchparty.PartyPromotionFailure
 import com.nuvio.app.features.watchparty.PartyReadyTone
@@ -37,7 +38,7 @@ class WatchTogetherBridgeTest {
         errorMessage = null,
         syncDetails = null,
     )
-    private val invites = listOf(WatchTogetherBridgeInvite(0, "Seraph", "", invited = false))
+    private val invites = listOf(WatchTogetherBridgeInvite(0, "Seraph", ""))
 
     @Test fun theBadgeFollowsThePlanPriority() {
         assertEquals("busy", watchTogetherBridgeState(WatchTogetherPanelState.Starting, open = false).badge)
@@ -123,5 +124,59 @@ class WatchTogetherBridgeTest {
             PartyStatusAction.entries.map { it.command() }.toSet(),
         )
         assertEquals("", partyStatusBridgeState(line.copy(action = null, secondaryAction = null)).action)
+    }
+
+    // --- the Invite button (2026-10-16) ---------------------------------------------------------
+
+    private fun invite(id: String, to: String, status: String, party: String = "p1", cooldownSeconds: Int? = null) =
+        SentPartyInvite(id, party, to, status, "2026-10-16T18:00:00Z", cooldownSeconds)
+
+    private fun button(
+        sent: List<SentPartyInvite>?,
+        pressed: Set<String> = emptySet(),
+        cancelling: Set<String> = emptySet(),
+        nowMs: Long = 1_000L,
+    ) = partyInviteButton("bea", "p1", sent, sentAtMs = 1_000L, pressed = pressed, cancelling = cancelling, nowMs = nowMs)
+
+    @Test fun aFriendNotInvitedReadsInvite() {
+        assertEquals(PartyInviteButton.Invite, button(emptyList()).button)
+    }
+
+    @Test fun aPressedInviteReadsSendingUntilTheServerListsIt() {
+        assertEquals(PartyInviteButton.Sending, button(emptyList(), pressed = setOf("bea")).button)
+        val listed = button(listOf(invite("i1", "bea", "pending")), pressed = setOf("bea"))
+        assertEquals(PartyInviteButtonState(PartyInviteButton.Sent, "i1"), listed)
+    }
+
+    @Test fun anOlderBackendCanOnlySaySentWithNothingToCancel() {
+        assertEquals(PartyInviteButtonState(PartyInviteButton.Sent), button(null, pressed = setOf("bea")))
+        assertEquals(PartyInviteButton.Invite, button(null).button)
+    }
+
+    @Test fun anIgnoredInviteStaysSentAndCanBeWithdrawn() {
+        val sent = listOf(invite("i1", "bea", "pending"))
+        assertEquals(PartyInviteButtonState(PartyInviteButton.Sent, "i1"), button(sent, nowMs = 3_600_000L))
+        assertEquals(PartyInviteButton.Cancelling, button(sent, cancelling = setOf("i1")).button)
+    }
+
+    @Test fun aWithdrawnInviteReadsInviteOnceTheServerDropsIt() {
+        assertEquals(PartyInviteButton.Invite, button(emptyList(), cancelling = setOf("i1")).button)
+    }
+
+    @Test fun anInviteToAnotherPartyIsNotThisOnesSent() {
+        assertEquals(PartyInviteButton.Invite, button(listOf(invite("i9", "bea", "pending", party = "p0"))).button)
+    }
+
+    @Test fun aDeclineReadsDeclinedForItsCooldownFromAnyParty() {
+        val sent = listOf(invite("i1", "bea", "declined", party = "p0", cooldownSeconds = 300))
+        assertEquals(PartyInviteButton.Declined, button(sent, nowMs = 1_000L + 299_000L).button)
+        assertEquals(PartyInviteButton.Invite, button(sent, nowMs = 1_000L + 300_000L).button)
+        assertEquals(1_000L + 300_000L, nextPartyInviteCooldownEndMs(sent, sentAtMs = 1_000L, nowMs = 1_000L))
+        assertNull(nextPartyInviteCooldownEndMs(sent, sentAtMs = 1_000L, nowMs = 400_000L))
+    }
+
+    @Test fun anotherFriendsInvitesDoNotTouchThisOne() {
+        val sent = listOf(invite("i1", "cal", "pending"), invite("i2", "cal", "declined", cooldownSeconds = 300))
+        assertEquals(PartyInviteButton.Invite, button(sent).button)
     }
 }

@@ -27,6 +27,7 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.search.SearchHistoryRepository
 import com.nuvio.app.features.search.SearchRepository
+import com.nuvio.app.features.servers.ServerRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
@@ -204,6 +205,7 @@ object ProfileRepository {
         com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache.onProfileChanged()
         EpisodeReleaseNotificationsRepository.onProfileChanged()
         SocialFeaturePreferencesRepository.onProfileChanged()
+        com.nuvio.app.features.language.LanguagePreferencesRepository.onProfileChanged()
         com.nuvio.app.features.downloads.DownloadPolicyRepository.onProfileChanged()
         TmdbSettingsRepository.onProfileChanged()
         MdbListSettingsRepository.onProfileChanged()
@@ -217,6 +219,7 @@ object ProfileRepository {
         // comments toggle stayed on the previous profile until a pull happened to differ.
         com.nuvio.app.features.debrid.DebridSettingsRepository.onProfileChanged()
         com.nuvio.app.features.trakt.TraktCommentsSettings.onProfileChanged()
+        ServerRepository.onProfileChanged()
         ProfileSettingsSync.onProfileChanged()
     }
 
@@ -317,6 +320,7 @@ object ProfileRepository {
         if (AuthRepository.state.value.isAnonymous) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)
+            ServerRepository.removeProfile(profileIndex)
             _state.value = _state.value.copy(
                 profiles = remaining,
                 activeProfile = if (_state.value.activeProfile?.profileIndex == profileIndex) remaining.firstOrNull() else _state.value.activeProfile,
@@ -333,6 +337,7 @@ object ProfileRepository {
                 putSyncOriginClientId()
             }
             SupabaseProvider.client.postgrest.rpc("sync_delete_profile_data", params)
+            ServerRepository.removeProfile(profileIndex)
             pullProfiles()
         } catch (e: Throwable) {
             if (AuthRepository.signOutIfSessionInvalid(e, "Profile delete")) return

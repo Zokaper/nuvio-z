@@ -82,19 +82,26 @@ class SetupWizardStepsTest {
     }
 
     @Test
-    fun revisionTenIsThePhaseNineDownloadSteps() {
-        assertEquals(10, SETUP_WIZARD_REVISION)
+    fun revisionElevenIsTheLanguageRebuild() {
+        assertEquals(11, SETUP_WIZARD_REVISION)
         assertTrue(shouldShowSetupWizard(completedRevision = 8))
         assertTrue(shouldShowSetupWizard(completedRevision = 9))
-        assertFalse(shouldShowSetupWizard(completedRevision = 10))
+        assertTrue(shouldShowSetupWizard(completedRevision = 10))
+        assertFalse(shouldShowSetupWizard(completedRevision = 11))
+    }
+
+    @Test
+    fun anUpgradeFromTenAsksOnlyLanguage() {
+        val plan = SetupWizardPlan(run = SetupWizardRun.Upgrade, fromRevision = 10)
+        assertEquals(listOf(SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan))
+        assertEquals(SetupWizardRun.Upgrade, setupWizardRun(10))
     }
 
     @Test
     fun freshInstallsAlwaysSeeTheWholeFlow() {
         listOf(null, 0).forEach { revision ->
             assertTrue(shouldShowSetupWizard(completedRevision = revision))
-            assertEquals(SetupWizardRun.Full, setupWizardRun(revision, deviceRevision = null, isPhone = true))
-            assertEquals(SetupWizardRun.Full, setupWizardRun(revision, deviceRevision = null, isPhone = false))
+            assertEquals(SetupWizardRun.Full, setupWizardRun(revision))
         }
     }
 
@@ -103,22 +110,22 @@ class SetupWizardStepsTest {
     @Test
     fun revisionsBeforeEightGetTheWholeWizard() {
         (1..7).forEach { earlier ->
-            assertEquals(SetupWizardRun.Full, setupWizardRun(earlier, deviceRevision = null, isPhone = true), "$earlier")
+            assertEquals(SetupWizardRun.Full, setupWizardRun(earlier), "$earlier")
         }
     }
 
     @Test
-    fun revisionsEightAndNineGetOnlyTheDownloadSteps() {
+    fun revisionsEightAndNineGetTheDownloadStepsAndLanguage() {
         listOf(8, 9).forEach { revision ->
             listOf(true, false).forEach { phone ->
-                assertEquals(SetupWizardRun.Upgrade, setupWizardRun(revision, deviceRevision = null, isPhone = phone))
+                assertEquals(SetupWizardRun.Upgrade, setupWizardRun(revision))
                 val plan = SetupWizardPlan(
                     downloadModeName = "AUTOMATIC",
                     isPhone = phone,
                     run = SetupWizardRun.Upgrade,
                     fromRevision = revision,
                 )
-                assertEquals(listOf(SetupStep.DownloadMode, SetupStep.DownloadSetup), setupWizardSteps(plan), "rev $revision phone $phone")
+                assertEquals(listOf(SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan), "rev $revision phone $phone")
             }
         }
     }
@@ -135,63 +142,121 @@ class SetupWizardStepsTest {
     @Test
     fun anUpgradeToManualOnDesktopIsOneStep() {
         val plan = SetupWizardPlan(downloadModeName = "MANUAL", isPhone = false, run = SetupWizardRun.Upgrade, fromRevision = 9)
-        assertEquals(listOf(SetupStep.DownloadMode), setupWizardSteps(plan))
-        assertTrue(isFinalSetupStep(SetupStep.DownloadMode, plan))
+        assertEquals(listOf(SetupStep.DownloadMode, SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan))
+        assertTrue(isFinalSetupStep(SetupStep.LanguageOtherTitles, plan))
+    }
+
+    // --- Device Setup (redesign, 2026-10-24) --------------------------------------------------
+
+    @Test
+    fun aCurrentProfileIsNeverGatedByTheMachine() {
+        // The machine's revision no longer starts a run by itself: Device Setup is offered by the
+        // pop-up, and a downgrade asks nothing either.
+        assertEquals(SetupWizardRun.None, setupWizardRun(11))
+        assertEquals(SetupWizardRun.None, setupWizardRun(12))
     }
 
     @Test
-    fun aCurrentProfileOnANewPhoneAsksOnlyTheDeviceQuestion() {
-        assertEquals(SetupWizardRun.Device, setupWizardRun(10, deviceRevision = null, isPhone = true))
-        assertEquals(SetupWizardRun.Device, setupWizardRun(10, deviceRevision = 9, isPhone = true))
-        val plan = SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Device, fromRevision = 10)
-        // Done since the setup + settings pass: it offers Advanced Setup.
-        assertEquals(listOf(SetupStep.DownloadSetup, SetupStep.Done), setupWizardSteps(plan))
-        assertEquals(DownloadSetupVariant.DeviceOnly, downloadSetupVariant(plan))
-    }
-
-    // --- Device Setup after a cross-family import ------------------------------------------
-
-    @Test
-    fun anArrivalIsADeviceRunOnEveryPlatform() {
-        listOf(true, false).forEach { phone ->
-            assertEquals(
-                SetupWizardRun.Device,
-                setupWizardRun(10, deviceRevision = 10, isPhone = phone, arrivalPending = true),
-                "phone $phone",
-            )
+    fun theDeviceSetupPopUpWaitsForWhateverGates() {
+        assertTrue(shouldOfferDeviceSetup(SetupWizardRun.None, deviceSetupDone = false))
+        // The new-settings offer is not a gate; the gate decides which pop-up goes first.
+        assertTrue(shouldOfferDeviceSetup(SetupWizardRun.Upgrade, deviceSetupDone = false))
+        // Initial Setup ends with the device steps, and an arrival is a Device run already.
+        assertFalse(shouldOfferDeviceSetup(SetupWizardRun.Full, deviceSetupDone = false))
+        assertFalse(shouldOfferDeviceSetup(SetupWizardRun.Device, deviceSetupDone = false))
+        SetupWizardRun.entries.forEach { run ->
+            assertFalse(shouldOfferDeviceSetup(run, deviceSetupDone = true), "$run")
         }
-        // The profile's own answers still come first: an imported revision 9 is an Upgrade.
-        assertEquals(SetupWizardRun.Upgrade, setupWizardRun(9, deviceRevision = 10, isPhone = false, arrivalPending = true))
-        assertEquals(SetupWizardRun.Full, setupWizardRun(null, deviceRevision = 10, isPhone = false, arrivalPending = true))
     }
 
     @Test
-    fun anArrivalOnDesktopGreetsAsksQualityForAPickingModeAndFinishes() {
-        val streamlined = SetupWizardPlan(playbackModeName = "STREAMLINED", isPhone = false, run = SetupWizardRun.Device, arrival = true, deviceStale = false)
-        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.PlaybackSetup, SetupStep.Done), setupWizardSteps(streamlined))
-        val classic = streamlined.copy(playbackModeName = "CLASSIC")
-        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.Done), setupWizardSteps(classic))
+    fun theMachineRevisionIsElevenOnEveryPlatform() {
+        assertEquals(11, SETUP_DEVICE_REVISION)
+        assertTrue(isDeviceSetupStale(null))
+        assertTrue(isDeviceSetupStale(0))
+        assertTrue(isDeviceSetupStale(10))
+        assertFalse(isDeviceSetupStale(11))
+        assertFalse(isDeviceSetupStale(12))
     }
 
     @Test
-    fun anArrivalOnANewPhoneAlsoAsksTheDeviceQuestion() {
-        val plan = SetupWizardPlan(playbackModeName = "INSTANT", run = SetupWizardRun.Device, arrival = true, deviceStale = true)
+    fun theFirstLaunchOfTheRedesignSeedsInstallationsThatPredateIt() {
+        assertEquals(DeviceSetupSeed.Fresh, deviceSetupSeed(null, hasCachedProfiles = false))
+        // A desktop that never finished a wizard still knows its account.
+        assertEquals(DeviceSetupSeed.Legacy, deviceSetupSeed(null, hasCachedProfiles = true))
+        (1..10).forEach { revision ->
+            assertEquals(DeviceSetupSeed.Legacy, deviceSetupSeed(revision, hasCachedProfiles = false), "$revision")
+        }
+        // Decided on an earlier launch: fresh (0), or set up since (11 and up).
+        listOf(0, 11, 12).forEach { revision ->
+            listOf(true, false).forEach { cached ->
+                assertEquals(DeviceSetupSeed.None, deviceSetupSeed(revision, cached), "$revision $cached")
+            }
+        }
+    }
+
+    /** Device Setup on a phone whose machine questions are still owed, everything offered. */
+    private val newPhone = SetupWizardPlan(
+        playbackModeName = "INSTANT",
+        isPhone = true,
+        run = SetupWizardRun.Device,
+        deviceStale = true,
+        offerDeviceNavigation = true,
+        offerDevicePlayer = true,
+        offerDeviceNotifications = true,
+    )
+
+    @Test
+    fun deviceSetupOnANewPhoneIsTheFixedMobileSet() {
         assertEquals(
-            listOf(SetupStep.WelcomeBack, SetupStep.PlaybackSetup, SetupStep.DownloadSetup, SetupStep.Done),
-            setupWizardSteps(plan),
+            listOf(
+                SetupStep.PlaybackSetup,
+                SetupStep.DownloadSetup,
+                SetupStep.DeviceNavigation,
+                SetupStep.DevicePlayer,
+                SetupStep.DeviceNotifications,
+                SetupStep.Done,
+            ),
+            setupWizardSteps(newPhone),
         )
-        // A phone already set up here (another profile did it) is not asked again.
+        assertEquals(DownloadSetupVariant.DeviceOnly, downloadSetupVariant(newPhone))
+    }
+
+    @Test
+    fun aSecondProfileOnTheSamePhoneIsNotAskedTheMachinesQuestions() {
         assertEquals(
-            listOf(SetupStep.WelcomeBack, SetupStep.PlaybackSetup, SetupStep.Done),
-            setupWizardSteps(plan.copy(deviceStale = false)),
+            listOf(SetupStep.PlaybackSetup, SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.DeviceNotifications, SetupStep.Done),
+            setupWizardSteps(newPhone.copy(deviceStale = false)),
         )
     }
 
     @Test
-    fun aSameFamilyDeviceRunNeverGreetsOrAsksPlayback() {
-        val plan = SetupWizardPlan(playbackModeName = "INSTANT", run = SetupWizardRun.Device, arrival = false)
-        assertFalse(SetupStep.WelcomeBack in setupWizardSteps(plan))
-        assertFalse(SetupStep.PlaybackSetup in setupWizardSteps(plan))
+    fun classicHasNoPictureQuestion() {
+        assertFalse(SetupStep.PlaybackSetup in setupWizardSteps(newPhone.copy(playbackModeName = "CLASSIC")))
+    }
+
+    @Test
+    fun deviceSetupOnANewComputerIsTheFixedDesktopSet() {
+        val computer = SetupWizardPlan(
+            playbackModeName = "STREAMLINED",
+            isPhone = false,
+            run = SetupWizardRun.Device,
+            deviceStale = true,
+            offerDeviceNavigation = true,
+            offerDeviceNotifications = true,
+            offerThisComputer = true,
+        )
+        assertEquals(
+            listOf(SetupStep.PlaybackSetup, SetupStep.DeviceNavigation, SetupStep.DeviceNotifications, SetupStep.ThisComputer, SetupStep.Done),
+            setupWizardSteps(computer),
+        )
+        // Desktop never asks the phone's download questions, whatever the flag says.
+        assertFalse(SetupStep.DownloadSetup in setupWizardSteps(computer))
+        // A second profile here: the pop-ups and startup belong to the machine, so the screen offers neither.
+        assertEquals(
+            listOf(SetupStep.PlaybackSetup, SetupStep.DeviceNavigation, SetupStep.Done),
+            setupWizardSteps(computer.copy(deviceStale = false, offerDeviceNotifications = false, offerThisComputer = false)),
+        )
     }
 
     @Test
@@ -201,9 +266,54 @@ class SetupWizardStepsTest {
     }
 
     @Test
+    fun anArrivalGreetsFirstThenSetsTheDeviceUp() {
+        assertEquals(
+            listOf(
+                SetupStep.WelcomeBack,
+                SetupStep.PlaybackSetup,
+                SetupStep.DownloadSetup,
+                SetupStep.DeviceNavigation,
+                SetupStep.DevicePlayer,
+                SetupStep.DeviceNotifications,
+                SetupStep.Done,
+            ),
+            setupWizardSteps(newPhone.copy(arrival = true)),
+        )
+        // The reported gap stays closed: Classic on a computer already set up still sets navigation up.
+        val desktop = SetupWizardPlan(isPhone = false, run = SetupWizardRun.Device, arrival = true, deviceStale = false, offerDeviceNavigation = true)
+        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.Done), setupWizardSteps(desktop))
+    }
+
+    @Test
+    fun anArrivalIsADeviceRunUnlessTheProfileOwesMore() {
+        assertEquals(SetupWizardRun.Device, setupWizardRun(11, arrivalPending = true))
+        // The profile's own answers still come first: an imported revision 9 is an Upgrade.
+        assertEquals(SetupWizardRun.Upgrade, setupWizardRun(9, arrivalPending = true))
+        assertEquals(SetupWizardRun.Full, setupWizardRun(null, arrivalPending = true))
+    }
+
+    @Test
     fun anArrivingUpgradeGreetsFirst() {
         val plan = SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9, arrival = true)
-        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DownloadMode, SetupStep.DownloadSetup), setupWizardSteps(plan))
+        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DownloadMode, SetupStep.DownloadSetup, SetupStep.Language, SetupStep.LanguageOwnTitles, SetupStep.LanguageOtherTitles), setupWizardSteps(plan))
+    }
+
+    @Test
+    fun anArrivingUpgradeAlsoSetsUpNavigationAndThePlayer() {
+        val plan = newPhone.copy(playbackModeName = "CLASSIC", downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9, arrival = true)
+        assertEquals(
+            listOf(
+                SetupStep.WelcomeBack,
+                SetupStep.DownloadMode,
+                SetupStep.DownloadSetup,
+                SetupStep.Language,
+                SetupStep.LanguageOwnTitles,
+                SetupStep.LanguageOtherTitles,
+                SetupStep.DeviceNavigation,
+                SetupStep.DevicePlayer,
+            ),
+            setupWizardSteps(plan),
+        )
     }
 
     @Test
@@ -214,156 +324,58 @@ class SetupWizardStepsTest {
         assertFalse(SetupStep.WelcomeBack in setupWizardSteps(plan))
     }
 
-    // --- the curated "this device" steps an arrival adds (setup polish, physical QA) ---------
-
-    /** A profile configured on desktop, opened on an Android phone for the first time. */
-    private val desktopToAndroid = SetupWizardPlan(
-        isPhone = true,
-        run = SetupWizardRun.Device,
-        arrival = true,
-        deviceStale = false,
-        offerDeviceNavigation = true,
-        offerDevicePlayer = true,
-    )
-
     @Test
-    fun desktopToAndroidClassicStillSetsUpThePhone() {
-        // The reported gap: Classic, a phone already set up - it went Welcome back -> Done.
+    fun initialSetupEndsWithTheDeviceSteps() {
+        val phone = SetupWizardPlan(isPhone = true, offerDeviceNavigation = true, offerDevicePlayer = true, offerDeviceNotifications = true)
         assertEquals(
-            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.Done),
-            setupWizardSteps(desktopToAndroid.copy(playbackModeName = "CLASSIC")),
+            listOf(SetupStep.Theme, SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.DeviceNotifications, SetupStep.Done),
+            setupWizardSteps(phone).takeLast(5),
+        )
+        val computer = SetupWizardPlan(isPhone = false, offerDeviceNavigation = true, offerDeviceNotifications = true, offerThisComputer = true)
+        assertEquals(
+            listOf(SetupStep.Theme, SetupStep.DeviceNavigation, SetupStep.DeviceNotifications, SetupStep.ThisComputer, SetupStep.Done),
+            setupWizardSteps(computer).takeLast(5),
         )
     }
 
     @Test
-    fun desktopToAndroidInAPickingModeAlsoAsksDevicePlayback() {
-        listOf("STREAMLINED", "INSTANT").forEach { mode ->
-            assertEquals(
-                listOf(
-                    SetupStep.WelcomeBack,
-                    SetupStep.DeviceNavigation,
-                    SetupStep.DevicePlayer,
-                    SetupStep.PlaybackSetup,
-                    SetupStep.Done,
-                ),
-                setupWizardSteps(desktopToAndroid.copy(playbackModeName = mode)),
-                mode,
-            )
+    fun theDeviceStepsNeverAppearInAPlainUpgrade() {
+        val upgrade = newPhone.copy(run = SetupWizardRun.Upgrade, fromRevision = 10, offerThisComputer = true)
+        listOf(SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.DeviceNotifications, SetupStep.ThisComputer).forEach { step ->
+            assertFalse(step in setupWizardSteps(upgrade), "$step")
         }
     }
 
     @Test
-    fun desktopToIosAsksNavigationOnlyWhereLiquidGlassExists() {
-        // iOS 26+: the same shape as Android (Liquid Glass is its navigation choice).
-        assertEquals(
-            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.Done),
-            setupWizardSteps(desktopToAndroid),
-        )
-        // Before iOS 26 there is nothing to choose, so the step is dropped rather than shown empty.
-        assertEquals(
-            listOf(SetupStep.WelcomeBack, SetupStep.DevicePlayer, SetupStep.Done),
-            setupWizardSteps(desktopToAndroid.copy(offerDeviceNavigation = false)),
-        )
-    }
-
-    @Test
-    fun mobileToDesktopAsksDesktopNavigationAndNeverThePlayerOrTheDevice() {
-        val desktop = SetupWizardPlan(
-            isPhone = false,
-            run = SetupWizardRun.Device,
-            arrival = true,
-            deviceStale = false,
-            offerDeviceNavigation = true,
-            offerDevicePlayer = false,
-        )
-        assertEquals(
-            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.Done),
-            setupWizardSteps(desktop),
-        )
-        assertEquals(
-            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.PlaybackSetup, SetupStep.Done),
-            setupWizardSteps(desktop.copy(playbackModeName = "STREAMLINED")),
-        )
-        // Desktop never owes the device-global questions, whatever the flag says.
-        assertFalse(SetupStep.DownloadSetup in setupWizardSteps(desktop.copy(deviceStale = true)))
-    }
-
-    @Test
-    fun aPhoneAlreadySetUpIsNotAskedItsDeviceQuestionsAgain() {
-        listOf("CLASSIC", "STREAMLINED").forEach { mode ->
-            val current = setupWizardSteps(desktopToAndroid.copy(playbackModeName = mode, deviceStale = false))
-            assertFalse(SetupStep.DownloadSetup in current, mode)
-        }
-    }
-
-    @Test
-    fun aNewPhoneAsksItsDeviceQuestionsLastBeforeDone() {
-        val plan = desktopToAndroid.copy(playbackModeName = "INSTANT", deviceStale = true)
-        assertEquals(
-            listOf(
-                SetupStep.WelcomeBack,
-                SetupStep.DeviceNavigation,
-                SetupStep.DevicePlayer,
-                SetupStep.PlaybackSetup,
-                SetupStep.DownloadSetup,
-                SetupStep.Done,
-            ),
-            setupWizardSteps(plan),
-        )
-        assertEquals(DownloadSetupVariant.DeviceOnly, downloadSetupVariant(plan))
-    }
-
-    @Test
-    fun theDeviceStepsNeverAppearOutsideAnArrival() {
-        // A same-family second phone: only the device-global question, flags or not.
-        assertEquals(
-            listOf(SetupStep.DownloadSetup, SetupStep.Done),
-            setupWizardSteps(desktopToAndroid.copy(arrival = false, deviceStale = true)),
-        )
-        // Initial Setup asks the profile's questions, never the device's.
-        val full = setupWizardSteps(desktopToAndroid.copy(run = SetupWizardRun.Full, arrival = false))
-        assertFalse(SetupStep.DeviceNavigation in full)
-        assertFalse(SetupStep.DevicePlayer in full)
-        assertEquals(SetupStep.Welcome, full.first())
-    }
-
-    @Test
-    fun anArrivingUpgradeAlsoSetsUpTheDevice() {
-        val plan = desktopToAndroid.copy(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9)
-        assertEquals(
-            listOf(
-                SetupStep.WelcomeBack,
-                SetupStep.DeviceNavigation,
-                SetupStep.DevicePlayer,
-                SetupStep.DownloadMode,
-                SetupStep.DownloadSetup,
-            ),
-            setupWizardSteps(plan),
-        )
-    }
-
-    @Test
-    fun everyDeviceArrivalPlanWalksForwardAndBack() {
+    fun everyDeviceRunWalksForwardAndBackWithinItself() {
         listOf("CLASSIC", "STREAMLINED", "INSTANT").forEach { mode ->
             listOf(true, false).forEach { phone ->
                 listOf(true, false).forEach { stale ->
-                    listOf(true, false).forEach { nav ->
-                        val plan = desktopToAndroid.copy(
-                            playbackModeName = mode,
-                            isPhone = phone,
-                            deviceStale = stale,
-                            offerDeviceNavigation = nav,
-                            offerDevicePlayer = phone,
-                        )
-                        val steps = setupWizardSteps(plan)
-                        assertEquals(SetupStep.WelcomeBack, steps.first(), "$plan")
-                        assertEquals(SetupStep.Done, steps.last(), "$plan")
-                        assertEquals(steps, generateSequence(steps.first()) { nextSetupStep(it, plan) }.toList(), "$plan")
-                        assertEquals(
-                            steps.reversed(),
-                            generateSequence(steps.last()) { previousSetupStep(it, plan) }.toList(),
-                            "$plan",
-                        )
+                    listOf(true, false).forEach { arrival ->
+                        listOf(true, false).forEach { offered ->
+                            val plan = SetupWizardPlan(
+                                playbackModeName = mode,
+                                isPhone = phone,
+                                run = SetupWizardRun.Device,
+                                arrival = arrival,
+                                deviceStale = stale,
+                                offerDeviceNavigation = offered,
+                                offerDevicePlayer = phone && offered,
+                                offerDeviceNotifications = offered,
+                                offerThisComputer = !phone && stale,
+                            )
+                            val steps = setupWizardSteps(plan)
+                            if (steps.isEmpty()) return@forEach
+                            if (arrival) assertEquals(SetupStep.WelcomeBack, steps.first(), "$plan")
+                            assertEquals(SetupStep.Done, steps.last(), "$plan")
+                            assertTrue(isFinalSetupStep(SetupStep.Done, plan), "$plan")
+                            assertEquals(steps, generateSequence(steps.first()) { nextSetupStep(it, plan) }.toList(), "$plan")
+                            assertEquals(
+                                steps.reversed(),
+                                generateSequence(steps.last()) { previousSetupStep(it, plan) }.toList(),
+                                "$plan",
+                            )
+                        }
                     }
                 }
             }
@@ -374,14 +386,8 @@ class SetupWizardStepsTest {
     fun savedDeviceStepNamesRestore() {
         assertEquals(SetupStep.DeviceNavigation, setupStepForSavedName("DeviceNavigation"))
         assertEquals(SetupStep.DevicePlayer, setupStepForSavedName("DevicePlayer"))
-    }
-
-    @Test
-    fun theDeviceRevisionIsPerDeviceAndDesktopNeverOwesOne() {
-        assertTrue(isDeviceSetupStale(null, isPhone = true))
-        assertTrue(isDeviceSetupStale(9, isPhone = true))
-        assertFalse(isDeviceSetupStale(10, isPhone = true))
-        assertFalse(isDeviceSetupStale(null, isPhone = false))
+        assertEquals(SetupStep.DeviceNotifications, setupStepForSavedName("DeviceNotifications"))
+        assertEquals(SetupStep.ThisComputer, setupStepForSavedName("ThisComputer"))
     }
 
     @Test
@@ -390,41 +396,11 @@ class SetupWizardStepsTest {
     }
 
     @Test
-    fun everyArrivalPlanWalksForwardAndBackWithinItself() {
-        listOf("CLASSIC", "STREAMLINED", "INSTANT").forEach { mode ->
-            listOf(true, false).forEach { phone ->
-                listOf(true, false).forEach { stale ->
-                    val plan = SetupWizardPlan(playbackModeName = mode, isPhone = phone, run = SetupWizardRun.Device, arrival = true, deviceStale = stale)
-                    val steps = setupWizardSteps(plan)
-                    assertEquals(SetupStep.WelcomeBack, steps.first(), "$plan")
-                    assertEquals(SetupStep.Done, steps.last(), "$plan")
-                    val walked = generateSequence(steps.first()) { nextSetupStep(it, plan) }.toList()
-                    assertEquals(steps, walked, "$plan")
-                    assertTrue(isFinalSetupStep(SetupStep.Done, plan))
-                }
-            }
-        }
-    }
-
-    @Test
-    fun desktopHasNoDeviceRun() {
-        assertEquals(SetupWizardRun.None, setupWizardRun(10, deviceRevision = null, isPhone = false))
-    }
-
-    @Test
-    fun nothingIsOwedOnceBothAreCurrent() {
-        assertEquals(SetupWizardRun.None, setupWizardRun(10, deviceRevision = 10, isPhone = true))
-        // A downgrade asks nothing either.
-        assertEquals(SetupWizardRun.None, setupWizardRun(11, deviceRevision = 11, isPhone = true))
-        assertEquals(SetupWizardRun.None, setupWizardRun(11, deviceRevision = 11, isPhone = false))
-    }
-
-    @Test
     fun theUpgradeAndDeviceRunsWalkForwardAndBackWithinThemselves() {
         val runs = listOf(
             SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9),
             SetupWizardPlan(downloadModeName = "ASSISTED", isPhone = false, run = SetupWizardRun.Upgrade, fromRevision = 8),
-            SetupWizardPlan(run = SetupWizardRun.Device, fromRevision = 10),
+            newPhone,
         )
         runs.forEach { plan ->
             val steps = setupWizardSteps(plan)
@@ -548,7 +524,7 @@ class SetupWizardStepsTest {
      */
     @Test
     fun revisionEightUsersAreNotReplayedForSources() {
-        val upgrade = SetupWizardPlan(run = setupWizardRun(8, null, isPhone = true), fromRevision = 8)
+        val upgrade = SetupWizardPlan(run = setupWizardRun(8), fromRevision = 8)
         assertEquals(SetupWizardRun.Upgrade, upgrade.run)
         assertFalse(setupWizardSteps(upgrade).contains(SetupStep.Sources))
     }
@@ -572,15 +548,17 @@ class SetupWizardStepsTest {
             offerSocialIdentity = true,
             downloadModeName = "AUTOMATIC",
         )
-        // WelcomeBack and the two device steps belong to Device Setup after a cross-family import,
-        // never to a full run - even where the platform would offer them.
-        val deviceOnly = setOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.DevicePlayer)
-        assertEquals(SetupStep.entries - deviceOnly, setupWizardSteps(full))
+        // WelcomeBack belongs to an arrival alone; the device steps end a full run where the
+        // platform offers them (Device Setup redesign, 2026-10-24).
+        val deviceSteps = setOf(SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.DeviceNotifications, SetupStep.ThisComputer)
+        assertEquals(SetupStep.entries - SetupStep.WelcomeBack - deviceSteps, setupWizardSteps(full))
         assertEquals(
-            SetupStep.entries - deviceOnly,
-            setupWizardSteps(full.copy(offerDeviceNavigation = true, offerDevicePlayer = true)),
+            SetupStep.entries - SetupStep.WelcomeBack,
+            setupWizardSteps(
+                full.copy(offerDeviceNavigation = true, offerDevicePlayer = true, offerDeviceNotifications = true, offerThisComputer = true),
+            ),
         )
-        assertEquals(15, SetupStep.entries.size)
+        assertEquals(19, SetupStep.entries.size)
     }
 
     @Test
@@ -628,7 +606,8 @@ class SetupWizardStepsTest {
         val plan = SetupWizardPlan(playbackModeName = "CLASSIC")
         val steps = setupWizardSteps(plan)
         assertTrue(steps.contains(SetupStep.Sources))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
     }
 
@@ -637,7 +616,8 @@ class SetupWizardStepsTest {
         val plan = SetupWizardPlan(playbackModeName = "STREAMLINED")
         val steps = setupWizardSteps(plan)
         assertTrue(steps.contains(SetupStep.Sources))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
     }
 
@@ -646,7 +626,8 @@ class SetupWizardStepsTest {
         val plan = SetupWizardPlan(playbackModeName = "INSTANT")
         val steps = setupWizardSteps(plan)
         assertTrue(steps.contains(SetupStep.Sources))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
     }
 
@@ -706,7 +687,8 @@ class SetupWizardStepsTest {
         assertEquals(SetupStep.DownloadMode, nextSetupStep(SetupStep.PlaybackSetup, plan))
         assertEquals(SetupStep.DownloadSetup, nextSetupStep(SetupStep.DownloadMode, plan))
         assertEquals(SetupStep.Language, nextSetupStep(SetupStep.DownloadSetup, plan))
-        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.LanguageOwnTitles, nextSetupStep(SetupStep.Language, plan))
+        assertEquals(SetupStep.Sources, nextSetupStep(SetupStep.LanguageOtherTitles, plan))
         assertEquals(SetupStep.SocialOptIn, nextSetupStep(SetupStep.Sources, plan))
         assertEquals(SetupStep.SocialIdentity, nextSetupStep(SetupStep.SocialOptIn, plan))
         assertEquals(SetupStep.Look, nextSetupStep(SetupStep.SocialIdentity, plan))
@@ -725,7 +707,8 @@ class SetupWizardStepsTest {
         assertEquals(SetupStep.Look, previousSetupStep(SetupStep.Theme, plan))
         assertEquals(SetupStep.SocialIdentity, previousSetupStep(SetupStep.Look, plan))
         assertEquals(SetupStep.SocialOptIn, previousSetupStep(SetupStep.SocialIdentity, plan))
-        assertEquals(SetupStep.Language, previousSetupStep(SetupStep.Sources, plan))
+        assertEquals(SetupStep.LanguageOtherTitles, previousSetupStep(SetupStep.Sources, plan))
+        assertEquals(SetupStep.Language, previousSetupStep(SetupStep.LanguageOwnTitles, plan))
         assertEquals(SetupStep.DownloadSetup, previousSetupStep(SetupStep.Language, plan))
         assertEquals(SetupStep.DownloadMode, previousSetupStep(SetupStep.DownloadSetup, plan))
         assertEquals(SetupStep.PlaybackSetup, previousSetupStep(SetupStep.DownloadMode, plan))
@@ -805,19 +788,21 @@ class SetupWizardStepsTest {
         assertEquals(4, setupStepPosition(SetupStep.DownloadMode, full))
         assertEquals(5, setupStepPosition(SetupStep.DownloadSetup, full))
         assertEquals(6, setupStepPosition(SetupStep.Language, full))
-        assertEquals(7, setupStepPosition(SetupStep.Sources, full))
-        assertEquals(8, setupStepPosition(SetupStep.SocialOptIn, full))
-        assertEquals(9, setupStepPosition(SetupStep.SocialIdentity, full))
-        assertEquals(10, setupStepPosition(SetupStep.Look, full))
-        assertEquals(11, setupStepPosition(SetupStep.Theme, full))
-        assertEquals(12, setupStepPosition(SetupStep.Done, full))
+        assertEquals(7, setupStepPosition(SetupStep.LanguageOwnTitles, full))
+        assertEquals(8, setupStepPosition(SetupStep.LanguageOtherTitles, full))
+        assertEquals(9, setupStepPosition(SetupStep.Sources, full))
+        assertEquals(10, setupStepPosition(SetupStep.SocialOptIn, full))
+        assertEquals(11, setupStepPosition(SetupStep.SocialIdentity, full))
+        assertEquals(12, setupStepPosition(SetupStep.Look, full))
+        assertEquals(13, setupStepPosition(SetupStep.Theme, full))
+        assertEquals(14, setupStepPosition(SetupStep.Done, full))
 
         // Classic, social off, Manual on desktop: PlaybackSetup, SocialIdentity and DownloadSetup
-        // dropped. 12 - 3 = 9 steps.
+        // dropped. 14 - 3 = 11 steps.
         val lean = SetupWizardPlan(playbackModeName = "CLASSIC", socialEnabled = false, downloadModeName = "MANUAL", isPhone = false)
-        assertEquals(9, setupWizardSteps(lean).size)
-        assertEquals(5, setupStepPosition(SetupStep.Sources, lean))
-        assertEquals(9, setupStepPosition(SetupStep.Done, lean))
+        assertEquals(11, setupWizardSteps(lean).size)
+        assertEquals(7, setupStepPosition(SetupStep.Sources, lean))
+        assertEquals(11, setupStepPosition(SetupStep.Done, lean))
     }
 
     @Test

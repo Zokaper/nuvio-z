@@ -473,10 +473,6 @@ private fun EpisodeStreamsPanelContent(
                 label = stringResource(Res.string.action_back),
                 onClick = onBack,
             )
-            PlayerDialogButton(
-                label = stringResource(Res.string.compose_action_reload),
-                onClick = onReload,
-            )
             Text(
                 text = buildString {
                     if (episode.season != null && episode.episode != null) {
@@ -520,30 +516,11 @@ private fun EpisodeStreamsPanelContent(
             Spacer(Modifier.height(12.dp))
         }
 
-        if (streamsUiState.groups.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                AddonFilterChip(
-                    label = stringResource(Res.string.collections_tab_all),
-                    isSelected = streamsUiState.selectedFilter == null,
-                    onClick = { onFilterSelected(null) },
-                )
-                streamsUiState.groups.forEach { group ->
-                    AddonFilterChip(
-                        label = group.addonName,
-                        isSelected = streamsUiState.selectedFilter == group.addonId,
-                        isLoading = group.isLoading,
-                        hasError = group.error != null,
-                        onClick = { onFilterSelected(group.addonId) },
-                    )
-                }
-            }
-        }
+        PlayerProviderFilterRow(
+            streamsUiState = streamsUiState,
+            onFilterSelected = onFilterSelected,
+            onRefresh = onReload,
+        )
 
         Spacer(Modifier.height(16.dp))
 

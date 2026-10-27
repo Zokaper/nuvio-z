@@ -9,6 +9,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.ui.graphics.vector.ImageVector
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_settings_category_about
+import nuvio.composeapp.generated.resources.downloads_settings_title
 import nuvio.composeapp.generated.resources.compose_settings_category_general
 import nuvio.composeapp.generated.resources.selfsign_title
 import nuvio.composeapp.generated.resources.compose_settings_page_account
@@ -23,6 +24,8 @@ import nuvio.composeapp.generated.resources.compose_settings_page_hover_preview
 import nuvio.composeapp.generated.resources.compose_settings_page_integrations
 import nuvio.composeapp.generated.resources.compose_settings_page_licenses_attributions
 import nuvio.composeapp.generated.resources.compose_settings_page_mdblist_ratings
+import nuvio.composeapp.generated.resources.compose_settings_page_media_server
+import nuvio.composeapp.generated.resources.compose_settings_page_media_servers
 import nuvio.composeapp.generated.resources.compose_settings_page_meta_screen
 import nuvio.composeapp.generated.resources.compose_settings_page_notifications
 import nuvio.composeapp.generated.resources.compose_settings_page_playback
@@ -151,6 +154,16 @@ internal enum class SettingsPage(
         category = SettingsCategory.General,
         parentPage = ContentDiscovery,
     ),
+    MediaServers(
+        titleRes = Res.string.compose_settings_page_media_servers,
+        category = SettingsCategory.General,
+        parentPage = ContentDiscovery,
+    ),
+    MediaServer(
+        titleRes = Res.string.compose_settings_page_media_server,
+        category = SettingsCategory.General,
+        parentPage = MediaServers,
+    ),
     Homescreen(
         titleRes = Res.string.compose_settings_page_homescreen,
         category = SettingsCategory.General,
@@ -198,6 +211,12 @@ internal enum class SettingsPage(
     About(
         titleRes = Res.string.compose_settings_category_about,
         category = SettingsCategory.About,
+        parentPage = Root,
+    ),
+    // Settings -> Downloads as an ordinary page (2026-10-16); it used to be a route of its own.
+    Downloads(
+        titleRes = Res.string.downloads_settings_title,
+        category = SettingsCategory.General,
         parentPage = Root,
     ),
     // iPhone builds that sign themselves only (see `isEnabledByPolicy`): KeepNuvioWorkingScreen.kt.

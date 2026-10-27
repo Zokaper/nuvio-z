@@ -107,6 +107,34 @@
       "text": "Release candidate for 0.5.4-z2. Automatic playback never falls back to a source your debrid service has not cached yet (test Lioness S1E1 in Streamlined or Instant), and What's new is back in Settings under Setup & about."
     },
     {
+      "build": 85,
+      "text": "Social V2 on top of 0.5.4-z2: Watching Now as backdrop cards with a join sheet, Recently watched as a per-friend timeline of stacked stills, Friends / Inbox / profile sheet, and an unread dot on Social. Sent requests, per-friend switches and the stored inbox stay hidden until the Social V2 backend is deployed."
+    },
+    {
+      "build": 86,
+      "text": "Social settings now open from a gear in the Social tab (privacy, who can join you as quick choices, and a new Show friends on Home switch that syncs per profile); on big tablets in landscape Inbox and settings open as a side panel. Settings -> Downloads now looks and works like the other Settings pages. Everything in 85 is here too."
+    },
+    {
+      "build": 87,
+      "text": "The Social server update is live, so sent requests, the stored inbox, recommendations and the per-friend Hide / Notify switches now appear. On the Home friends shelf, the \"3h ago\" label sits on a small dark chip so it reads on bright pictures. Everything in 86 is here too."
+    },
+    {
+      "build": 88,
+      "text": "Party invites now say Sent, with an x to take one back; an invite that is ignored just stays Sent, and one that is declined says Declined (you can invite that friend again after 5 minutes). If someone turns down your request to join, you are told, even while you are watching something. Recently watched shows the show's name and picture instead of an episode's, and reads \"Latest S5 E7 · 38 watched\". The request-to-join card at the top of the screen now shows who you asked, the time left and Cancel, instead of just a picture. Everything in 87 is here too."
+    },
+    {
+      "build": 89,
+      "text": "Check for updates always picks the newest debug build, whatever order GitHub lists them in."
+    },
+    {
+      "build": 90,
+      "text": "When a friend you get notified about starts watching, the player tells you for a few seconds."
+    },
+    {
+      "build": 91,
+      "text": "Friend requests, party invites, join requests and friends starting to watch now pop up as small banners at the top of the app. Tap one to open it, swipe it up to dismiss."
+    },
+    {
       "build": 92,
       "text": "Nuvio Z keeps itself signed: renews on its own, updates from the banner, and Settings › Keep Nuvio Z working. iPhone setup and repair now go through the new installer."
     },
@@ -121,6 +149,74 @@
     {
       "build": 95,
       "text": "Keep Nuvio Z working tidied up: readable, plain settings rows, and Apple's code opens in a dialog."
+    },
+    {
+      "build": 96,
+      "text": "Social V2, rebuilt on top of 0.5.4-z3 and the new iPhone installer (92-95 were installer builds without the Social work). Everything from 85-91 is here: the new Social tab, the gear for Social settings, per-friend Hide / Notify, invites that say Sent / Declined, and banners at the top of the app when a friend starts watching or sends you something."
+    },
+    {
+      "build": 97,
+      "text": "Watch Together: a guest who goes back to the lobby now shows as In lobby and gets a Rejoin button. The info button on the Friends shelf matches Continue watching's. Watching Now no longer shuffles when several friends are watching. (Started-watching notifications for a new title, and not telling party members about each other, are fixed on the server for every build.)"
+    },
+    {
+      "build": 98,
+      "text": "The Watching Now sheet leads with the title's art: who, what and the episode on the picture, Join and Details side by side. Social notices in the player are now the same card as the banners at the top of the app: picture, face and title, with Accept and Decline on it. Swipe a card up to dismiss it."
+    },
+    {
+      "build": 99,
+      "text": "Android: Social system notifications - friend requests, party invites, join requests, friends accepting, recommendations and friends you follow starting to watch - when Nuvio is closed or in the background (they start working once the server side is switched on). Both phones: Settings > Social > Notifications to choose what shows. iPhone: the Social tab shows how many unread items you have."
+    },
+    {
+      "build": 100,
+      "text": "Recommendations: on a title's page, tap the three dots, then Recommend, pick friends and add a message. What friends recommend to you shows in the Social tab under Recommended to you (hold a card to remove it), and on the title's page. When someone starts a title you recommended, you are told."
+    },
+    {
+      "build": 101,
+      "text": "Social stays live when Nuvio sits idle for more than an hour: pop-ups and banners used to stop until you brought the window back, because the live connection's sign-in ran out and was never renewed."
+    },
+    {
+      "build": 102,
+      "text": "Avatar initials and the Inbox count sit in the middle of their circles again, and the details page's \"Recommended to you by\" line is visible (it was black on black)."
+    },
+    {
+      "build": 103,
+      "text": "\"Recommended to you\" moved to the top of the Inbox and left the Social feed. New: Social settings -> Home -> Show recommendations on Home adds them as a shelf on Home, under Friends."
+    },
+    {
+      "build": 104,
+      "text": "The Inbox is split into Unread and Read, and something that arrives while it's open now lands under Unread (an invite that had just come in used to show up under Earlier)."
+    },
+    {
+      "build": 105,
+      "text": "Behind the scenes: the Social screens' text now comes from the app's string files, ready for translation. Nothing should look different; tell us if any Social label reads oddly."
+    },
+    {
+      "build": 106,
+      "text": "Inviting friends to Watch Together now opens a picker - in the lobby and in the player: search, friends who are watching right now first, tick several and invite them in one go. Sent invites still have their cancel cross. Also: Android notifications no longer wait for you to open Social after the app starts (they were being dropped until Social finished loading), and an invite no longer shows twice (the old bottom prompt is gone)."
+    },
+    {
+      "build": 107,
+      "text": "Fixes: the invite picker's button no longer reads \"Invite %d\". Clicking a Social notification with a details page open now takes you to Social instead of leaving the page on top. The next-episode loading screen shows the new episode's source and the show's full-size backdrop, not the previous episode's details and a blurry still. If your Nuvio login is lost, the app now says so, with a Sign in button (Settings > Account shows Sign In too), instead of quietly running signed out. Subtitles: a remembered choice no longer comes back as another language or as the Forced track on the next episode."
+    },
+    {
+      "build": 108,
+      "text": "Social V2 verification: new language settings and Advanced Setup Language; updated to upstream Mobile 0.6.2-beta."
+    },
+    {
+      "build": 109,
+      "text": "Social V2 QA fixes: Recommend and Watch Together pickers keep their button on screen; Recommended to you is its own page behind a button in the Social header, and a recommendation notification opens it; Language setup pages get previews and the first-run setup uses them; Review new settings opens Advanced Setup."
+    },
+    {
+      "build": 110,
+      "text": "Watch Together: friends you invited show in the lobby as dashed Invited tiles. Language setup page 1 asks clearer questions."
+    },
+    {
+      "build": 111,
+      "text": "Social V2 final check. Watch Together: backing out to the lobby shows you In lobby on the host; a rejoin lands in sync; swiping the app away leaves the party (and hands over hosting); when the host drops, guests see \"<host> lost connection\" instead of Reconnecting, and a guest who takes over keeps normal speed. Social: invites sent during a brief connection drop show up when it is back; friends starting to watch notify you by default. Language: a title with unknown origin plays in your language."
+    },
+    {
+      "build": 112,
+      "text": "Language: subtitles no longer switch off when My language is saved with a region (such as English, Saudi Arabia); Attack on Titan now keeps its English subtitles. What's New has the Social V2 entry."
     }
   ]
 }

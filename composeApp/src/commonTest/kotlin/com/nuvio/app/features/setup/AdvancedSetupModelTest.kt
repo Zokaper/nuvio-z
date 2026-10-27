@@ -50,6 +50,25 @@ class AdvancedSetupModelTest {
     }
 
     @Test
+    fun languageIsAvailableInEveryModeAndWithAnExternalPlayer() {
+        everyFacts.forEach { facts ->
+            assertEquals(
+                listOf(AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles),
+                advancedSetupPanels(AdvancedSetupCategory.Language, facts),
+            )
+            assertEquals(
+                listOf(AdvancedSetupControl.MyLanguage, AdvancedSetupControl.FallbackLanguage, AdvancedSetupControl.SubtitleLanguage),
+                advancedSetupControls(AdvancedSetupPanel.Languages, facts),
+            )
+            assertEquals(listOf(AdvancedSetupControl.OwnTitleSubtitles), advancedSetupControls(AdvancedSetupPanel.OwnLanguageTitles, facts))
+            assertEquals(
+                listOf(AdvancedSetupControl.OtherTitleAudio, AdvancedSetupControl.OtherTitleSubtitles),
+                advancedSetupControls(AdvancedSetupPanel.OtherLanguageTitles, facts),
+            )
+        }
+    }
+
+    @Test
     fun randomEpisodeIsMobileOnlyAndLastOnItsPanel() {
         listOf(android, iosNew).forEach { facts ->
             assertEquals(AdvancedSetupControl.RandomEpisode, advancedSetupControls(AdvancedSetupPanel.DetailEpisodes, facts).last())
@@ -228,16 +247,78 @@ class AdvancedSetupModelTest {
         assertTrue(playerPanels.containsAll(expected))
     }
 
+    private val deviceSteps = listOf(SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.DeviceNotifications, SetupStep.ThisComputer)
+
     @Test
     fun deviceStepsCarryNoMoreThanAPanelMay() {
-        everyFacts.forEach { facts ->
-            listOf(SetupStep.DeviceNavigation, SetupStep.DevicePlayer).forEach { step ->
-                assertTrue(deviceSetupControls(step, facts).size <= ADVANCED_SETUP_MAX_CONTROLS, "$step $facts")
-            }
-            SetupStep.entries.filter { it != SetupStep.DeviceNavigation && it != SetupStep.DevicePlayer }.forEach { step ->
-                assertTrue(deviceSetupControls(step, facts).isEmpty(), "$step")
+        everyFacts.forEach { base ->
+            listOf(base, base.copy(alertsAvailable = true, startupAvailable = true)).forEach { facts ->
+                deviceSteps.forEach { step ->
+                    assertTrue(deviceSetupControls(step, facts).size <= ADVANCED_SETUP_MAX_CONTROLS, "$step $facts")
+                }
+                (SetupStep.entries - deviceSteps).forEach { step ->
+                    assertTrue(deviceSetupControls(step, facts).isEmpty(), "$step")
+                }
             }
         }
+    }
+
+    // --- Device Setup's notifications and This computer (redesign, 2026-10-24) ---------------------
+
+    @Test
+    fun notificationsAreEpisodeAlertsOnPhonesAndThePlatformsOwnAlerts() {
+        listOf(android, iosOld, iosNew).forEach { facts ->
+            assertEquals(listOf(AdvancedSetupControl.EpisodeAlerts), advancedSetupControls(AdvancedSetupPanel.Notifications, facts))
+            assertEquals(
+                listOf(AdvancedSetupControl.EpisodeAlerts, AdvancedSetupControl.PlatformAlerts),
+                advancedSetupControls(AdvancedSetupPanel.Notifications, facts.copy(alertsAvailable = true)),
+            )
+        }
+        // Desktop has no episode alerts: only its pop-ups, and only once the app registered them.
+        assertFalse(AdvancedSetupCategory.Notifications in advancedSetupCategories(desktop))
+        assertEquals(
+            listOf(AdvancedSetupControl.PlatformAlerts),
+            advancedSetupControls(AdvancedSetupPanel.Notifications, desktop.copy(alertsAvailable = true)),
+        )
+    }
+
+    @Test
+    fun theMachinesAlertsAreAskedOnlyWhileTheMachineOwesThem() {
+        val phone = android.copy(alertsAvailable = true)
+        assertEquals(
+            listOf(AdvancedSetupControl.EpisodeAlerts, AdvancedSetupControl.PlatformAlerts),
+            deviceSetupControls(SetupStep.DeviceNotifications, phone, deviceStale = true),
+        )
+        // A second profile keeps its own episode alerts but cannot change the phone's Social alerts.
+        assertEquals(listOf(AdvancedSetupControl.EpisodeAlerts), deviceSetupControls(SetupStep.DeviceNotifications, phone, deviceStale = false))
+        val computer = desktop.copy(alertsAvailable = true, startupAvailable = true)
+        assertEquals(listOf(AdvancedSetupControl.PlatformAlerts), deviceSetupControls(SetupStep.DeviceNotifications, computer, deviceStale = true))
+        assertTrue(deviceSetupControls(SetupStep.DeviceNotifications, computer, deviceStale = false).isEmpty())
+    }
+
+    @Test
+    fun thisComputerIsTheDesktopAreaAndBelongsToTheMachine() {
+        assertEquals(listOf(AdvancedSetupControl.UiZoom), advancedSetupControls(AdvancedSetupPanel.StartupTray, desktop))
+        val installed = desktop.copy(startupAvailable = true)
+        assertEquals(
+            listOf(AdvancedSetupControl.StartupAndTray, AdvancedSetupControl.UiZoom),
+            advancedSetupControls(AdvancedSetupPanel.StartupTray, installed),
+        )
+        assertEquals(advancedSetupControls(AdvancedSetupPanel.StartupTray, installed), deviceSetupControls(SetupStep.ThisComputer, installed))
+        assertTrue(deviceSetupControls(SetupStep.ThisComputer, installed, deviceStale = false).isEmpty())
+        listOf(android, iosNew).forEach { facts ->
+            assertTrue(deviceSetupControls(SetupStep.ThisComputer, facts.copy(startupAvailable = true)).isEmpty(), "$facts")
+        }
+    }
+
+    @Test
+    fun theMeteredCapIsAskedOnlyWhereInstantReadsIt() {
+        assertEquals(
+            AdvancedSetupControl.MeteredCap,
+            advancedSetupControls(AdvancedSetupPanel.PlaybackSourcePreferences, android.copy(playbackModeName = "INSTANT")).last(),
+        )
+        assertFalse(AdvancedSetupControl.MeteredCap in advancedSetupControls(AdvancedSetupPanel.PlaybackSourcePreferences, android.copy(playbackModeName = "STREAMLINED")))
+        assertFalse(AdvancedSetupControl.MeteredCap in advancedSetupControls(AdvancedSetupPanel.PlaybackSourcePreferences, desktop.copy(playbackModeName = "INSTANT")))
     }
 
     @Test
@@ -245,5 +326,44 @@ class AdvancedSetupModelTest {
         val external = android.copy(externalPlayer = true)
         assertFalse(AdvancedSetupPanel.PlayerTouch in advancedSetupPanels(AdvancedSetupCategory.Player, external))
         assertFalse(AdvancedSetupCategory.Subtitles in advancedSetupCategories(external))
+    }
+
+    // --- reviews: what What's New and the "New settings available" offer open (2026-10-22) ----------
+
+    @Test
+    fun aReviewIsTheChangedAreasWholeInHubOrder() {
+        assertEquals(
+            listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Notifications, AdvancedSetupCategory.Startup),
+            advancedSetupAreasChangedSince(10, currentRevision = 11),
+        )
+        assertEquals(
+            listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Downloads, AdvancedSetupCategory.Notifications, AdvancedSetupCategory.Startup),
+            advancedSetupAreasChangedSince(9, currentRevision = 11),
+        )
+        assertEquals(emptyList(), advancedSetupAreasChangedSince(11, currentRevision = 11))
+    }
+
+    @Test
+    fun aScopedTourWalksOnlyItsAreasEveryPanel() {
+        val tour = advancedSetupTour(android, listOf(AdvancedSetupCategory.Language))
+        assertEquals(
+            listOf(AdvancedSetupPanel.Languages, AdvancedSetupPanel.OwnLanguageTitles, AdvancedSetupPanel.OtherLanguageTitles),
+            tour.map { it.panel },
+        )
+        assertEquals(AdvancedSetupPanel.OwnLanguageTitles, nextAdvancedSetupTourStop(AdvancedSetupPanel.Languages, android, listOf(AdvancedSetupCategory.Language))?.panel)
+        assertNull(nextAdvancedSetupTourStop(AdvancedSetupPanel.OtherLanguageTitles, android, listOf(AdvancedSetupCategory.Language)))
+    }
+
+    @Test
+    fun thisComputerExistsOnlyOnDesktop() {
+        // The interface size is always there; the close button and startup once the app registered them.
+        assertTrue(AdvancedSetupCategory.Startup in advancedSetupCategories(desktop))
+        assertTrue(AdvancedSetupCategory.Startup in advancedSetupCategories(desktop.copy(startupAvailable = true)))
+        assertFalse(AdvancedSetupCategory.Startup in advancedSetupCategories(android))
+        assertFalse(AdvancedSetupCategory.Startup in advancedSetupCategories(android.copy(startupAvailable = true)))
+        // So a review that names it simply skips it elsewhere.
+        val review = listOf(AdvancedSetupCategory.Language, AdvancedSetupCategory.Startup)
+        assertEquals(setOf(AdvancedSetupCategory.Language), advancedSetupTour(android, review).map { it.category }.toSet())
+        assertEquals(review, advancedSetupTour(desktop.copy(startupAvailable = true), review).map { it.category }.distinct())
     }
 }

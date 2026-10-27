@@ -45,6 +45,20 @@ class WatchPartyModelsTest {
         assertEquals("Offline", suspended.copy(awaySince = null).derivedStatus(isAway = false).label)
     }
 
+    @Test fun aGuestWhoBackedOutReadsInLobbyNotReady() {
+        val guest = member("guest", SourceResolutionState.ready).copy(clientLocation = WatchPartyClientLocation.lobby)
+        // Before the party starts everyone is in the lobby, and ready is the right word.
+        assertEquals("Ready", guest.derivedStatus().label)
+        val backedOut = guest.derivedStatus(partyIsPlaying = true)
+        assertEquals("In lobby", backedOut.label)
+        assertEquals(PartyReadyTone.Lobby, backedOut.tone)
+        assertEquals("lobby", backedOut.tone.wireName)
+        // Away still outranks it, and a member in the player is untouched.
+        assertEquals("Away", guest.derivedStatus(partyIsPlaying = true, isAway = true).label)
+        val watching = guest.copy(clientLocation = WatchPartyClientLocation.player)
+        assertEquals("Playing", watching.derivedStatus(livePlaybackStatus = WatchPartyStatus.playing, partyIsPlaying = true).label)
+    }
+
     @Test fun durationCompatibilityUsesLargerTolerance() {
         assertTrue(arePartyDurationsCompatible(7_200_000, 7_300_000))
         assertFalse(arePartyDurationsCompatible(3_600_000, 3_800_000))

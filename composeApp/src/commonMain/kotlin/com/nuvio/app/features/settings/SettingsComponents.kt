@@ -338,12 +338,12 @@ internal fun SettingsSwitchRow(
     enabled: Boolean = true,
     isAdvanced: Boolean = false,
     isTablet: Boolean,
+    horizontalPadding: Dp = if (isTablet) 20.dp else 16.dp,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     if (isAdvanced && !LocalShowAdvancedSettings.current) return
     val tokens = MaterialTheme.nuvio
     val verticalPadding = if (isTablet) 16.dp else 14.dp
-    val horizontalPadding = if (isTablet) 20.dp else 16.dp
 
     Row(
         modifier = Modifier

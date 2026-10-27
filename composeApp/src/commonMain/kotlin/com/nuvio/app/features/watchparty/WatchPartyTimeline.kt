@@ -472,5 +472,17 @@ fun partyFallbackDriftCorrection(
 fun partyCorrectionNominalSpeed(actual: Float, nominal: Float): Float? =
     nominal.takeIf { kotlin.math.abs(actual - nominal) >= PartySpeedEpsilon }
 
+/**
+ * The rate to put back when a guest's drift nudge has no timeline left to steer by, or null to leave it.
+ *
+ * The guest corrects only when a tick arrives, so a nudge in force when the ticks stop has nothing to
+ * end it. On 2026-10-23 (party f149124c) the host was killed one tick after the guest dropped to 0.9x,
+ * and the guest played the whole minute to the handover at 0.9x.
+ */
+fun partyOrphanedNudgeSpeed(nominalDuringCorrection: Float?, tickCapturedAtPartyMs: Long?, partyNowMs: Long): Float? =
+    nominalDuringCorrection?.takeIf {
+        tickCapturedAtPartyMs == null || partyNowMs - tickCapturedAtPartyMs > WatchPartyTickStaleMs
+    }
+
 /** Rates closer than this are the same rate. */
 const val PartySpeedEpsilon = 0.001f

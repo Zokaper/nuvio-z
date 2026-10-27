@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.social.SentPartyInvite
 import com.nuvio.app.features.social.WatchJoinPolicy
 import com.nuvio.app.features.watchparty.PartyStatusAction
 import com.nuvio.app.features.watchparty.PartyStatusLine
@@ -28,15 +29,77 @@ data class WatchTogetherBridgeInvite(
     val index: Int,
     val name: String,
     val avatarUrl: String,
-    val invited: Boolean,
+    /** [PartyInviteButton.wire]: invite | sending | sent | cancelling | declined. */
+    val state: String = PartyInviteButton.Invite.wire,
+    /** What they are watching right now ("The Bear · S3 E4"), for the invite picker; null when nothing. */
+    val watching: String? = null,
 )
+
+/**
+ * The Invite button for one friend (2026-10-16). It used to say "Invited ✓" for the rest of the party,
+ * whatever the friend did. Now: **Sent** with a ✕ to withdraw it while it waits (an ignored invite just
+ * stays Sent; cancel and invite again to re-ping), **Declined** for the server's re-invite cooldown,
+ * and Invite again once the cooldown ends or the invite was withdrawn.
+ */
+enum class PartyInviteButton(val wire: String) {
+    Invite("invite"),
+    /** Pressed; the server has not listed it yet. */
+    Sending("sending"),
+    Sent("sent"),
+    Cancelling("cancelling"),
+    Declined("declined"),
+}
+
+/** What [partyInviteButton] decided, with the invite a ✕ would withdraw. */
+data class PartyInviteButtonState(val button: PartyInviteButton, val inviteId: String? = null)
+
+/**
+ * Pure. [sent] is the server's list (null: a backend that predates it, where a pressed invite can only
+ * say Sent, with nothing to cancel). [pressed] are friends invited from this panel and not yet listed;
+ * [cancelling] are invite ids withdrawn and not yet gone. A decline outranks everything for its cooldown,
+ * from whichever party it was.
+ */
+fun partyInviteButton(
+    friendProfileId: String,
+    partyId: String?,
+    sent: List<SentPartyInvite>?,
+    sentAtMs: Long,
+    pressed: Set<String>,
+    cancelling: Set<String>,
+    nowMs: Long,
+): PartyInviteButtonState {
+    val rows = sent.orEmpty().filter { it.receiverProfileId == friendProfileId }
+    val declined = rows.firstOrNull { row ->
+        row.status == "declined" && sentAtMs + (row.cooldownSeconds ?: 0) * 1000L > nowMs
+    }
+    if (declined != null) return PartyInviteButtonState(PartyInviteButton.Declined, declined.id)
+    val pending = rows.firstOrNull { it.status == "pending" && it.partyId == partyId }
+    if (pending != null) {
+        return PartyInviteButtonState(
+            if (pending.id in cancelling) PartyInviteButton.Cancelling else PartyInviteButton.Sent,
+            pending.id,
+        )
+    }
+    if (friendProfileId in pressed) {
+        return PartyInviteButtonState(if (sent == null) PartyInviteButton.Sent else PartyInviteButton.Sending)
+    }
+    return PartyInviteButtonState(PartyInviteButton.Invite)
+}
+
+/** When the next Declined runs out, so the panel can redraw it as Invite; null when none is running. */
+fun nextPartyInviteCooldownEndMs(sent: List<SentPartyInvite>?, sentAtMs: Long, nowMs: Long): Long? =
+    sent.orEmpty()
+        .filter { it.status == "declined" }
+        .map { sentAtMs + (it.cooldownSeconds ?: 0) * 1000L }
+        .filter { it > nowMs }
+        .minOrNull()
 
 /** An outgoing join request, as the player mirrors it (§4 "In the player"). */
 data class WatchTogetherOutgoingMirror(
     val name: String,
     val avatarUrl: String?,
     val colorHex: String,
-    /** "pending" | "accepted" | "joining" */
+    /** "pending" | "accepted" | "joining" | "declined" | "expired" | "stopped" | "failed" */
     val phase: String,
     val expiresAtMs: Long,
 )

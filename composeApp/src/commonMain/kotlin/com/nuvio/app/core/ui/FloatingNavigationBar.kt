@@ -16,6 +16,8 @@ internal class FloatingNavigationItem(
     val icon: ImageVector? = null,
     val drawable: DrawableResource? = null,
     val content: (@Composable (onClick: () -> Unit) -> Unit)? = null,
+    /** Nuvio Z: an unread dot on the icon (the Social tab's inbox). */
+    val badge: Boolean = false,
 )
 
 internal expect val floatingNavigationGlowSupported: Boolean

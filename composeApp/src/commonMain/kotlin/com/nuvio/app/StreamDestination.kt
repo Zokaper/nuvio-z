@@ -94,8 +94,11 @@ import com.nuvio.app.features.player.resolvePreferredAudioLanguageTargets
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PartyPlayerLaunchKey
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.forTitle
 import com.nuvio.app.features.player.sanitizePlaybackHeaders
 import com.nuvio.app.features.player.sanitizePlaybackResponseHeaders
+import com.nuvio.app.features.servers.ServerPlayback
+import com.nuvio.app.features.servers.serverPlaybackMessage
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.p2pSentinelUrl
@@ -116,6 +119,13 @@ import com.nuvio.app.features.watchparty.tierPartyPlaybackSources
 import com.nuvio.app.features.updater.formatFileSize
 import com.nuvio.app.navigation.*
 import kotlinx.coroutines.delay
+import com.nuvio.app.features.streams.shouldShowAutoPlayLoading
+import com.nuvio.app.features.streams.shouldUseLandscapeAutoPlayLoading
+import com.nuvio.app.features.streams.StreamsUiState
+import com.nuvio.app.features.streams.YouTubeStreamResolver
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.navigation.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
@@ -183,6 +193,8 @@ internal fun buildP2pPlayerLaunch(
     initialPositionMs = resolvedResumePositionMs ?: 0L,
     initialProgressFraction = resolvedResumeProgressFraction,
     contentLanguage = contentLanguage,
+    sourceFilename = stream.behaviorHints.filename,
+    stream = stream,
     autoPickedWithFailureChain = autoPickedWithFailureChain,
     sourceFacts = SourceFactsExtractor.extract(stream),
     playbackAttempt = autoPickAttempt,
@@ -247,6 +259,8 @@ internal fun StreamDestination(
     // In-flight coroutine state cannot survive process restoration. Restoring `true` would leave
     // the route permanently refusing every future resolve after Android killed it mid-request.
     var resolvingDebridStream by remember(route.launchId) { mutableStateOf(false) }
+    var resolvingYouTubeStream by remember(route.launchId) { mutableStateOf(false) }
+    var preparingServerStream by remember(route.launchId) { mutableStateOf(false) }
     var pendingP2pStreamOpen by remember { mutableStateOf<PendingP2pStreamOpen?>(null) }
     var pendingUncachedStream by remember { mutableStateOf<StreamItem?>(null) }
     var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
@@ -517,6 +531,11 @@ internal fun StreamDestination(
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
+    // Z: the language settings, applied per title by `playbackSelectionContextOf`.
+    val languagePreferences by remember {
+        com.nuvio.app.features.language.LanguagePreferencesRepository.ensureLoaded()
+        com.nuvio.app.features.language.LanguagePreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
     /**
      * The title's original language, for the loading band's language inference
      * (`SourceLanguageInference`) and the player's "original" audio target.
@@ -654,6 +673,17 @@ internal fun StreamDestination(
         // abandon rightly refused to play it, so the overlay stayed up until a second Escape.
         userAbandonedPlayback ||
         playerSettings.playbackMode != PlaybackMode.CLASSIC
+
+    suspend fun serverResumePositionMs(stream: StreamItem): Long? {
+        if (stream.serverTarget == null || launch.startFromBeginning) return null
+        val saved = WatchProgressRepository.progressForVideo(
+            videoId = effectiveVideoId,
+            parentMetaId = launch.parentMetaId,
+            seasonNumber = launch.seasonNumber,
+            episodeNumber = launch.episodeNumber,
+        )
+        return ServerPlayback.newerResumePositionMs(stream.playableDirectUrl, saved?.lastUpdatedEpochMs)
+    }
 
     fun openP2pStream(
         stream: StreamItem,
@@ -819,6 +849,7 @@ internal fun StreamDestination(
     val playbackSelectionContext = remember(
         requestedYear,
         contentOriginalLanguage,
+        languagePreferences,
         launch.runtimeMinutes,
         launch.seasonNumber,
         launch.episodeNumber,
@@ -842,6 +873,7 @@ internal fun StreamDestination(
             isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
             runtimeMinutes = launch.runtimeMinutes,
             contentOriginalLanguage = contentOriginalLanguage,
+            languagePreferences = languagePreferences,
             // ⚠ **Automatic modes only.** Classic and every manual path leave this null, so the
             // guard is inert for them: a manual pick is the user reading the release name and
             // choosing anyway, and overriding that would be a refusal wearing a helper's name.
@@ -1231,10 +1263,18 @@ internal fun StreamDestination(
             }
             return@LaunchedEffect
         }
-        val stream = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(selectedStream)) {
-            streamLog.i {
-                "debrid resolving: attempt=$autoPickAttempt candidate=${sourceFailureLabel(selectedStream)}"
-            }
+        val stream = if (selectedStream.needsServerPreparation) {
+            StreamsRepository.setOverlayVisible(true, getString(Res.string.player_loading_preparing))
+            runCatching { ServerPlayback.prepare(selectedStream) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrElse { error ->
+                    if (!StreamsRepository.skipAutoPlayStream(selectedStream)) {
+                        NuvioToastController.show(error.serverPlaybackMessage())
+                    }
+                    return@LaunchedEffect
+                }
+        } else if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(selectedStream)) {
+            StreamsRepository.setOverlayVisible(true, getString(Res.string.debrid_resolving_stream))
             when (
                 val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
                     stream = selectedStream,
@@ -1314,6 +1354,7 @@ internal fun StreamDestination(
             return@LaunchedEffect
         }
         autoPlayHandled = true
+        val serverResumeMs = serverResumePositionMs(stream)
         val playerLaunch = PlayerLaunch(
             profileId = launch.profileId,
             title = launch.title,
@@ -1339,9 +1380,11 @@ internal fun StreamDestination(
             videoId = effectiveVideoId,
             parentMetaId = launch.parentMetaId ?: effectiveVideoId,
             parentMetaType = launch.parentMetaType ?: launch.type,
-            initialPositionMs = launch.resumePositionMs ?: 0L,
-            initialProgressFraction = launch.resumeProgressFraction,
+            initialPositionMs = serverResumeMs ?: launch.resumePositionMs ?: 0L,
+            initialProgressFraction = launch.resumeProgressFraction.takeIf { serverResumeMs == null },
             contentLanguage = requestedContentLanguage,
+            sourceFilename = stream.behaviorHints.filename,
+            stream = stream,
             autoPickedWithFailureChain = hasFailureChain,
             // The band the player draws is the band the route was drawing a frame ago.
             sourceFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
@@ -1380,7 +1423,7 @@ internal fun StreamDestination(
         // that is now working.
         autoPickFailure = null
 
-        if (playerSettings.externalPlayerEnabled) {
+        if (playerSettings.externalPlayerEnabled && stream.serverTarget == null) {
             lastHandedOffFacts = playerLaunch.sourceFacts
             playbackHandedOff = true
             val outcome = openExternalPlayback(playerLaunch)
@@ -1481,6 +1524,30 @@ internal fun StreamDestination(
                 )
             }
         }
+        if (stream.needsServerPreparation) {
+            if (preparingServerStream) return
+            streamRouteScope.launch {
+                preparingServerStream = true
+                val prepared = runCatching { ServerPlayback.prepare(stream) }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrElse { error ->
+                        preparingServerStream = false
+                        giveUpToSourceList(error.serverPlaybackMessage(), path = "manual_server_preparation_failed")
+                        return@launch
+                    }
+                val serverResumeMs = serverResumePositionMs(prepared)
+                preparingServerStream = false
+                openSelectedStream(
+                    stream = prepared,
+                    resolvedResumePositionMs = serverResumeMs ?: resolvedResumePositionMs,
+                    resolvedResumeProgressFraction = resolvedResumeProgressFraction.takeIf { serverResumeMs == null },
+                    forceExternal = false,
+                    forceInternal = true,
+                    safePartySource = retainedPartySource,
+                )
+            }
+            return
+        }
         if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
             if (resolvingDebridStream) return
             streamRouteScope.launch {
@@ -1532,6 +1599,27 @@ internal fun StreamDestination(
             )
             return
         }
+        if (stream.youTubeIdToResolve != null) {
+            if (resolvingYouTubeStream) return
+            streamRouteScope.launch {
+                resolvingYouTubeStream = true
+                val resolved = YouTubeStreamResolver.Default.resolve(stream)
+                resolvingYouTubeStream = false
+                if (resolved == null) {
+                    giveUpToSourceList(getString(Res.string.youtube_resolution_failed), path = "manual_youtube_resolution_failed")
+                    return@launch
+                }
+                openSelectedStream(
+                    stream = resolved,
+                    resolvedResumePositionMs = resolvedResumePositionMs,
+                    resolvedResumeProgressFraction = resolvedResumeProgressFraction,
+                    forceExternal = forceExternal,
+                    forceInternal = forceInternal,
+                    safePartySource = retainedPartySource,
+                )
+            }
+            return
+        }
         if (stream.shouldOpenExternally) {
             manualPlaybackStarting = false
             manualCandidateFacts = null
@@ -1577,6 +1665,8 @@ internal fun StreamDestination(
             playbackAttempt = autoPickAttempt,
             expectedRuntimeMinutes = launch.runtimeMinutes,
             partySourceDescriptor = retainedPartySource,
+            sourceFilename = stream.behaviorHints.filename,
+            stream = stream,
         )
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
@@ -2391,7 +2481,7 @@ internal fun StreamDestination(
                 },
             )
         }
-        val showLoadingSurface = manualPlaybackStarting ||
+        val showLoadingSurface = manualPlaybackStarting || preparingServerStream || resolvingYouTubeStream ||
             streamSurface == StreamRouteSurface.ProgressOverlay ||
             (streamSurface == StreamRouteSurface.HandOff && playbackHandedOff)
         // ⚠ **This route no longer draws the loading screen; it publishes to it.**
@@ -2403,14 +2493,14 @@ internal fun StreamDestination(
         val loadingStep = if (playbackHandedOff) {
             PlaybackProgressStep.StartingPlayback
         } else if (manualPlaybackStarting) {
-            if (resolvingDebridStream) PlaybackProgressStep.ResolvingLink else PlaybackProgressStep.StartingPlayback
+            if (resolvingDebridStream || preparingServerStream || resolvingYouTubeStream) PlaybackProgressStep.ResolvingLink else PlaybackProgressStep.StartingPlayback
         } else {
             PlaybackProgress.step(
                 PlaybackProgressInputs(
                     isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
                         streamsUiState.isAnyLoading,
                     hasChosenSource = autoPlaybackStarting,
-                    isResolvingLink = resolvingDebridStream,
+                    isResolvingLink = resolvingDebridStream || preparingServerStream || resolvingYouTubeStream,
                     attempt = autoPickAttempt,
                     // Instant only. The remembered-band path is also covered
                     // by this overlay and does not need an estimate - its
@@ -2422,12 +2512,17 @@ internal fun StreamDestination(
             )
         }
         val loadingFacts = if (manualPlaybackStarting) manualCandidateFacts ?: activeCandidateFacts else activeCandidateFacts
+        val titleSettings = playerSettings.forTitle(
+            languagePreferences,
+            requestedContentLanguage,
+            DeviceLanguagePreferences.preferredLanguageCodes(),
+        )
         val preferredAudioLanguageTarget = resolvePreferredAudioLanguageTargets(
-            preferredAudioLanguage = playerSettings.preferredAudioLanguage,
-            secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
+            preferredAudioLanguage = titleSettings.preferredAudioLanguage,
+            secondaryPreferredAudioLanguage = titleSettings.secondaryPreferredAudioLanguage,
             deviceLanguages = DeviceLanguagePreferences.preferredLanguageCodes(),
             contentOriginalLanguage = requestedContentLanguage,
-        ).firstOrNull() ?: playerSettings.preferredAudioLanguage
+        ).firstOrNull() ?: titleSettings.preferredAudioLanguage
         val loadingState = PlaybackLoadingState(
             step = loadingStep,
             attempt = autoPickAttempt,

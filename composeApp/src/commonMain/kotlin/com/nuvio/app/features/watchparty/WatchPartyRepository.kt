@@ -344,6 +344,53 @@ object WatchPartyRepository {
                 }
             }
         }
+        if (profileId != null && coldStartCleanedProfiles.add(profileId)) {
+            scope.launch { leavePartyLeftOverFromAnEarlierRun(profileId) }
+        }
+    }
+
+    /**
+     * Profiles whose leftover membership this process has already dealt with. A party belongs to the
+     * app run that joined it (maintainer, 2026-10-22: "parties should NOT survive closing the app").
+     */
+    private val coldStartCleanedProfiles = mutableSetOf<String>()
+
+    /**
+     * Leaves the party the server still lists [profileId] in from an earlier run of the app.
+     *
+     * Closing the app normally asks first (the close dialog), but a kill, a crash or an installer
+     * skipped it, and the next launch used to slip back into that party: the reattached member kept
+     * it occupied, so it was never reaped, and the Watch Together button reopened it as if new.
+     * A party opened in *this* run before the answer arrives is left alone.
+     */
+    /**
+     * The same check for a reopen in a process that outlived its last screen (2026-10-23). The
+     * once-per-process guard is reset: every profile is due again, and the active one is checked now
+     * because no profile switch is coming to do it. A first launch has no profile yet and is left to
+     * the switch.
+     */
+    suspend fun leavePartyLeftOverOnReopen() {
+        coldStartCleanedProfiles.clear()
+        val profileId = _uiState.value.activeProfileId ?: return
+        coldStartCleanedProfiles.add(profileId)
+        leavePartyLeftOverFromAnEarlierRun(profileId)
+    }
+
+    private suspend fun leavePartyLeftOverFromAnEarlierRun(profileId: String) {
+        if (!ZSessionBridge.ensureSession(profileId)) return
+        val leftover = runCatching {
+            ZSupabaseProvider.client.postgrest.rpc("party_get_active", buildJsonObject {
+                put("p_profile_id", profileId); put("p_contract_version", PartySourceContractVersion)
+            }).decodeAs<WatchPartyState?>()
+        }.getOrElse { failure ->
+            log.w(failure) { "leftover party check failed profile=${profileId.shortId()}" }
+            return
+        } ?: return
+        if (leftover.status == WatchPartyStatus.ended || _uiState.value.party?.id == leftover.id) return
+        log.i { "leaving party left over from an earlier run party=${leftover.id.shortId()} profile=${profileId.shortId()}" }
+        departMembershipAs(profileId, leftover.id).onFailure { failure ->
+            log.w(failure) { "leftover party departure failed party=${leftover.id.shortId()}" }
+        }
     }
 
     /**

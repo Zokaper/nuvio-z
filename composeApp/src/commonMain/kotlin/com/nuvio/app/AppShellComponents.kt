@@ -105,6 +105,8 @@ import com.nuvio.app.features.settings.NavBarStyle
 import com.nuvio.app.features.settings.SettingsScreen
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.social.rememberSocialEnabled
+import com.nuvio.app.features.social.socialUnreadCount
+import com.nuvio.app.core.ui.navBadgeDot
 import com.nuvio.app.features.social.SocialScreen
 import com.nuvio.app.features.social.SocialNotification
 import com.nuvio.app.features.social.SocialNotificationAction
@@ -221,6 +223,7 @@ internal data class AppTabActions(
     val onRunSetupAgainClick: (() -> Unit)? = null,
     val onTestUpdateBannerClick: (() -> Unit)? = null,
     val onCollectionsSettingsClick: () -> Unit = {},
+    val onWatchPartySettingsClick: () -> Unit = {},
     val onFolderClick: ((collectionId: String, folderId: String) -> Unit)? = null,
     val onRequestedSettingsPageConsumed: () -> Unit = {},
     val onInitialHomeContentRendered: () -> Unit = {},
@@ -366,6 +369,9 @@ internal fun AppTabHost(
                                     onSectionViewAllClick = actions.onLibrarySectionViewAllClick,
                                     onCloudFilePlay = actions.onCloudFilePlay,
                                     onConnectCloudClick = actions.onConnectCloudClick,
+                    onCatalogClick = actions.onCatalogClick,
+                    onPreviewClick = actions.onPosterClick,
+                    onPreviewLongClick = actions.onPosterLongClick,
                                     disintegrationRequest = state.libraryDisintegrationRequest,
                                     topSwitcher = if (librarySwitcher) {
                                         {
@@ -437,6 +443,7 @@ internal fun AppTabHost(
                                 onRunSetupAgainClick = actions.onRunSetupAgainClick,
                                 onTestUpdateBannerClick = actions.onTestUpdateBannerClick,
                                 onCollectionsClick = actions.onCollectionsSettingsClick,
+                    onWatchPartyClick = actions.onWatchPartySettingsClick,
                             )
                         }
                     }
@@ -724,7 +731,7 @@ internal fun TabletFloatingTopBar(
                                 Icon(
                                     imageVector = Icons.Filled.People,
                                     contentDescription = stringResource(Res.string.compose_nav_social),
-                                    modifier = Modifier.size(navIconSize),
+                                    modifier = Modifier.navBadgeDot(socialUnreadCount() > 0).size(navIconSize),
                                     tint = if (selectedTab == AppScreenTab.Social) {
                                         tokens.colors.textPrimary
                                     } else {
@@ -1046,7 +1053,7 @@ internal fun DesktopHoverSidebar(
                         Icon(
                             imageVector = Icons.Filled.People,
                             contentDescription = stringResource(Res.string.compose_nav_social),
-                            modifier = Modifier.size(DesktopSidebarIconSize),
+                            modifier = Modifier.navBadgeDot(socialUnreadCount() > 0).size(DesktopSidebarIconSize),
                             tint = color,
                         )
                     }

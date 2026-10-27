@@ -41,6 +41,7 @@ import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.servers.ServerRepository
 import com.nuvio.app.features.addons.firstEnabledManifestError
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.CloudLibraryRepository
@@ -99,8 +100,11 @@ import com.nuvio.app.features.watching.domain.isReleasedBy
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.home.components.HomeCollectionRowSection
+import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.social.SocialRepository
+import com.nuvio.app.features.social.homeRecommendedSection
 import com.nuvio.app.features.social.homeSocialSections
+import com.nuvio.app.features.social.recommendedToYou
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -184,7 +188,17 @@ fun HomeScreen(
     // friend's activity back on the home screen for one frame.
     val socialEnabled = rememberSocialEnabled()
     val liveSocialUiState by SocialRepository.uiState.collectAsStateWithLifecycle()
-    val socialUiState = if (socialEnabled) liveSocialUiState else EmptySocialUiState
+    // Social settings -> Home: the same emptying, so the shelf and the empty-state test agree.
+    val socialPreferences by remember {
+        SocialFeaturePreferencesRepository.ensureLoaded()
+        SocialFeaturePreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val socialUiState = if (socialEnabled && socialPreferences.showFriendsOnHome) liveSocialUiState else EmptySocialUiState
+    // Social settings -> Home -> recommendations: its own switch, read from the live state, so it does not
+    // depend on the Friends shelf being on.
+    val recommendedOnHome = remember(socialEnabled, socialPreferences.showRecommendedOnHome, liveSocialUiState.inbox) {
+        if (socialEnabled && socialPreferences.showRecommendedOnHome) recommendedToYou(liveSocialUiState.inbox) else emptyList()
+    }
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     val trackingSettingsUiState by remember {
         TrackingSettingsRepository.ensureLoaded()
@@ -561,10 +575,13 @@ fun HomeScreen(
                 continueWatchingPreferences.dismissedNextUpKeys
         }
     }
-    val shuffledContinueWatchingItems = rememberShuffleHomeItems(
+    val rawShuffledContinueWatchingItems = rememberShuffleHomeItems(
         activeProfileId, allContinueWatchingItems, shuffleCandidates,
         watchProgressUiState.entries, watchedUiState.watchedKeys, visibleContinueWatchingEntries,
-    ).withCustomPosterUrls(cwPosterPattern)
+    )
+    val shuffledContinueWatchingItems = remember(rawShuffledContinueWatchingItems, cwPosterPattern) {
+        rawShuffledContinueWatchingItems.withCustomPosterUrls(cwPosterPattern)
+    }
     val (continueWatchingItems, upcomingItems) = remember(
         shuffledContinueWatchingItems,
         continueWatchingPreferences.sortMode,
@@ -868,6 +885,11 @@ fun HomeScreen(
     }
 
     val hasActiveAddons = enabledAddons.any { it.manifest != null }
+    val serversUiState by remember {
+        ServerRepository.ensureLoaded()
+        ServerRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val hasServerLibraries = serversUiState.enabledConnections.any { it.selectedLibraries.isNotEmpty() }
     val addonManifestsLoading = enabledAddons.any { it.isRefreshing }
     val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
     val isResolvingHeroSources = addonManifestsLoading || homeUiState.isLoading
@@ -1075,6 +1097,13 @@ fun HomeScreen(
                     ) { type, id, title ->
                         onPosterClick?.invoke(MetaPreview(id = id, type = type, name = title, poster = null))
                     }
+                    homeRecommendedSection(
+                        titles = recommendedOnHome,
+                        sectionPadding = homeSectionPadding,
+                        availableWidth = maxWidth,
+                    ) { type, id, title ->
+                        onPosterClick?.invoke(MetaPreview(id = id, type = type, name = title, poster = null))
+                    }
                     items(
                         count = 3,
                         key = { "home_skeleton_$it" },
@@ -1086,7 +1115,7 @@ fun HomeScreen(
                     }
                 }
 
-                !hasActiveAddons && !hasRenderableCollectionRows -> {
+                !hasActiveAddons && !hasServerLibraries && !hasRenderableCollectionRows -> {
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
                         continueWatchingItems = continueWatchingItems,
@@ -1136,8 +1165,8 @@ fun HomeScreen(
                                     modifier = Modifier.padding(
                                         horizontal = if (isDesktop) homeSectionPadding else 16.dp,
                                     ),
-                                    title = stringResource(Res.string.compose_search_empty_no_active_addons_title),
-                                    message = stringResource(Res.string.home_empty_no_active_addons_message),
+                                    title = stringResource(Res.string.home_empty_no_sources_title),
+                                    message = stringResource(Res.string.home_empty_no_sources_message),
                                 )
                             }
                         }
@@ -1147,7 +1176,7 @@ fun HomeScreen(
                 homeUiState.sections.isEmpty() && homeUiState.heroItems.isEmpty() &&
                     (!continueWatchingPreferences.isVisible || !hasContinueWatchingRows) &&
                     !hasRenderableCollectionRows && socialUiState.watchingNow.isEmpty() &&
-                    socialUiState.activity.isEmpty() -> {
+                    socialUiState.activity.isEmpty() && recommendedOnHome.isEmpty() -> {
                     item(key = "home_empty", contentType = "empty") {
                         val loadFailed = !homeUiState.errorMessage.isNullOrBlank()
                         if (networkStatusUiState.isOfflineLike && loadFailed) {
@@ -1215,6 +1244,13 @@ fun HomeScreen(
                         onSeeAllActivity = onSeeAllFriendsActivity,
                         outgoingRequest = outgoingJoinRequest,
                         onCancelJoinRequest = onCancelJoinRequest,
+                    ) { type, id, title ->
+                        onPosterClick?.invoke(MetaPreview(id = id, type = type, name = title, poster = null))
+                    }
+                    homeRecommendedSection(
+                        titles = recommendedOnHome,
+                        sectionPadding = homeSectionPadding,
+                        availableWidth = maxWidth,
                     ) { type, id, title ->
                         onPosterClick?.invoke(MetaPreview(id = id, type = type, name = title, poster = null))
                     }

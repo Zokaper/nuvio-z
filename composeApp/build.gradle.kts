@@ -7,8 +7,10 @@ import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
+import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.util.Properties
 
@@ -336,15 +338,16 @@ val iosDistributionSourceDir = if (iosDistribution == "full") {
     "src/iosAppStore/kotlin"
 }
 val iosFrameworkBundleId = "com.nuvio.media"
-// Phase 2 spike (PLAN-nuvio-z-self-signing.md): link the installer's Rust core into the iOS app so Nuvio Z can
-// reach the phone's own services. Off unless NUVIO_IOS_SELF_SIGNING=true; the library comes from
-// `cargo build -p nuvioz-signer --release --target aarch64-apple-ios` in iosInstaller/.
+// Nuvio Z signs itself (PLAN-nuvio-z-self-signing.md): link the installer's Rust signer into the iOS app so Nuvio Z
+// can reach the phone's own services. Off unless NUVIO_IOS_SELF_SIGNING=true. The signer lives in
+// Zokaper/nuviozinstaller, pinned by commit in signer/Cargo.toml; `bash signer/build.sh aarch64-apple-ios` builds it
+// and stages the library and header in signer/out/.
 val iosSelfSigning = (
     providers.gradleProperty("nuvio.ios.selfSigning").orNull
         ?: System.getenv("NUVIO_IOS_SELF_SIGNING")
         ?: "false"
     ).trim().toBoolean()
-val nuviozSignerRoot = rootProject.file("iosInstaller")
+val nuviozSignerRoot = rootProject.file("signer/out")
 val nuvioEngineAppleFramework = rootProject.file("../nuvio-engine/platform/apple/NuvioEngine.xcframework")
 val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
@@ -461,7 +464,7 @@ kotlin {
         }
         val nuvioEngineSliceDirectory = nuvioEngineAppleFramework.resolve(nuvioEngineSlice)
         val nuviozSignerDirectory = nuviozSignerRoot.resolve(
-            if (iosTarget.name == "iosArm64") "target/aarch64-apple-ios/release" else "target/aarch64-apple-ios-sim/release",
+            if (iosTarget.name == "iosArm64") "aarch64-apple-ios" else "aarch64-apple-ios-sim",
         )
         // The device build must have it when asked for; a simulator slice that was not built just goes without.
         val withSigner = iosSelfSigning && (iosTarget.name == "iosArm64" || nuviozSignerDirectory.resolve("libnuvioz_signer.a").isFile)
@@ -487,11 +490,11 @@ kotlin {
                 }
                 if (withSigner) {
                     check(nuviozSignerDirectory.resolve("libnuvioz_signer.a").isFile) {
-                        "NUVIO_IOS_SELF_SIGNING is on: build iosInstaller's nuvioz-signer for ${iosTarget.name} first."
+                        "NUVIO_IOS_SELF_SIGNING is on: run signer/build.sh for ${iosTarget.name} first."
                     }
                     create("nuviozsigner") {
                         defFile(project.file("src/nativeInterop/cinterop/nuviozsigner.def"))
-                        compilerOpts("-I${nuviozSignerRoot.resolve("ffi/include").absolutePath}")
+                        compilerOpts("-I${nuviozSignerRoot.resolve("include").absolutePath}")
                         extraOpts("-libraryPath", nuviozSignerDirectory.absolutePath)
                     }
                 }
@@ -556,6 +559,9 @@ kotlin {
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.androidx.core.splashscreen)
                 implementation(libs.androidx.work.runtime)
+                // Social push (Stage 4). Configured from google-services.json by androidApp's build, not the plugin.
+                implementation(project.dependencies.platform("com.google.firebase:firebase-bom:33.7.0"))
+                implementation("com.google.firebase:firebase-messaging")
                 implementation(libs.coil.gif)
                 implementation("androidx.recyclerview:recyclerview:1.4.0")
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -574,6 +580,9 @@ kotlin {
                 implementation(libs.androidx.media3.common)
                 implementation(libs.androidx.media3.container)
                 implementation(libs.androidx.media3.extractor)
+                implementation("com.google.guava:guava:33.3.1-android")
+                implementation("androidx.media3:media3-database:1.8.0")
+                implementation("androidx.annotation:annotation-experimental:1.3.1")
                 implementation(libs.mpv.android.lib)
                 implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
                 if (androidDistribution == "full") {
@@ -637,8 +646,21 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation("io.ktor:ktor-client-mock:${libs.versions.ktor.get()}")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${libs.versions.kotlinx.coroutines.get()}")
+            implementation("io.ktor:ktor-client-mock:${libs.versions.ktor.get()}")
         }
     }
+}
+
+val bootIosTestSimulator by tasks.registering(Exec::class) {
+    val device = tasks.named<KotlinNativeSimulatorTest>("iosSimulatorArm64Test").flatMap { it.device }
+    commandLine("xcrun", "simctl", "boot")
+    argumentProviders.add(CommandLineArgumentProvider { listOf(device.get()) })
+    isIgnoreExitValue = true
+}
+
+tasks.withType<KotlinNativeSimulatorTest>().configureEach {
+    standalone.set(false)
+    dependsOn(bootIosTestSimulator)
 }
 
 configurations.matching { it.name == "iosMainImplementation" }.configureEach {
@@ -647,5 +669,10 @@ configurations.matching { it.name == "iosMainImplementation" }.configureEach {
 
 configurations.all {
     exclude(group = "androidx.media3", module = "media3-exoplayer")
+    exclude(group = "androidx.media3", module = "media3-exoplayer-hls")
     exclude(group = "androidx.media3", module = "media3-ui")
+    exclude(group = "androidx.media3", module = "media3-common")
+    exclude(group = "androidx.media3", module = "media3-datasource")
+    exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
+    exclude(group = "androidx.media3", module = "media3-extractor")
 }

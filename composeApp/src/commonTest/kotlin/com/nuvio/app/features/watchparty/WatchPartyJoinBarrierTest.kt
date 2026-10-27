@@ -306,6 +306,18 @@ class WatchPartyJoinBarrierTest {
         assertEquals(setOf("host", "stalled", "opening"), partyMembersPresent(party))
     }
 
+    /** 2026-10-22: a guest who backed out to the lobby is no longer something the party waits on. */
+    @Test fun aGuestInTheLobbyIsNotHeldFor() {
+        val party = joinParty(
+            WatchPartyStatus.playing,
+            joinMember("host", SourceResolutionState.ready, location = WatchPartyClientLocation.player),
+            joinMember("watching", SourceResolutionState.ready, location = WatchPartyClientLocation.player),
+            joinMember("backedOut", SourceResolutionState.ready, location = WatchPartyClientLocation.lobby),
+        )
+        assertEquals(setOf("host", "watching", "backedOut"), partyMembersPresent(party))
+        assertEquals(setOf("host", "watching"), partyMembersWatching(party))
+    }
+
     @Test fun startReleaseWaitsOnlyForMembersWithSomethingToPlay() {
         val members = listOf(
             joinMember("host", SourceResolutionState.ready),

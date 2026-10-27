@@ -37,6 +37,25 @@ and a ten-runtime parallel-host barrier. **drop-at-next-sync:** see the existing
 `JsRuntime.kt` seam in `PATCH-SURFACE.md`; recheck native lifecycle accounting and
 rerun multi-JVM stress before removing it. No third-party/native source was edited.
 
+## Rechecked during the 2026-10-20 Social V2 sync
+
+At mobile `0.6.2-beta` / desktop `0.1.31-alpha`: V2's broad expired-JWT/401/403
+classifier and destructive cleanup remain in upstream source; V3 still installs Auth
+with the default JVM store; V4 still omits Debrid's profile reload. Keep the Z patches.
+The new iOS PiP work does not replace Z's serial native ownership (V5); stream-info
+property reads now also use an executor-owned snapshot. Both tags still pin QuickJS
+1.0.15, so the reviewed V6 lifecycle fence remains. V1 has no new installed acceptance.
+
+**V7 ? Desktop JAR resource installation retains open archive handles on Windows.**
+New upstream `DesktopCache.kt` in `0.1.31-alpha` uses cached JarURLConnection access
+for stamps and streaming. Its inherited `DesktopCacheTest` fails deleting second.jar
+on Windows in the full Z suite. Upstream source is confirmed identical before the fix;
+an unmodified vanilla application was not run. Promoted to a narrow release/test gate
+patch: disable connection caching, close the stamp's JarFile, and close the uncached
+resource stream. Both inherited cache regressions pass against the patched shipped
+class (with real compiled DesktopStorage). **drop-at-next-sync:** remove only after
+upstream closes these handles and the Windows resource-install test passes.
+
 ## The register
 
 | # | Bug | Where | Confidence | Notes |

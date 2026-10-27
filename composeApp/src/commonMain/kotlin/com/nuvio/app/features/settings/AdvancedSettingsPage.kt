@@ -131,6 +131,7 @@ internal fun LazyListScope.advancedSettingsContent(
                     isTablet = isTablet,
                     onCheckedChange = ProfileRepository::setRememberLastProfileEnabled,
                 )
+                PlatformSettingsExtensions.startupRows?.invoke(isTablet)
             }
         }
     }
@@ -583,6 +584,7 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
                         isTablet = isTablet,
                         onCheckedChange = PlayerSettingsRepository::setTunnelingEnabled,
                     )
+                    PlaybackBufferSettingsRows(autoPlayPlayerSettings, isTablet, exoOptionsEnabled)
                     }
                 }
             }

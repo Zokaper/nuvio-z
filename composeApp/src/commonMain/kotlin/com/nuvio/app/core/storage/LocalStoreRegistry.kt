@@ -97,7 +97,12 @@ internal object LocalStoreRegistry {
         account("nuvio_season_view_mode"),
         account("nuvio_search_history"),
         account("nuvio_social"),
+        account("nuvio_social_popups"),
         account("nuvio_social_features"),
+        account("nuvio_language_preferences"),
+        account("nuvio_autosync_settings"),
+        // Which profile this phone's push token is registered for: cleared, so a signed-out phone drops its pushes.
+        account("nuvio_social_push"),
         account("nuvio_download_policy"),
         // The device revision is this installation's; the per-profile arrival and Advanced Setup
         // flags beside it belong to whichever account is signed in.
@@ -108,6 +113,8 @@ internal object LocalStoreRegistry {
         credential("nuvio_trakt_auth"),
         credential("nuvio_simkl_auth"),
         credential("nuvio_mdblist_auth"),
+        credential("nuvio_servers"),
+        credential("server_credentials"),
         credential("nuvio_profile_pin_cache"),
         credential("nuvio_aiostreams_credentials"),
         credential("nuvio_official_session"),
@@ -124,6 +131,8 @@ internal object LocalStoreRegistry {
         cache("nuvio_binge_group_cache"),
 
         // Device-local: kept across accounts
+        // Settings -> Social -> Notifications: what may interrupt you on this phone.
+        device("nuvio_social_alerts"),
         device("nuvio_whats_new"),
         device("nuvio_updater"),
         device("server_configuration"),
@@ -135,6 +144,7 @@ internal object LocalStoreRegistry {
         device("nuvio_downloads_android"),
         device("nuvio_download_live_notifications"),
         device("nuvio_window_state"),
+        device("nuvio_tray"),
         device("nuvio_player_runtime"),
         device("nuvio_desktop_renderer"),
         device("nuvio_app_icon"),

@@ -197,6 +197,12 @@ enum class SetupSpecimen(
      * Advanced Setup's own interactive previews - so this specimen draws nothing itself.
      */
     Device(preferredHeight = 250.dp),
+
+    /**
+     * The three Language steps (2026-10-22): Advanced Setup's Language previews, drawn by the caller
+     * like [Device] - the stills of one scene with the subtitle each choice would show.
+     */
+    Language(preferredHeight = 250.dp),
 }
 
 /**
@@ -321,7 +327,7 @@ fun SetupSpecimenBand(
                     wide = wide,
                 )
 
-                SetupSpecimen.Device -> Unit
+                SetupSpecimen.Device, SetupSpecimen.Language -> Unit
 
                 SetupSpecimen.Diagram -> SetupDiagram(
                     step = step,

@@ -28,6 +28,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -42,6 +46,9 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.social.SocialAvatar
+import com.nuvio.app.features.watchparty.PartyInvitePicker
+import com.nuvio.app.features.watchparty.PartyInviteRow
+import com.nuvio.app.features.watchparty.WatchPartyMaxParticipants
 
 /**
  * One button the phone panel offers, and exactly what it sends.
@@ -87,7 +94,10 @@ internal fun mobilePartyStateActions(state: WatchTogetherBridgeState): List<Mobi
         else -> emptyList()
     }
 
-/** The viewer's own request to join someone else: waiting, or answered and ready to go. */
+/**
+ * The viewer's own request to join someone else: waiting, answered and ready to go, or - for the few
+ * seconds the store keeps it - refused, unanswered or overtaken, which used to vanish without a word.
+ */
 internal fun mobileOutgoingRequestActions(state: WatchTogetherBridgeState): List<MobilePartyAction> {
     if (!state.outgoingVisible) return emptyList()
     return when (state.outgoingPhase) {
@@ -95,13 +105,31 @@ internal fun mobileOutgoingRequestActions(state: WatchTogetherBridgeState): List
             MobilePartyAction("Join now", "wtJoinAccepted", emphasis = MobilePartyActionEmphasis.Primary),
             MobilePartyAction("Not now", "wtDismissAccepted"),
         )
+        "declined", "expired", "failed" -> listOf(
+            MobilePartyAction("Ask again", "wtAskAgainOutgoing", emphasis = MobilePartyActionEmphasis.Primary),
+            MobilePartyAction("Dismiss", "wtDismissOutgoing"),
+        )
+        "stopped" -> listOf(MobilePartyAction("Dismiss", "wtDismissOutgoing"))
         else -> listOf(MobilePartyAction("Cancel request", "wtCancelOutgoing"))
     }
 }
 
 internal fun mobileOutgoingRequestTitle(state: WatchTogetherBridgeState): String = when (state.outgoingPhase) {
     "accepted", "joining" -> "${state.outgoingName} let you in"
+    "declined" -> "${state.outgoingName} can't have company right now"
+    "expired" -> "No answer from ${state.outgoingName}"
+    "stopped" -> "${state.outgoingName} stopped watching"
+    "failed" -> "Couldn't join ${state.outgoingName}"
     else -> "Asking ${state.outgoingName} to join"
+}
+
+/** The Invite button's words for [PartyInviteButton.wire]. */
+internal fun mobileInviteLabel(state: String): String = when (state) {
+    PartyInviteButton.Sending.wire -> "Sending…"
+    PartyInviteButton.Sent.wire -> "Sent"
+    PartyInviteButton.Cancelling.wire -> "Cancelling…"
+    PartyInviteButton.Declined.wire -> "Declined"
+    else -> "Invite"
 }
 
 /**
@@ -296,30 +324,28 @@ private fun ActiveParty(state: WatchTogetherBridgeState, onEvent: (String, Doubl
         }
 
         if (state.inviteTargets.isNotEmpty()) {
-            SectionLabel("Invite friends")
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.inviteTargets.forEach { target ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        SocialAvatar(target.name, target.avatarUrl, null, 32.dp)
-                        Text(
-                            target.name,
-                            color = tokens.colors.textPrimary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+            // The picker (2026-10-19) instead of every friend inline: search, watching now first, check circles.
+            var picking by remember { mutableStateOf(false) }
+            PlayerDialogButton(label = "+ Invite friends", onClick = { picking = true })
+            if (picking) {
+                PartyInvitePicker(
+                    rows = state.inviteTargets.map { target ->
+                        PartyInviteRow(
+                            key = target.index.toString(),
+                            name = target.name,
+                            avatarUrl = target.avatarUrl.ifBlank { null },
+                            colorHex = null,
+                            watching = target.watching,
+                            button = PartyInviteButton.entries.firstOrNull { it.wire == target.state } ?: PartyInviteButton.Invite,
                         )
-                        PlayerDialogButton(
-                            label = if (target.invited) "Invited" else "Invite",
-                            enabled = !target.invited,
-                            onClick = { onEvent("wtInviteFriend", target.index.toDouble()) },
-                        )
-                    }
-                }
+                    },
+                    slots = WatchPartyMaxParticipants - state.people.size,
+                    // The player is landscape: a dialog, not a bottom sheet.
+                    wide = true,
+                    onDismiss = { picking = false },
+                    onInvite = { keys -> keys.forEach { onEvent("wtInviteFriend", it.toDouble()) } },
+                    onCancel = { key -> onEvent("wtCancelInvite", key.toDouble()) },
+                )
             }
         }
         if (state.inviteCode.isNotBlank()) {

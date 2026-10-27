@@ -16,5 +16,7 @@ actual object SocialStorage {
     actual fun saveAbandonedJoinRequests(profileId: String, payload: String?) {
         preferences?.edit()?.apply { if (payload == null) remove("abandoned_join_$profileId") else putString("abandoned_join_$profileId", payload) }?.apply()
     }
+    actual fun loadPopupSeen(profileId: String): String? = preferences?.getString("popup_seen_$profileId", null)
+    actual fun savePopupSeen(profileId: String, payload: String) { preferences?.edit()?.putString("popup_seen_$profileId", payload)?.apply() }
 }
 

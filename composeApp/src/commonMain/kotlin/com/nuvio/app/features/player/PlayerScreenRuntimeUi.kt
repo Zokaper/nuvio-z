@@ -6,6 +6,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import com.nuvio.app.features.watchparty.currentEpochMs
+import com.nuvio.app.features.watchparty.partyInviteWatching
 import com.nuvio.app.features.watchparty.PartyClientPhase
 import com.nuvio.app.features.social.parseSocialTimestampMs
 import com.nuvio.app.features.social.OutgoingJoinRequestStore
@@ -69,6 +70,7 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.playback.PlaybackLoadingController
@@ -94,6 +96,8 @@ import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.isDesktop
 import com.nuvio.app.features.player.skip.internalSkipAction
+import com.nuvio.app.features.servers.ServerStreams
+import com.nuvio.app.features.streams.streamAddonInstanceId
 import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -108,9 +112,13 @@ import com.nuvio.app.features.playback.PlaybackHandover
 import com.nuvio.app.features.playback.PlaybackLoadingActions
 import com.nuvio.app.features.updater.formatFileSize
 import com.nuvio.app.features.social.SocialNotification
+import com.nuvio.app.features.social.SocialInboxEvent
 import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
 import com.nuvio.app.features.social.SocialRepository
+import com.nuvio.app.features.social.toSocialPopup
+import com.nuvio.app.features.social.PhoneSocialAlerts
+import com.nuvio.app.features.social.SocialPopupKind
 import com.nuvio.app.features.social.SocialPresenceSession
 import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
 import com.nuvio.app.features.social.rememberSocialEnabled
@@ -118,6 +126,7 @@ import com.nuvio.app.core.ui.NuvioToastController
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.watch_party_cannot_share_source
 import org.jetbrains.compose.resources.getString
+import com.nuvio.app.features.social.OutgoingJoinOutcome
 
 private val playerControlsLog = Logger.withTag("PlayerControls")
 
@@ -187,8 +196,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     LaunchedEffect(activeParty?.id) {
         if (activeParty != null) partyPromotion = PartyPromotionProgress.Idle
         partyEndConfirm = false
-        // "Invited" is about one party; a friend invited to the last one can be invited to this one.
+        // "Sent" is about one party; a friend invited to the last one can be invited to this one.
         partyInvitedProfileIds = emptySet()
+        partyCancellingInviteIds = emptySet()
     }
     LaunchedEffect(partySessionState.guestPostEndChoice) {
         if (partySessionState.guestPostEndChoice) {
@@ -211,6 +221,38 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val activeSocialNotification = socialUiState.notifications
         .takeIf { socialEnabled }
         ?.let(::inPlayerSocialCardNotification)
+        // Settings -> Social -> Notifications: a kind switched off on this phone shows nowhere on it.
+        ?.takeIf { PhoneSocialAlerts.current.allows(it.toSocialPopup().kind) }
+    // "Seraph is watching Andor", for friends the viewer asked to be told about: said once each, for a
+    // few seconds, and only when no card above needs an answer. Events from before this player opened
+    // (less a minute of clock skew) belong to the Inbox. Mobile has no pop-ups outside the player yet.
+    val friendWatchingSinceMs = remember { currentEpochMs() - FriendWatchingClockSkewMs }
+    var friendWatchingShownIds by remember { mutableStateOf(emptySet<String>()) }
+    var friendWatchingNotice by remember { mutableStateOf<SocialInboxEvent?>(null) }
+    val nextFriendWatching = if (socialEnabled) {
+        inPlayerFriendWatchingEvent(
+            inbox = socialUiState.inbox,
+            notifyFor = { socialUiState.prefsFor(it).notifyWhenWatching },
+            sinceMs = friendWatchingSinceMs,
+            shownIds = friendWatchingShownIds,
+        )
+    } else null
+    LaunchedEffect(nextFriendWatching?.id) {
+        val event = nextFriendWatching ?: return@LaunchedEffect
+        friendWatchingShownIds = friendWatchingShownIds + event.id
+        friendWatchingNotice = event
+    }
+    LaunchedEffect(friendWatchingNotice?.id) {
+        if (friendWatchingNotice == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(FriendWatchingVisibleMs)
+        friendWatchingNotice = null
+    }
+    val friendWatchingCard = friendWatchingNotice?.takeIf {
+        activeSocialNotification == null && socialEnabled && PhoneSocialAlerts.current.allows(SocialPopupKind.FriendWatching)
+    }
+    // The card itself is the phone's banner (2026-10-18), built by the same rules as every pop-up.
+    val socialCard = activeSocialNotification?.toSocialPopup()
+        ?: friendWatchingCard?.toSocialPopup(socialUiState.watchingNow)
     val incomingJoinRequest = socialUiState.notifications.firstOrNull {
         socialEnabled && it.readAt == null && it.kind == SocialNotificationKind.WatchingNowJoinRequest &&
             SocialNotificationAction.Accept in it.availableActions
@@ -227,15 +269,17 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 avatarColorHex = actor.avatarColorHex,
             )
         },
-        // Lowest priority, and only while still waiting: an accepted request asks Join / Not now in
-        // the panel, never from a pill.
+        // Lowest priority: waiting, or how it ended for the few seconds that is on screen. An accepted
+        // request asks Join / Not now in the panel, never from a pill.
         outgoingTarget = when (val request = outgoingJoinRequest) {
             is OutgoingJoinRequestState.Pending -> request.target
             is OutgoingJoinRequestState.Sending -> request.target
+            is OutgoingJoinRequestState.Outcome -> request.target.takeIf { request.kind.statusOutcome() != null }
             else -> null
         }?.let { target ->
             PartyStatusPerson(target.profileId, target.displayName, target.avatarUrl, target.avatarColorHex)
         },
+        outgoingOutcome = (outgoingJoinRequest as? OutgoingJoinRequestState.Outcome)?.kind?.statusOutcome(),
         panelOpen = partyRoomOpen,
     )
     // When realtime entered its current state, for the connection chip's grace periods.
@@ -298,6 +342,28 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             releaseName = activeStreamTitle.takeIf { it.isNotBlank() },
         ),
     )
+    // Invite buttons: a pressed invite reads Sending until the server lists it for this party, a
+    // withdrawn one Cancelling until the server drops it, and a Declined turns back into Invite when
+    // its cooldown ends - so this clock only ticks while one is running.
+    LaunchedEffect(socialUiState.sentPartyInvites, activeParty?.id) {
+        val listed = socialUiState.sentPartyInvites ?: return@LaunchedEffect
+        val partyId = activeParty?.id
+        partyInvitedProfileIds = partyInvitedProfileIds.filterTo(mutableSetOf()) { id ->
+            listed.none { it.receiverProfileId == id && (it.partyId == partyId || it.status == "declined") }
+        }
+        partyCancellingInviteIds = partyCancellingInviteIds.filterTo(mutableSetOf()) { id -> listed.any { it.id == id } }
+    }
+    val inviteNowMs by produceState(currentEpochMs(), socialUiState.sentPartyInvites, socialUiState.sentPartyInvitesAtMs) {
+        while (true) {
+            value = currentEpochMs()
+            val next = nextPartyInviteCooldownEndMs(
+                socialUiState.sentPartyInvites,
+                socialUiState.sentPartyInvitesAtMs,
+                value,
+            ) ?: break
+            kotlinx.coroutines.delay((next - value).coerceAtLeast(0L) + 50L)
+        }
+    }
     val watchTogetherBridge = watchTogetherBridgeState(
         panel = watchTogetherPanel,
         open = partyRoomOpen && !playerControlsLocked,
@@ -308,9 +374,20 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     index = index,
                     name = friend.displayName,
                     avatarUrl = friend.avatarUrl.orEmpty(),
-                    invited = friend.profileId in partyInvitedProfileIds,
+                    state = partyInviteButton(
+                        friendProfileId = friend.profileId,
+                        partyId = activeParty?.id,
+                        sent = socialUiState.sentPartyInvites,
+                        sentAtMs = socialUiState.sentPartyInvitesAtMs,
+                        pressed = partyInvitedProfileIds,
+                        cancelling = partyCancellingInviteIds,
+                        nowMs = inviteNowMs,
+                    ).button.wire,
+                    watching = partyInviteWatching(friend.profileId, socialUiState.watchingNow),
                 )
-            },
+            }
+            // The picker's order (watching first, then by name); `index` still names the friend for the commands.
+            .sortedWith(compareBy({ it.watching == null }, { it.name.lowercase() })),
         inviteCode = watchPartyUiState.inviteCode.orEmpty(),
         endConfirm = partyEndConfirm,
         outgoing = (outgoingJoinRequest as? OutgoingJoinRequestState.Bound)?.let { request ->
@@ -318,6 +395,14 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 is OutgoingJoinRequestState.Pending, is OutgoingJoinRequestState.Cancelling -> "pending"
                 is OutgoingJoinRequestState.Accepted -> "accepted"
                 is OutgoingJoinRequestState.Joining -> "joining"
+                // The answer, while the store shows it: the dock is hidden over the player.
+                is OutgoingJoinRequestState.Outcome -> when (request.kind) {
+                    OutgoingJoinOutcome.Declined -> "declined"
+                    OutgoingJoinOutcome.Expired -> "expired"
+                    OutgoingJoinOutcome.TargetStopped -> "stopped"
+                    OutgoingJoinOutcome.Failed -> "failed"
+                    OutgoingJoinOutcome.Cancelled -> null
+                }
                 else -> null
             } ?: return@let null
             WatchTogetherOutgoingMirror(
@@ -461,8 +546,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val openingLoadingState = PlaybackLoadingState(
         step = PlaybackProgressStep.StartingPlayback,
         stageOverride = waitingForHostToPlay,
-        attempt = args.playbackAttempt,
-        facts = args.sourceFacts,
+        attempt = activePlaybackAttempt,
+        facts = activeSourceFacts,
         contentLanguage = args.contentLanguage,
         preferredAudioLanguage = preferredAudioLanguageTargets.firstOrNull()
             ?: playerSettingsUiState.preferredAudioLanguage,
@@ -547,7 +632,6 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         showTitle = title,
         background = background,
         poster = poster,
-        startingEpisode = startingEpisode,
     )
     // The loading surface is drawn by `PlaybackLoadingHost`, above `NavDisplay`. In the automatic
     // modes the stream route already opened the session and handed it over, and this must not
@@ -566,8 +650,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     artwork = openingPresentation.artwork,
                     logo = openingPresentation.logo,
                     title = openingPresentation.title,
-                    attempt = args.playbackAttempt,
-                    facts = args.sourceFacts,
+                    attempt = activePlaybackAttempt,
+                    facts = activeSourceFacts,
                     contentLanguage = args.contentLanguage,
                     reason = "player_opening_overlay",
                 )
@@ -887,8 +971,10 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         partyHostName = activeParty?.let { party ->
             party.members.firstOrNull { it.profileId == party.hostProfileId }?.displayName(viewerProfileId = null)
         }.orEmpty(),
-        socialNotificationVisible = activeSocialNotification != null && !playerControlsLocked,
-        socialNotificationActor = activeSocialNotification?.actor?.displayName.orEmpty(),
+        socialNotificationVisible = (activeSocialNotification != null || friendWatchingCard != null) &&
+            !playerControlsLocked,
+        socialNotificationActor = activeSocialNotification?.actor?.displayName
+            ?: friendWatchingCard?.actor?.displayName.orEmpty(),
         socialNotificationMessage = when (activeSocialNotification?.kind) {
             SocialNotificationKind.FriendRequest -> "sent you a friend request"
             SocialNotificationKind.PartyInvitation -> {
@@ -897,7 +983,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 else "invited you to Watch Together"
             }
             SocialNotificationKind.WatchingNowJoinRequest -> "asked to join your playback"
-            null -> ""
+            null -> friendWatchingCard?.let(::friendWatchingLine).orEmpty()
         },
         socialNotificationActions = activeSocialNotification?.availableActions.orEmpty()
             .map { it.name.lowercase() }
@@ -929,6 +1015,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     )
     val gestureCallbacks = rememberSurfaceGestureCallbacks()
     val playbackGesturesEnabled = initialLoadCompleted && errorMessage == null
+
+    BindAutoSyncRuntimeEffects() // AutoSync hook
 
     Box(
         modifier = Modifier
@@ -981,6 +1069,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 initialPositionMs = surfaceSource?.initialPositionMs,
                 initialPositionRequestKey = surfaceSource?.initialPositionRequestKey,
                 resizeMode = resizeMode,
+                playbackEngine = playbackEngineOverride,
                 playerControlsState = playerControlsState,
                 onPlayerControlsAction = { action -> handlePlayerControlsAction(action) },
                 onPlayerControlsEvent = { type, value -> handlePlayerControlsEvent(type, value) },
@@ -1105,6 +1194,12 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 controlsVisible = controlsVisible,
                 gestureFeedbackShowing = currentGestureFeedback != null,
                 horizontalSafePadding = horizontalSafePadding,
+                socialCard = socialCard,
+                // A swipe up: a notice is marked read; a friend-started-watching card simply goes.
+                onDismissSocialCard = {
+                    if (activeSocialNotification != null) handlePlayerControlsEvent("socialNotificationDismiss", 0.0)
+                    else friendWatchingNotice = null
+                },
                 onEvent = { type, value -> handlePlayerControlsEvent(type, value) },
             )
             // Above the pill and the playback overlays, below the modals it can open (Sources).
@@ -1117,6 +1212,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         }
         RenderPlaybackDiagnosticsHud()
         RenderPlayerModals(displayedPositionMs = displayedPositionMs)
+        if (com.nuvio.app.core.build.UPSTREAM_PARTY_UI_ENABLED) RenderParty(runtime = runtime)
     }
 }
 
@@ -1133,6 +1229,11 @@ private fun p2pConnectingPhaseLabel(phase: String): String = when (phase) {
     )
 }
 
+private val PlayerScreenRuntime.activeAddonLogo: String?
+    get() = addonsUiState.addons.firstNotNullOfOrNull { addon ->
+        addon.manifest?.takeIf { addon.streamAddonInstanceId(it.id) == activeProviderAddonId }?.logoUrl
+    }
+
 private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
     val positionMs = activeInitialPositionMs.takeIf { it > 0L } ?: return null
     return "$activePlaybackIdentity:${activeVideoId.orEmpty()}:$positionMs"
@@ -1145,6 +1246,8 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
     playerControlsState: PlayerControlsState,
 ) {
     val isInPip = rememberIsInPictureInPicture()
+    val partyState by PartyRepository.state.collectAsStateWithLifecycle()
+    val partyActive = partyState.party != null
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
@@ -1178,6 +1281,12 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 if (playerControlsLocked) unlockPlayerControls() else lockPlayerControls()
             },
             onBack = { requestBack() },
+            onPartyClick = if (com.nuvio.app.core.build.UPSTREAM_PARTY_UI_ENABLED && PartyRepository.available.collectAsStateWithLifecycle().value) {
+                { openPartyPanel() }
+            } else {
+                null
+            },
+            partyActive = partyActive,
             onTogglePlayback = { togglePlayback() },
             onSeekBack = { seekBy(-10_000L) },
             onSeekForward = { seekBy(10_000L) },
@@ -1202,7 +1311,9 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
             onSourcesClick = if (activeVideoId != null) { { openSourcesPanel() } } else null,
             onEpisodesClick = if (isSeries) { { openEpisodesPanel() } } else null,
             onNextEpisodeClick = if (nextEpisodeInfo?.hasAired == true) { { playNextEpisodeFromControls() } } else null,
-            onOpenInExternalPlayer = args.onOpenInExternalPlayer?.let { openExternal ->
+            onOpenInExternalPlayer = args.onOpenInExternalPlayer
+                ?.takeUnless { ServerStreams.isServerSourceId(activeProviderAddonId) }
+                ?.let { openExternal ->
                 {
                     val loadedSubtitles = addonSubtitles
                         .takeIf { it.isNotEmpty() }
@@ -1249,6 +1360,12 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
             onWatchTogetherClick = {
                 handlePlayerControlsAction(PlayerControlsAction.WatchTogether)
             },
+            onSwitchEngineClick = if (playerController?.playbackEngine != null) {
+                { switchPlaybackEngine() }
+            } else {
+                null
+            },
+            onStreamInfoClick = { openStreamInfo() },
             parentalWarnings = parentalWarnings,
             showParentalGuide = showParentalGuide,
             onParentalGuideAnimationComplete = { showParentalGuide = false },
@@ -1257,14 +1374,16 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 scrubbingPositionMs = positionMs
             },
             onScrubFinished = { positionMs ->
-                // Upstream's scrub end: settles any skip segment the scrub crossed, and holds the
-                // target on the timeline while the engine is still loading it.
-                finishTimelineScrub(positionMs)
-                // The party seeks everyone at one instant, this player included, so performing the
-                // seek here as well would move it twice - once to the scrub target and once to
-                // wherever the barrier says the party will be.
-                if (!submitPartySeek(positionMs)) playerController?.seekTo(positionMs)
-                scheduleProgressSyncAfterSeek()
+                val targetMs = if (isPartyControlLocked) ownSeekTarget(positionMs) else positionMs
+                if (targetMs == null) {
+                    isScrubbingTimeline = false
+                    scrubbingPositionMs = null
+                } else {
+                    finishTimelineScrub(targetMs)
+                    if (!submitPartySeek(targetMs)) playerController?.seekTo(targetMs)
+                    scheduleProgressSyncAfterSeek()
+                    publishPartyPlayback(positionMs = targetMs)
+                }
             },
             horizontalSafePadding = horizontalSafePadding,
             modifier = Modifier.fillMaxSize(),
@@ -1601,12 +1720,40 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             val targets = SocialRepository.uiState.value.friends
                 .filter { friend -> party.members.none { it.profileId == friend.profileId } }
             val target = targets.getOrNull(value.toInt()) ?: return true
-            if (target.profileId in partyInvitedProfileIds) return true
+            val social = SocialRepository.uiState.value
+            val button = partyInviteButton(
+                target.profileId, party.id, social.sentPartyInvites, social.sentPartyInvitesAtMs,
+                partyInvitedProfileIds, partyCancellingInviteIds, currentEpochMs(),
+            ).button
+            if (button != PartyInviteButton.Invite) return true
             partyInvitedProfileIds = partyInvitedProfileIds + target.profileId
             scope.launch {
                 WatchPartyRepository.invite(target.profileId).onFailure { failure ->
                     partyInvitedProfileIds = partyInvitedProfileIds - target.profileId
-                    partyPanelError = failure.message ?: "Couldn't invite ${target.displayName}"
+                    partyPanelError = if (failure.message.orEmpty().contains("invite_cooldown")) {
+                        "${target.displayName} declined a moment ago. Try again in a few minutes."
+                    } else {
+                        failure.message ?: "Couldn't invite ${target.displayName}"
+                    }
+                }
+            }
+        }
+        "wtCancelInvite" -> {
+            val party = WatchPartyRepository.uiState.value.party ?: return true
+            val target = SocialRepository.uiState.value.friends
+                .filter { friend -> party.members.none { it.profileId == friend.profileId } }
+                .getOrNull(value.toInt()) ?: return true
+            val social = SocialRepository.uiState.value
+            val state = partyInviteButton(
+                target.profileId, party.id, social.sentPartyInvites, social.sentPartyInvitesAtMs,
+                partyInvitedProfileIds, partyCancellingInviteIds, currentEpochMs(),
+            )
+            val inviteId = state.inviteId?.takeIf { state.button == PartyInviteButton.Sent } ?: return true
+            partyCancellingInviteIds = partyCancellingInviteIds + inviteId
+            scope.launch {
+                SocialRepository.cancelPartyInvite(inviteId).onFailure {
+                    partyCancellingInviteIds = partyCancellingInviteIds - inviteId
+                    partyPanelError = "Couldn't cancel the invite to ${target.displayName}"
                 }
             }
         }
@@ -1623,6 +1770,8 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             )
         }
         "wtCancelOutgoing" -> OutgoingJoinRequestStore.cancel()
+        "wtAskAgainOutgoing" -> OutgoingJoinRequestStore.askAgain()
+        "wtDismissOutgoing" -> OutgoingJoinRequestStore.dismiss()
         "wtJoinAccepted" -> OutgoingJoinRequestStore.joinNow()
         "wtDismissAccepted" -> OutgoingJoinRequestStore.notNow()
         "wtDismissError" -> {
@@ -1838,43 +1987,72 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
         }
         "subtitleFontSizeDelta" -> {
             PlayerSettingsRepository.setSubtitleStyle(
-                subtitleStyle.copy(fontSizeSp = (subtitleStyle.fontSizeSp + value.toInt()).coerceIn(subtitleFontSizeRangeSp)),
+                writableSubtitleStyle.copy(fontSizeSp = (subtitleStyle.fontSizeSp + value.toInt()).coerceIn(subtitleFontSizeRangeSp)),
             )
         }
         "subtitleOutlineToggle" -> {
-            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(outlineEnabled = !subtitleStyle.outlineEnabled))
+            PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(outlineEnabled = !subtitleStyle.outlineEnabled))
         }
         "subtitleBoldToggle" -> {
-            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(bold = !subtitleStyle.bold))
+            PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(bold = !subtitleStyle.bold))
         }
         "subtitleBottomOffsetDelta" -> {
             PlayerSettingsRepository.setSubtitleStyle(
-                subtitleStyle.copy(bottomOffset = (subtitleStyle.bottomOffset + value.toInt()).coerceIn(0, 200)),
+                writableSubtitleStyle.copy(bottomOffset = (subtitleStyle.bottomOffset + value.toInt()).coerceIn(0, 200)),
             )
         }
         "subtitleTextColor" -> {
             SubtitleColorSwatches.getOrNull(value.toInt())?.let { color ->
-                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(textColor = color.copy(alpha = subtitleStyle.textColor.alpha)))
+                PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(textColor = color.copy(alpha = subtitleStyle.textColor.alpha)))
             }
         }
         "subtitleOutlineColor" -> {
             SubtitleOutlineColorSwatches.getOrNull(value.toInt())?.let { color ->
                 PlayerSettingsRepository.setSubtitleStyle(
-                    subtitleStyle.copy(outlineEnabled = true, outlineColor = color),
+                    writableSubtitleStyle.copy(outlineEnabled = true, outlineColor = color),
                 )
             }
         }
         "subtitleTextOpacity" -> {
             val alpha = (value.toFloat() / 100f).coerceIn(0f, 1f)
-            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(textColor = subtitleStyle.textColor.copy(alpha = alpha)))
+            PlayerSettingsRepository.setSubtitleStyle(writableSubtitleStyle.copy(textColor = subtitleStyle.textColor.copy(alpha = alpha)))
         }
-        "subtitleStyleReset" -> PlayerSettingsRepository.setSubtitleStyle(SubtitleStyleState.DEFAULT)
+        "subtitleStyleReset" -> PlayerSettingsRepository.setSubtitleStyle(
+            SubtitleStyleState.DEFAULT.copy(useForcedSubtitles = writableSubtitleStyle.useForcedSubtitles),
+        )
         "parentalGuideComplete" -> {
             showParentalGuide = false
         }
         else -> return false
     }
     return true
+}
+
+private const val FriendWatchingClockSkewMs = 60_000L
+private const val FriendWatchingVisibleMs = 7_000L
+
+/**
+ * The newest "a friend started watching" event to say over the player: unread, from a friend the viewer
+ * asked to be told about, created at or after [sinceMs], and not said already in this player.
+ */
+internal fun inPlayerFriendWatchingEvent(
+    inbox: List<SocialInboxEvent>,
+    notifyFor: (String) -> Boolean,
+    sinceMs: Long,
+    shownIds: Set<String>,
+): SocialInboxEvent? = inbox
+    .filter { it.kind == SocialInboxEvent.FriendWatching && it.readAt == null && it.id !in shownIds }
+    .filter { notifyFor(it.actor.profileId) }
+    .mapNotNull { event -> parseSocialTimestampMs(event.createdAt)?.takeIf { it >= sinceMs }?.let { event to it } }
+    .maxByOrNull { it.second }
+    ?.first
+
+/** "is watching Andor · S1 E2", after the friend's name. */
+internal fun friendWatchingLine(event: SocialInboxEvent): String {
+    val title = event.payload.title?.takeIf { it.isNotBlank() } ?: return "started watching"
+    val season = event.payload.season
+    val episode = event.payload.episode
+    return if (season != null && episode != null) "is watching $title · S$season E$episode" else "is watching $title"
 }
 
 /**
@@ -2551,7 +2729,6 @@ private fun BoxScope.RenderPlaybackOverlays(
             showTitle = title,
             background = background,
             poster = poster,
-            startingEpisode = startingEpisode,
         )
         val playerClipboardManager = LocalClipboardManager.current
         PlayerPlaybackOverlays(
@@ -2607,6 +2784,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 val seekMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
                 if (!submitPartySeek(seekMs)) playerController?.seekTo(seekMs)
                 scheduleProgressSyncAfterSeek()
+                publishPartyPlayback(positionMs = seekMs)
                 skipIntervalDismissed = true
             },
             onDismissSkipInterval = { skipIntervalDismissed = true },
@@ -2635,8 +2813,8 @@ private fun BoxScope.RenderPlaybackOverlays(
             loadingState = PlaybackLoadingState(
                 step = PlaybackProgressStep.StartingPlayback,
                 stageOverride = waitingForHostToPlay,
-                attempt = args.playbackAttempt,
-                facts = args.sourceFacts,
+                attempt = activePlaybackAttempt,
+                facts = activeSourceFacts,
                 contentLanguage = args.contentLanguage,
                 preferredAudioLanguage = preferredAudioLanguageTargets.firstOrNull()
                     ?: playerSettingsUiState.preferredAudioLanguage,
@@ -2644,7 +2822,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             formatSize = ::formatFileSize,
             onCopyErrorDetails = errorMessage?.let { message ->
                 {
-                    val label = PlaybackSourceSelector.describe(args.sourceFacts)
+                    val label = PlaybackSourceSelector.describe(activeSourceFacts)
                     playerClipboardManager.setText(
                         AnnotatedString(
                             listOf(label, args.streamTitle, message)
@@ -2673,12 +2851,16 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
         },
         showAudioModal = showAudioModal,
-        audioTracks = audioTracks,
-        selectedAudioIndex = selectedAudioIndex,
+        audioTracks = serverAudioTracks.ifEmpty { audioTracks },
+        selectedAudioIndex = serverAudioTracks.firstOrNull { it.isSelected }?.index ?: selectedAudioIndex,
         onAudioTrackSelected = { index ->
-            selectedAudioIndex = index
-            persistAudioPreference(audioTracks.firstOrNull { it.index == index })
-            playerController?.selectAudioTrack(index)
+            if (serverAudioTracks.isNotEmpty()) {
+                selectServerAudioTrack(index)
+            } else {
+                selectedAudioIndex = index
+                persistAudioPreference(audioTracks.firstOrNull { it.index == index })
+                playerController?.selectAudioTrack(index)
+            }
             scope.launch {
                 kotlinx.coroutines.delay(200)
                 showAudioModal = false
@@ -2686,8 +2868,12 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         },
         onAudioModalDismissed = { showAudioModal = false },
         showSubtitleModal = showSubtitleModal,
-        subtitleTracks = subtitleTracks,
-        selectedSubtitleIndex = selectedSubtitleIndex,
+        subtitleTracks = serverSubtitleTracks.ifEmpty { subtitleTracks },
+        selectedSubtitleIndex = if (serverSubtitleTracks.isEmpty()) {
+            selectedSubtitleIndex
+        } else {
+            serverSubtitleTracks.firstOrNull { it.isSelected }?.index ?: -1
+        },
         addonSubtitles = visibleAddonSubtitles,
         selectedAddonSubtitleId = selectedAddonSubtitleId,
         isLoadingAddonSubtitles = isLoadingAddonSubtitles,
@@ -2696,17 +2882,22 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         selectedAddonSubtitle = selectedAddonSubtitle,
         subtitleAutoSyncState = subtitleAutoSyncState,
         onBuiltInSubtitleTrackSelected = { index ->
-            val wasCustom = useCustomSubtitles
-            isUserExplicitSubtitleSelection = true
-            preferredSubtitleSelectionApplied = true
-            selectedSubtitleIndex = index
-            selectedAddonSubtitleId = null
-            useCustomSubtitles = false
-            persistInternalSubtitlePreference(subtitleTracks.firstOrNull { it.index == index })
-            if (wasCustom) {
-                playerController?.clearExternalSubtitleAndSelect(index)
+            if (serverSubtitleTracks.isNotEmpty() && index >= 0) {
+                selectServerSubtitleTrack(index)
             } else {
-                playerController?.selectSubtitleTrack(index)
+                val wasCustom = useCustomSubtitles
+                isUserExplicitSubtitleSelection = true
+                preferredSubtitleSelectionApplied = true
+                selectedSubtitleIndex = index
+                selectedAddonSubtitleId = null
+                useCustomSubtitles = false
+                persistInternalSubtitlePreference(subtitleTracks.firstOrNull { it.index == index })
+                if (wasCustom) {
+                    playerController?.clearExternalSubtitleAndSelect(index)
+                } else {
+                    playerController?.selectSubtitleTrack(index)
+                }
+                if (hasBurnedInServerSubtitle) clearServerSubtitleTrack()
             }
         },
         onAddonSubtitleSelected = { addon ->
@@ -2716,7 +2907,8 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             useCustomSubtitles = true
             preferredSubtitleSelectionApplied = true
             persistAddonSubtitlePreference(addon)
-            playerController?.setSubtitleUri(addon.url)
+            attachSelectedAddonSubtitleWithAutoSync(addon.url) // AutoSync hook
+            if (hasBurnedInServerSubtitle) clearServerSubtitleTrack()
         },
         onFetchAddonSubtitles = { fetchAddonSubtitlesForActiveItem() },
         onSubtitleStyleChanged = PlayerSettingsRepository::setSubtitleStyle,
@@ -2887,6 +3079,20 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             },
         )
     }
+    StreamInfoOverlay(
+        visible = showStreamInfo,
+        addonName = activeProviderName,
+        addonLogo = activeAddonLogo,
+        streamName = activeStreamTitle,
+        streamDescription = activeStreamSubtitle,
+        playbackEngine = playerController?.playbackEngine,
+        serverPlayback = serverPlaybackSummary(),
+        mediaInfo = streamMediaInfo,
+        audioTrack = audioTracks.firstOrNull { it.index == selectedAudioIndex },
+        subtitleTrack = subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }.takeIf { !useCustomSubtitles },
+        addonSubtitle = selectedAddonSubtitle.takeIf { useCustomSubtitles },
+        onDismiss = { showStreamInfo = false },
+    )
 }
 
 /** How long Starting a party may wait for the coordinator to answer before the panel calls it failed. */

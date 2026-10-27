@@ -35,6 +35,9 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.maskId
 import com.nuvio.app.core.auth.safeAuthStateDescription
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.compose_auth_sign_in
+import nuvio.composeapp.generated.resources.z_auth_signed_out_notice
+import org.jetbrains.compose.resources.getString
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.sync.SyncManager
@@ -51,6 +54,8 @@ import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NativeTabBridge
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioToastAction
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
@@ -66,6 +71,9 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.ProfileSelectionScreen
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
 import com.nuvio.app.features.setup.AdvancedSetupLauncher
+import com.nuvio.app.features.setup.advancedSetupAreasChangedSince
+import com.nuvio.app.features.setup.advancedSetupAreasChangedIn
+import com.nuvio.app.features.setup.AdvancedSetupCategory
 import com.nuvio.app.features.setup.AdvancedSetupScreen
 import com.nuvio.app.features.setup.DeviceSetupStorage
 import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
@@ -73,10 +81,18 @@ import com.nuvio.app.features.setup.SetupProfileFlags
 import com.nuvio.app.features.setup.SetupWizardRun
 import com.nuvio.app.features.setup.SetupWizardScreen
 import com.nuvio.app.features.setup.setupWizardRun
+import com.nuvio.app.features.setup.DeviceSetupLauncher
+import com.nuvio.app.features.setup.DeviceSetupSeed
+import com.nuvio.app.features.setup.SETUP_DEVICE_REVISION
+import com.nuvio.app.features.setup.deviceSetupSeed
+import com.nuvio.app.features.setup.isDeviceSetupStale
+import com.nuvio.app.features.setup.shouldOfferDeviceSetup
+import com.nuvio.app.features.whatsnew.DeviceSetupOffer
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.updater.AppReleaseNotes
 import com.nuvio.app.features.updater.fetchRecentReleaseNotes
 import com.nuvio.app.features.whatsnew.ChangelogAction
+import com.nuvio.app.features.whatsnew.NewSettingsOffer
 import com.nuvio.app.features.whatsnew.ChangelogCatalog
 import com.nuvio.app.features.whatsnew.WhatsNewBadge
 import com.nuvio.app.features.whatsnew.WhatsNewEventUi
@@ -100,6 +116,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepositor
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.navigation.AppRoute
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 internal suspend fun warmProfileBoundRepositories() {
@@ -125,7 +142,7 @@ internal suspend fun warmProfileBoundRepositories() {
 
 private val log = Logger.withTag("AppGate")
 
-private enum class AppGateScreen {
+internal enum class AppGateScreen {
     Loading,
     Auth,
     ProfileSelection,
@@ -266,7 +283,10 @@ internal fun AppGate(
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
 
-    var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
+    // A window re-created by desktop tray mode resumes the app it left; see [AppGateResume].
+    var gateScreen by rememberSaveable {
+        mutableStateOf(if (AppGateResume.canResumeMain()) AppGateScreen.Main.name else AppGateScreen.Loading.name)
+    }
     var pendingProfileSwitch by remember { mutableStateOf<PendingProfileSwitch?>(null) }
     var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
@@ -287,9 +307,28 @@ internal fun AppGate(
     // is: the gating showing lives in this function, and one flag for both is what keeps
     // an on-demand run from being confused with the first-launch one.
     var showSetupWizardOnDemand by remember { mutableStateOf(false) }
-    // Device-local, so no repository flow re-evaluates the gate when the wizard writes it: the
-    // gating wizard's onFinished re-reads it instead.
-    var deviceSetupRevision by remember { mutableStateOf(DeviceSetupStorage.loadRevision()) }
+    // Z: the "New settings available" offer and what it opens. `whatsNewDecided` holds the offer back
+    // until the post-update What's New has been decided, so it never flashes up before that screen.
+    var whatsNewDecided by remember { mutableStateOf(false) }
+    // Z (Device Setup redesign, 2026-10-24): the first launch of the redesign decides what this
+    // installation is - fresh, or one that predates it, whose profiles all count as set up here so
+    // nobody meets a wizard on update day (`deviceSetupSeed`). Idempotent: it writes a revision.
+    remember {
+        when (deviceSetupSeed(DeviceSetupStorage.loadRevision(), ProfileRepository.state.value.profiles.isNotEmpty())) {
+            DeviceSetupSeed.Fresh -> DeviceSetupStorage.saveRevision(0)
+            DeviceSetupSeed.Legacy -> {
+                SetupProfileFlags.markLegacyInstallation()
+                DeviceSetupStorage.saveRevision(SETUP_DEVICE_REVISION)
+            }
+            DeviceSetupSeed.None -> Unit
+        }
+    }
+    // Device Setup on demand: from the "First time on this device" pop-up, or Settings.
+    var showDeviceSetup by remember { mutableStateOf(false) }
+    var deviceSetupEpoch by remember { mutableStateOf(0) }
+    // Once it has been offered this launch, "New settings available" waits for the next one: the two
+    // pop-ups never follow each other, and a setup never interleaves with another (maintainer).
+    var deviceSetupOfferedThisLaunch by remember { mutableStateOf(false) }
     var arrivalPending by remember {
         mutableStateOf(SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId))
     }
@@ -300,6 +339,8 @@ internal fun AppGate(
     // wizard's Done page or What's New. A request made while something gates the app (the wizard,
     // the profile picker) waits for it: the hub opens only over the mounted app, see below.
     var advancedSetupRequested by remember { mutableStateOf(false) }
+    // The areas a review opens onto; null for the hub itself.
+    var advancedSetupReview by remember { mutableStateOf<List<AdvancedSetupCategory>?>(null) }
     // null while loading, empty when it could not be fetched. Either way the shipped events
     // still render - this screen has to work offline and on builds where the in-app updater is
     // disabled.
@@ -321,6 +362,7 @@ internal fun AppGate(
             whatsNewStateAfterContinue = decision.stateAfterContinue
             showWhatsNew = true
         }
+        whatsNewDecided = true
     }
 
     // Settings -> What's new: every event released to this platform, from the shipped changelog
@@ -363,27 +405,64 @@ internal fun AppGate(
         false
     }
 
-    // Full, an upgrade (revision 8 or 9: only the download steps), a device run (a current
-    // profile on a phone never set up here), or nothing.
+    fun reportAppReady(ready: Boolean) {
+        appGateController?.reportAppReady(ready)
+        onAppReady?.invoke(ready)
+    }
+
+    // Full, an upgrade (offered, see below), a cross-family arrival's Device run, or nothing.
     val gateSetupRun = setupWizardRun(
         profileRevision = gatePlayerSettings.setupWizardCompletedRevision,
-        deviceRevision = deviceSetupRevision,
-        isPhone = !isDesktop,
         currentRevision = SETUP_WIZARD_REVISION,
         arrivalPending = arrivalPending,
     )
-    val gatingRun = if (reviewSetupRequested) SetupWizardRun.Full else gateSetupRun
-    val isSetupWizardActive = gatingRun != SetupWizardRun.None || showSetupWizardOnDemand
+    // Re-read when the gate moves (a profile switch) or a setup finishes or is declined.
+    val deviceSetupDone = remember(gateScreen, deviceSetupEpoch) {
+        SetupProfileFlags.deviceSetupDone(ProfileRepository.activeProfileId)
+    }
+    val deviceSetupOffered = shouldOfferDeviceSetup(gateSetupRun, deviceSetupDone) && !reviewSetupRequested
+    // "Not now", or leaving the run early: the current values stand, and this device counts as set up.
+    val declineDeviceSetup: () -> Unit = {
+        SetupProfileFlags.markDeviceSetupDone(ProfileRepository.activeProfileId)
+        if (isDeviceSetupStale(DeviceSetupStorage.loadRevision())) DeviceSetupStorage.saveRevision(SETUP_DEVICE_REVISION)
+        deviceSetupEpoch++
+    }
+    // Z (2026-10-20): an Upgrade no longer gates the app. It is offered after What's New instead -
+    // "New settings available" - unless it carries a cross-family arrival, which is device setup.
+    val upgradeOffered = gateSetupRun == SetupWizardRun.Upgrade && !arrivalPending && !reviewSetupRequested
+    // Z (2026-10-24, maintainer): a debug build offers this release's settings again, once per profile
+    // per debug build, so a tester who already answered can still walk them. Never on a stable build.
+    // Re-read when the gate moves (a profile switch) or the offer is answered.
+    val debugOfferBuild = whatsNewIdentity.debugBuild
+    var debugOfferEpoch by remember { mutableStateOf(0) }
+    val debugOfferPending = remember(gateScreen, debugOfferEpoch) {
+        debugOfferBuild != null &&
+            !SetupProfileFlags.debugSettingsOfferAnswered(ProfileRepository.activeProfileId, debugOfferBuild)
+    }
+    val debugOffered = debugOfferPending && !upgradeOffered && gateSetupRun == SetupWizardRun.None && !reviewSetupRequested
+    val answerDebugOffer: () -> Unit = {
+        if (debugOfferBuild != null) {
+            SetupProfileFlags.markDebugSettingsOfferAnswered(ProfileRepository.activeProfileId, debugOfferBuild)
+            debugOfferEpoch++
+        }
+    }
+    val gatingRun = when {
+        reviewSetupRequested -> SetupWizardRun.Full
+        upgradeOffered -> SetupWizardRun.None
+        else -> gateSetupRun
+    }
+    val isSetupWizardActive = gatingRun != SetupWizardRun.None || showSetupWizardOnDemand || showDeviceSetup
     val isAdvancedSetupActive = advancedSetupRequested &&
         gateScreen == AppGateScreen.Main.name &&
         gatingRun == SetupWizardRun.None &&
-        !showSetupWizardOnDemand
+        !showSetupWizardOnDemand &&
+        !showDeviceSetup
 
     val isWhatsNewActive = (showWhatsNew && gateScreen == AppGateScreen.Main.name) || showWhatsNewOnDemand
 
     LaunchedEffect(gateScreen, onAppReady, isSetupWizardActive, isWhatsNewActive, isAdvancedSetupActive) {
         if (gateScreen != AppGateScreen.Main.name || isSetupWizardActive || isWhatsNewActive || isAdvancedSetupActive) {
-            onAppReady?.invoke(false)
+            reportAppReady(false)
         }
     }
 
@@ -438,7 +517,15 @@ internal fun AppGate(
     // desktop, `AppGateOverlay`'s on iOS (never the `bypassAppGate` one, which returns above).
     LaunchedEffect(ownsAppRuntime) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        AdvancedSetupLauncher.requests.collect { advancedSetupRequested = true }
+        AdvancedSetupLauncher.requests.collect { areas ->
+            advancedSetupReview = areas
+            advancedSetupRequested = true
+        }
+    }
+
+    LaunchedEffect(ownsAppRuntime) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        DeviceSetupLauncher.requests.collect { showDeviceSetup = true }
     }
 
     LaunchedEffect(nativeProfileSwitcherController, appGateController, renderMainContent) {
@@ -568,6 +655,38 @@ internal fun AppGate(
 
     LaunchedEffect(gateScreen) {
         log.i { "[AppGate] gateScreen transitioned to: $gateScreen" }
+        AppGateResume.onGateScreen(gateScreen)
+    }
+
+    // Nuvio Z: "Sign in" from a session running signed out on cached profiles. The `ShowAuth`
+    // branch below, reached without the sign-out that wipes account data. Clearing the profiles in
+    // memory (not on disk) is what keeps the transition below from walking straight back in.
+    LaunchedEffect(ownsAppRuntime) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        com.nuvio.app.features.auth.SignInNavigation.requests.collect {
+            if (AuthRepository.state.value !is AuthState.Unauthenticated) return@collect
+            ProfileRepository.clearInMemory()
+            profileSelectionLoading = false
+            profileSelectionTransitionActive = false
+            gateScreen = AppGateScreen.Auth.name
+        }
+    }
+
+    // Nuvio Z: a login lost by itself - no stored session at launch, a refresh the server refused -
+    // leaves the app on cached profiles looking signed in; only Social said otherwise, once opened.
+    // Here, not in `MainAppContent`, because this gate owns the runtime on every platform (on iOS
+    // the content instances do not). An explicit sign-out never gets here: it wipes the cached
+    // profiles and the gate leaves `Main` for `Auth` inside the delay.
+    val signedOutOnMain = authState is AuthState.Unauthenticated && gateScreen == AppGateScreen.Main.name
+    LaunchedEffect(ownsAppRuntime, signedOutOnMain) {
+        if (!ownsAppRuntime || !signedOutOnMain) return@LaunchedEffect
+        delay(1_500)
+        NuvioToastController.show(
+            message = getString(Res.string.z_auth_signed_out_notice),
+            durationMillis = 10_000L,
+            actionLabel = getString(Res.string.compose_auth_sign_in),
+            action = NuvioToastAction.SignIn,
+        )
     }
 
     LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {
@@ -687,7 +806,7 @@ internal fun AppGate(
             !isSetupWizardActive &&
             !isWhatsNewActive &&
             !isAdvancedSetupActive
-        onAppReady?.invoke(ready)
+        reportAppReady(ready)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -746,8 +865,10 @@ internal fun AppGate(
                             // branch re-evaluates. The device revision is not a flow, so it is re-read -
                             // from storage, which stays the one source of truth across a restart.
                             onFinished = {
-                                deviceSetupRevision = DeviceSetupStorage.loadRevision()
+                                deviceSetupEpoch++
                                 arrivalPending = SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId)
+                                // A whole Initial Setup has just asked this release's questions.
+                                if (gatingRun == SetupWizardRun.Full) answerDebugOffer()
                                 reviewSetupRequested = false
                             },
                             modifier = Modifier.fillMaxSize(),
@@ -915,6 +1036,7 @@ internal fun AppGate(
                     acknowledgeWhatsNew()
                     when (action) {
                         ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
+                        ChangelogAction.REVIEW_SETTINGS -> AdvancedSetupLauncher.review(advancedSetupAreasChangedIn(SETUP_WIZARD_REVISION))
                     }
                 },
             )
@@ -929,7 +1051,51 @@ internal fun AppGate(
                     showWhatsNewOnDemand = false
                     when (action) {
                         ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
+                        ChangelogAction.REVIEW_SETTINGS -> AdvancedSetupLauncher.review(advancedSetupAreasChangedIn(SETUP_WIZARD_REVISION))
                     }
+                },
+            )
+        }
+
+        // Z: "First time on this device" (see `DeviceSetupOffer`), once What's New is out of the way.
+        if (
+            deviceSetupOffered && whatsNewDecided && gateScreen == AppGateScreen.Main.name &&
+            !showWhatsNew && !showWhatsNewOnDemand && !showSetupWizardOnDemand && !isAdvancedSetupActive && !showDeviceSetup
+        ) {
+            LaunchedEffect(Unit) { deviceSetupOfferedThisLaunch = true }
+            DeviceSetupOffer(
+                onYes = { showDeviceSetup = true },
+                onNo = declineDeviceSetup,
+            )
+        }
+
+        // Z: "New settings available" (see `NewSettingsOffer`), once What's New is out of the way -
+        // and never on a launch that offered Device Setup.
+        if (
+            (upgradeOffered || debugOffered) && whatsNewDecided && gateScreen == AppGateScreen.Main.name &&
+            !showWhatsNew && !showWhatsNewOnDemand && !showSetupWizardOnDemand && !isAdvancedSetupActive &&
+            !deviceSetupOffered && !deviceSetupOfferedThisLaunch && !showDeviceSetup
+        ) {
+            NewSettingsOffer(
+                // The areas this profile owes, in Advanced Setup (2026-10-22) - not a wizard of their own.
+                // Answering is opening them: the revision is written now, as leaving early always did.
+                onYes = {
+                    // A debug re-offer is for a profile already current: this release's areas.
+                    val owed = if (upgradeOffered) {
+                        advancedSetupAreasChangedSince(gatePlayerSettings.setupWizardCompletedRevision ?: 0)
+                    } else {
+                        advancedSetupAreasChangedIn(SETUP_WIZARD_REVISION)
+                    }
+                    PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+                    answerDebugOffer()
+                    AdvancedSetupLauncher.review(owed)
+                },
+                onNo = {
+                    PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+                    answerDebugOffer()
+                },
+                onBackToWhatsNew = {
+                    if (whatsNewEvents.isNotEmpty() || whatsNewDebug != null) showWhatsNew = true else showWhatsNewOnDemand = true
                 },
             )
         }
@@ -941,7 +1107,7 @@ internal fun AppGate(
             key(setupWizardOnDemandEpoch) {
                 SetupWizardScreen(
                     onFinished = {
-                        deviceSetupRevision = DeviceSetupStorage.loadRevision()
+                        deviceSetupEpoch++
                         arrivalPending = SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId)
                         showSetupWizardOnDemand = false
                     },
@@ -953,12 +1119,37 @@ internal fun AppGate(
             }
         }
 
+        // Device Setup, from the pop-up or Settings: over the app and dismissible, like the re-run.
+        // Leaving it early is "Not now" - the values set so far stand.
+        if (showDeviceSetup && gateScreen == AppGateScreen.Main.name) {
+            SetupWizardScreen(
+                onFinished = {
+                    deviceSetupEpoch++
+                    showDeviceSetup = false
+                },
+                dismissible = true,
+                onDismiss = {
+                    declineDeviceSetup()
+                    showDeviceSetup = false
+                },
+                modifier = Modifier.fillMaxSize(),
+                run = SetupWizardRun.Device,
+                onOpenAdvancedSetup = AdvancedSetupLauncher::open,
+            )
+        }
+
         // Last, so it sits above What's New: its action card opens the hub as it closes.
         if (isAdvancedSetupActive) {
-            AdvancedSetupScreen(
-                onClose = { advancedSetupRequested = false },
-                modifier = Modifier.fillMaxSize(),
-            )
+            key(advancedSetupReview) {
+                AdvancedSetupScreen(
+                    onClose = {
+                        advancedSetupRequested = false
+                        advancedSetupReview = null
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    review = advancedSetupReview,
+                )
+            }
         }
     }
 }
