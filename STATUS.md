@@ -2,16 +2,19 @@ Last updated: 2026-10-27
 
 
 **TV/Web checkpoint (2026-10-27):** `nuviozweb` remains on `claude/phase-10-trunk`,
-vanilla 1.2.9. Debug 17's configured signed WGT is installed on the Q60B: later Tizen Home
-catalogue appends are limited to two cards. A warm 15-card append measured 63.1 ms; installed
-two-card turns measured 8.8-19.8 ms. 497 tests, lint and configured WGT/IPK packaging pass.
-Overall Home frame/focus budgets remain open; no end-to-end smoothness claim. Publication and
-long-traversal results live in `nuviozweb/STATUS.md` and `docs/TV-HOME-DEBUG17-2026-10-27.md` there.
-One new upstream seam is recorded in `Docs/PATCH-SURFACE.md`, inherited cost V8 in
-`Docs/VANILLA-BUGS.md`, and TV1 in `Docs/Z-FEATURES.md`. No Kotlin code changed.
-The maintainer accepts debug 16 with residual source-loading stutter for now. Agent checks on
-that installed build pass for automatic-origin countdown/remote Back and controlled dead-source
-failover; natural autoplay threshold triggering remains untested.
+vanilla 1.2.9. Debug 18's configured signed WGT is installed on the Q60B. Ordinary vertical
+hero previews use an 800 ms minimum while modern Tizen Home's existing background-input
+deferral is active, keeping vanilla's scheduler/cancellation/metadata logic. Horizontal,
+immediate and other-runtime paths retain their timing; imagery, colors and fades are unchanged.
+509 tests, lint and configured WGT/IPK packaging pass. The first installed 38-key run has a
+104.9 ms maximum sampled frame gap; a prior warm old-scheduling run reached 335.3 ms. These are
+individual observations, not a universal smoothness claim. Final warm/different-title checks,
+publication and normal relaunch live in `nuviozweb/STATUS.md` and
+`docs/TV-HOME-ARTWORK-DEBUG18-2026-10-27.md` there. Preview latency is about 350 ms longer on
+ordinary vertical input on this set; individual settled uploads remain costly. TV2, V9 and
+the new `homeScreen.js` import/decorator seam are recorded below; no Kotlin code changed.
+Debug 17's bounded Home appends remain. Source-loading stutter stays acceptable for now;
+debug 16's scoped agent playback checks do not establish natural autoplay threshold acceptance.
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |

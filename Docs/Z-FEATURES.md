@@ -709,6 +709,7 @@ the mode-availability rule and would have gone on asserting a withdrawn one.
 | # | Feature | State | **v1** | AND | iOS | DSK | TV |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **TV1** | **Bounded Tizen Home pagination** - later modern Home catalogue requests append at most two DOM cards per turn, preserving initial rows, provider pages, cached order and existing load-ahead/lifecycle guards. Measured on the Q60B in debug 17: 8.8-19.8 ms append turns versus a warm original 63.1 ms. This is a targeted append improvement; overall navigation budgets and physical smoothness remain open. Browser/webOS keep vanilla batching. | **branch** | ships | n/a | n/a | n/a | yes, Tizen |
+| **TV2** | **Settled vertical Home artwork** - eligible modern Tizen Home previews use an 800 ms minimum during the existing background-input quiet window, avoiding intermediate hero uploads while navigating. Vanilla retains its timers, focus/cancellation and enrichment; horizontal/immediate and other-runtime scheduling stay unchanged. Debug 18 is installed on Q60B; measured limits and the additional settled-preview latency are in the TV handoff. Individual uploads and physical smoothness remain open. | **branch** | ships | n/a | n/a | n/a | yes, Tizen |
 
 ---
 

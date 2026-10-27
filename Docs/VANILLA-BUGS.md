@@ -85,3 +85,20 @@ pages, cached order, load-ahead and lifecycle guards remain vanilla; other runti
 their existing batch size. The installed Q60B records 8.8-19.8 ms append turns. This does not
 close the overall frame/focus budget or the separate image/compositing pauses. Drop the seam
 when upstream bounds the same work; details are in `nuviozweb/docs/TV-HOME-DEBUG17-2026-10-27.md`.
+
+## V9: TV Home hero uploads interrupt vertical browsing
+
+On the Q60B, ordinary 450 ms hero-focus commits can start another image/compositing upload
+between vertical clicks 500 ms apart. Debug 17 light tracing shows main-renderer CompositeLayers
+work up to 243.1 ms; a warm navigation replay has a 335.3 ms sampled frame gap. The Home assembly,
+delay/cancellation methods and focus scheduler are unchanged from vanilla `c8674f2d` through
+fetched upstream `50d1a57f` (2026-10-27). Confirmed in upstream source and observed in the Z build;
+not independently reproduced in an installed vanilla build.
+
+Patched for Phase 10 Stage 3's navigation gate in debug 18 (`drop-at-next-sync`): a Z decorator
+scopes an 800 ms minimum to eligible modern Tizen vertical-preview delay lookups. Vanilla
+continues to own scheduling, preloading, cancellation and metadata. Horizontal/immediate and
+other-runtime paths remain. The preview starts about 350 ms later after ordinary vertical
+input on this set; intermediate uploads are avoided, not made cheaper. Final uploads, cold
+cache/network variability and physical smoothness remain open. Drop when upstream integrates
+the same settlement policy; see `nuviozweb/docs/TV-HOME-ARTWORK-DEBUG18-2026-10-27.md`.
