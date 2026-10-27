@@ -23,6 +23,12 @@ the persistent throbber has not been conclusively reproduced. 468 tests pass. In
 publication status belong to `nuviozweb/STATUS.md`. No Kotlin code changed. One new upstream seam
 in the TV controller delegates sampling to Z; recorded in `Docs/PATCH-SURFACE.md`.
 
+Final signed-build inspection: Instant switches episode 1 to episode 2, whose playback clock
+advances past 36 seconds with loading false and no presented-frame spinner in 430 samples.
+This does not establish the physical picture or the maintainer's smoothness acceptance; native
+startup still produces multi-second main-thread gaps. The TV app is relaunched normally, settings
+unchanged. Code `eefeb669` is pushed; debug 14 publication run `40507637986` succeeded (WGT + IPK).
+
 ## TV loading performance and motion (2026-10-27)
 
 `nuviozweb` `claude/phase-10-trunk`, debug 13: the maintainer's first debug 12 test reported loading
