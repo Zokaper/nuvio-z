@@ -28,6 +28,13 @@ automatic countdown/failover and other TV families are not accepted by this work
 signed-build inspection, packages and debug publication are recorded in `nuviozweb/STATUS.md` and
 `docs/TV-PLAYBACK-DEBUG15-2026-10-27.md` there.
 
+Final configured signed WGT installed/inspected: Instant advances to episode 2 with an advancing
+clock and settled loading. Final roomier list reaches row 240/241 with a 20-card window and 3 px
+focus ring. The 11-audio/84-subtitle rebuild performs zero repeated alias sorts; startup callback
+pauses still occur. Browser 1080p/720p layout checks pass. TV relaunched normally, inspector removed.
+Code `aa09976e` is pushed; debug publication run `40545507323` succeeded and debug 15 WGT + IPK
+are published. CI optional unconfigured fallback remains separate from the configured local WGT.
+
 ## Maintainer's focused debug 14 retest passed (2026-10-27)
 
 On the Q60B, the maintainer repeated Instant playback of a series episode followed by manual
