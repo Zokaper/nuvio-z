@@ -467,6 +467,14 @@ js/ui/screens/settings/settingsScreenPlaybackMarkup-01-general.js
                                    mobile's note (isZAutoStreamSelectionInert)
 js/ui/screens/settings/settingsScreenHelpers-10-create-default-expanded-state.js
                                    `sources: false`, so the group's open state survives a reload
+js/data/local/tmdbSettingsStore.js
+                                   two absent-value defaults: enhancement on when missing/null;
+                                   explicit saved/synced false retained. A later UI seam cannot
+                                   distinguish an absent value after the original normalizer.
+js/ui/screens/player/playerScreenHelpers-05-normalize-track-language-code.js
+                                   import + cache wrappers at two inference sites in js/z/playback/;
+                                   reuse longest-name-first aliases and bounded normalized-text
+                                   results. Matching/ambiguity rules retained; no per-track sorting.
 js/ui/screens/stream/streamScreen.js
                                    import + withZStreamPlayback decorator; vanilla search/list retained
 js/ui/screens/stream/streamScreenMethods-10-play-stream.js

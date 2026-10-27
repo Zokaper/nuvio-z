@@ -6,6 +6,28 @@ Last updated: 2026-10-27
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
 
+## TV debug 15: measured responsiveness and roomier Classic (2026-10-27)
+
+`nuviozweb` `claude/phase-10-trunk`: connection status is a native-read-free snapshot, invalidated
+on network changes; each estimate lookup samples identity once, with paint/cancellation ownership
+and actual-network completion checks retained. Q60B status reads fall from 13.5-34.4 ms to
+0.03-0.10 ms; repeated Streamlined renders from 51-128 ms to 6-9 ms. Six quality markup scenarios
+remain identical. A startup trace then exposed repeated player-language alias sorting: 1,377 sorts
+for three rebuilds of the same track choices. The two inference sites now reuse the same ordered
+immutable vocabulary through a Z helper; matching rules and subtitle-language parity are retained.
+
+The maintainer chose the **roomier second Classic preview**: smaller complete cards, wider list,
+flat visible focus ring and matching virtual-row spacing. Q60B runtime navigation reaches row 321
+of 322 with a 20-card DOM window; the sampled roomier D-pad handler maximum is 13.7 ms.
+TMDB enhancement defaults on only when absent/null, preserving saved/synced opt-outs and modern
+Home's separate default. Two upstream seams are recorded in `Docs/PATCH-SURFACE.md`: the TMDB
+store default and the existing player language helper's ordered-alias calls. No Kotlin code changed.
+
+480 tests and focused Samsung/subtitle-language/browser checks pass. Overall loading smoothness,
+automatic countdown/failover and other TV families are not accepted by this work. Final configured
+signed-build inspection, packages and debug publication are recorded in `nuviozweb/STATUS.md` and
+`docs/TV-PLAYBACK-DEBUG15-2026-10-27.md` there.
+
 ## Maintainer's focused debug 14 retest passed (2026-10-27)
 
 On the Q60B, the maintainer repeated Instant playback of a series episode followed by manual
