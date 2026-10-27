@@ -1,10 +1,25 @@
-Last updated: 2026-10-26
+Last updated: 2026-10-27
 
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
+
+## TV loading performance and motion (2026-10-27)
+
+`nuviozweb` `claude/phase-10-trunk`, debug 13: the maintainer's first debug 12 test reported loading
+stutter and later clarified that overall performance is good; smooth transitions are the priority.
+Q60B timings found repeated quality calculation for 126 sources at 539-675 ms per call. The installed
+production build reuses unchanged results in 0.055-0.080 ms (initial calculation still 779 ms in
+that sample). Loading nodes persist across stage/fact changes and player handoff, with Kotlin's
+staggered entrance and a 300 ms fade only after the player's presented-frame flag. Inspector checks
+reach real Instant video and verify node continuity/motion; this is not maintainer smoothness
+acceptance or full mode/failover/next-episode QA. 459 tests, browser lifecycle/render checks, lint,
+formatting, configured build and both packages pass. No Kotlin code or upstream-owned seam changed.
+Initial calculation and native startup stalls remain; broader UI transitions, TMDB defaults and
+the later Details/audio review are still queued. See `nuviozweb/STATUS.md` and its linked measured
+report for publication and limits.
 
 ## TV playback completion chunk (2026-10-26)
 
