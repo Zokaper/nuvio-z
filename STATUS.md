@@ -28,6 +28,10 @@ Instant Next Episode reaches episode 2 with preferred audio/subtitles and loadin
 clock advances beyond 125 seconds, no spinner in 1,226 settled samples. Remaining startup pauses
 are documented; these individual traces do not establish maintainer physical smoothness.
 
+Code `dda418c1` is committed/pushed. Run `40552909171` succeeded: debug 16 WGT + IPK are published.
+Configured signed WGT is installed; app relaunched normally and inspector forwarding removed.
+CI packages use the optional unconfigured fallback, separate from the configured local TV build.
+
 ## TV debug 15: measured responsiveness and roomier Classic (2026-10-27)
 
 `nuviozweb` `claude/phase-10-trunk`: connection status is a native-read-free snapshot, invalidated
