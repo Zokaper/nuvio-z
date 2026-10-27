@@ -6,6 +6,23 @@ Last updated: 2026-10-27
 | Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
 | Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
 
+## TV debug 13 maintainer test and Debug 14 follow-up (2026-10-27)
+
+The maintainer tested the Q60B: Classic playback, loading Back, Details and audio menus work.
+Classic's oversized source list is explicitly deferred to UI polish. Instant still stutters
+between loading stages; Streamlined freezes before its panel. Instant Next Episode enters the
+player with a throbber; manual reopen resumes at 53 seconds. Automatic countdown/failover and
+other television families are not accepted by this report.
+
+Debug 14 is installed on the Q60B from `nuviozweb`: cooperative catalogue parsing/ranking with unchanged
+options/order, shared native timeline samples (250 ms, invalidated by play/prepare/seek/completion),
+and retiring the player's loading state with its first-frame handoff after its own gates pass.
+Q60B comparison on 322 sources: a 2127 ms synchronous calculation becomes 178 short turns, longest
+37.4 ms; total elapsed increases to 2869 ms. A transient frame/loading mismatch was observed, but
+the persistent throbber has not been conclusively reproduced. 468 tests pass. Installation and
+publication status belong to `nuviozweb/STATUS.md`. No Kotlin code changed. One new upstream seam
+in the TV controller delegates sampling to Z; recorded in `Docs/PATCH-SURFACE.md`.
+
 ## TV loading performance and motion (2026-10-27)
 
 `nuviozweb` `claude/phase-10-trunk`, debug 13: the maintainer's first debug 12 test reported loading

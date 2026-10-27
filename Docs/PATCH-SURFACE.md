@@ -445,6 +445,10 @@ Upstream-owned files modified, and what each seam does:
 ```
 .gitignore                         AGENTS.md un-ignored (Z's manual is tracked)
 js/core/update/appUpdateService.js release URL + Z-revision ordering, imported from js/core/z/zVersion.js
+js/core/player/playerControllerMethods-03-start-av-play-tick-timer.js
+                                   import + one guard: Z's avplayTimeline shares a 250 ms native
+                                   sample across UI/subtitle/watchdog readers. Episode, prepare,
+                                   seek and completion invalidate it; callback clock updates remain.
 js/core/profile/profileSettingsSyncFeature-player-settings.js
                                    three seams: Z playback keys ride in the tv blob's player payload
 js/ui/navigation/router.js          import + installPlaybackSetup: local, per-profile first-launch gate;
