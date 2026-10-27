@@ -3,10 +3,26 @@ package com.nuvio.app.features.player
 import com.nuvio.app.features.watchparty.PartySourceRealizer
 import com.nuvio.app.features.watchparty.WatchPartyState
 import com.nuvio.app.features.watchparty.partyRealizationCompletedByLaunch
+import com.nuvio.app.features.watchparty.partyLocalSourceChoiceForLaunch
 import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
 import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.toPartySourceDescriptor
 import com.nuvio.app.features.streams.StreamItem
+
+internal fun initialPartySourceChoice(args: PlayerScreenArgs) = partyLocalSourceChoiceForLaunch(
+    WatchPartyRepository.uiState.value.party,
+    args.parentMetaId, args.videoId, args.partySourceDescriptor,
+    userSelectedSource = !args.automaticSourceSelection,
+)
+
+internal fun PlayerScreenRuntime.recordLocalPartySourceChoice(stream: StreamItem) {
+    partyPositionUnreachable = false
+    partyLocalSourceChoice = partyLocalSourceChoiceForLaunch(
+        WatchPartyRepository.uiState.value.party,
+        parentMetaId, playbackSession.videoId, stream.toPartySourceDescriptor(),
+        userSelectedSource = true,
+    )
+}
 
 /** Local link preparation may enrich a filename; that does not undo the person's source choice. */
 internal fun PlayerScreenRuntime.continuePartySourceChoice(
