@@ -5,6 +5,7 @@ import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.streams.AioParsedFile
 import com.nuvio.app.features.streams.AioStreamData
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.StreamBehaviorHints
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -13,6 +14,28 @@ import kotlin.test.assertTrue
 
 class PartyStreamSourceTest {
     private val hash = "0123456789ABCDEF0123456789ABCDEF01234567"
+
+    @Test fun renamedAioAddonsMatchTheActualFilenameEvenWhenEnhancedDataHasAParsedTitle() {
+        val filename = "Marvels.The.Punisher.S01E08.2160p.WEB-DL.HEVC-GROUP.mkv"
+        val host = StreamItem(
+            name = "Nuvio Z 4K", addonName = "Nuvio Z", addonId = "addon:host",
+            partyOriginKind = "addon", partyOriginId = "org.example.nuvio",
+            behaviorHints = StreamBehaviorHints(filename = filename),
+        )
+        val guest = host.copy(
+            name = "AIOStreams Z 4K", addonName = "AIOStreams Z", addonId = "addon:guest",
+            partyOriginId = "org.example.aiostreams",
+            streamData = AioStreamData(parsedFile = AioParsedFile(title = "Marvels The Punisher")),
+        )
+        // The ordinary presentation/ranking facts really do choose the parsed title first.
+        assertEquals("Marvels The Punisher", SourceFactsExtractor.extract(guest).filename)
+        assertEquals(
+            PartySourceMatchTier.ExactRelease,
+            partySourceMatchTier(assertNotNull(host.toPartySourceDescriptor()), assertNotNull(guest.toPartySourceDescriptor())),
+        )
+        val next = guest.copy(behaviorHints = StreamBehaviorHints(filename = filename.replace("E08", "E09")))
+        assertTrue(partySourceMatchTier(host.toPartySourceDescriptor()!!, next.toPartySourceDescriptor()!!) !in PartySameReleaseTiers)
+    }
 
     @Test fun validTorrentIdentityIsNormalizedWithoutChangingItsFileIndex() {
         val descriptor = stream(infoHash = "  $hash  ", fileIdx = 7).toPartySourceDescriptor(facts())

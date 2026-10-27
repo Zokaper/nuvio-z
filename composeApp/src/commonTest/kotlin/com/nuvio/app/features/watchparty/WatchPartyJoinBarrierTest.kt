@@ -318,6 +318,23 @@ class WatchPartyJoinBarrierTest {
         assertEquals(setOf("host", "watching"), partyMembersWatching(party))
     }
 
+    @Test fun aGuestChoosingOrLoadingASourceCannotHoldThePlayingHostAsAStalledPlayer() {
+        val party = joinParty(
+            WatchPartyStatus.playing,
+            joinMember("host", SourceResolutionState.ready, location = WatchPartyClientLocation.player),
+            joinMember("picker", SourceResolutionState.choosing_fallback, location = WatchPartyClientLocation.matching),
+            joinMember("opening", SourceResolutionState.resolving, location = WatchPartyClientLocation.loading),
+            joinMember("stalled", SourceResolutionState.buffering, location = WatchPartyClientLocation.player),
+        )
+        assertEquals(setOf("host", "stalled"), partyMembersWatching(party))
+        assertTrue(partyPlaybackGate(party, "host", hostStartReleased = true).allowPlayback)
+        val previouslyHeld = GuestBufferingWatch().observe("picker", WatchPartyStatus.buffering, 0)
+            .advance(WatchPartyGuestBufferingGraceMs)
+        assertEquals(listOf("picker"), previouslyHeld.holdingProfiles)
+        assertEquals(emptyList(), previouslyHeld.retainOnly(partyMembersWatching(party))
+            .advance(WatchPartyGuestBufferingGraceMs + 1).holdingProfiles)
+    }
+
     @Test fun startReleaseWaitsOnlyForMembersWithSomethingToPlay() {
         val members = listOf(
             joinMember("host", SourceResolutionState.ready),

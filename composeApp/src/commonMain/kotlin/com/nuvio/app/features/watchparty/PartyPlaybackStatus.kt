@@ -186,15 +186,8 @@ fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLi
         )
     }
     // 2.
-    if (inParty && positionUnreachable) {
-        return PartyStatusLine(
-            PartyStatusKind.VersionTooShort,
-            "Your version is shorter than ${possessive(hostName)}",
-            hostPeople,
-            action = PartyStatusAction.ChooseSource,
-            tone = PartyStatusTone.Warning,
-        )
-    }
+    // Timing differences are a one-time actionable toast owned by the player. They must not
+    // occupy this status line for the rest of a guest's chosen source.
     // 3. An episode handoff is still its own sentence: the content changed, not the source.
     if (inParty && realizationChangesEpisode &&
         realization in setOf(PartyRealizationPhase.Matching, PartyRealizationPhase.Resolving)

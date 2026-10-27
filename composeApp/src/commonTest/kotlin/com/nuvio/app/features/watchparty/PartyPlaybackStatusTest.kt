@@ -31,7 +31,7 @@ class PartyPlaybackStatusTest {
             assertEquals(PartyStatusAction.ChooseSource, it.action)
             assertEquals(PartyStatusTone.Error, it.tone)
         }
-        assertEquals("Your version is shorter than Seraph's", projectPartyPlaybackStatus(guest.copy(positionUnreachable = true))!!.text)
+        assertNull(projectPartyPlaybackStatus(guest.copy(positionUnreachable = true)), "timing warnings must not pin a player banner")
         assertEquals(
             "Switching to Seraph's episode…",
             projectPartyPlaybackStatus(guest.copy(realization = PartyRealizationPhase.Resolving, realizationChangesEpisode = true))!!.text,
@@ -141,7 +141,6 @@ class PartyPlaybackStatusTest {
         )
         val order = listOf<(PartyPlaybackStatusInputs) -> PartyPlaybackStatusInputs>(
             { it.copy(realization = PartyRealizationPhase.None) },
-            { it.copy(positionUnreachable = false) },
             { it.copy(waitingForHostSource = false) },
             { it.copy(awayHoldOthers = emptyList()) },
             { it.copy(selfHeld = false) },
@@ -158,7 +157,6 @@ class PartyPlaybackStatusTest {
         )
         val expected = listOf(
             PartyStatusKind.SourceNotFound,
-            PartyStatusKind.VersionTooShort,
             PartyStatusKind.HostChoosingSource,
             // Above every buffering row: when the party is stopped for a person *and* a buffer,
             // the person is the reason, and telling the others to wait for the buffer is worse

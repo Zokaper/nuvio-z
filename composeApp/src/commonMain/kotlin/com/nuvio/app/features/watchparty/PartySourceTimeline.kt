@@ -15,9 +15,8 @@ package com.nuvio.app.features.watchparty
  *  - The **host** cannot be wrong about the timeline; it *is* the timeline. So a host that has to
  *    leave its release takes the party with it: hold, advance the authoritative source, let everyone
  *    re-realize against the new descriptor, and resume through the readiness barrier.
- *  - A **guest** may not move the party at all. It may follow locally, but only against evidence
- *    that its new source still carries the host's timeline - and if it has none, it stays in the
- *    party and says so rather than reporting a readiness it cannot honour.
+ *  - A **guest** may not move the party at all. Automatic choices require matching evidence. An
+ *    explicit local choice is accepted with a brief timing warning when durations differ.
  *
  * Release identity is the evidence; duration is a contradiction check on top of it, never a proof on
  * its own. Two cuts of the same film can run to the same minute and still differ by a distributor
@@ -83,6 +82,7 @@ fun partySourceTimelineDecision(
     tier: PartySourceMatchTier,
     hostDurationMs: Long? = null,
     localDurationMs: Long? = null,
+    userSelectedSource: Boolean = false,
 ): PartySourceTimelineDecision {
     val durationsAgree = hostDurationMs == null || localDurationMs == null ||
         arePartyDurationsCompatible(hostDurationMs, localDurationMs)
@@ -97,6 +97,10 @@ fun partySourceTimelineDecision(
             PartySourceTimelineDecision.AdvancePartySource
         }
     }
+    // An explicit local choice is usable even when it is a different cut. The player warns once
+    // about timing and still refuses unreachable seeks; it must not send a watching guest back
+    // to choosing_fallback or keep the host waiting for a choice the guest has already made.
+    if (userSelectedSource) return PartySourceTimelineDecision.KeepLocal
     if (!durationsAgree) return PartySourceTimelineDecision.NeedsPartyMatch
     return when {
         sameRelease -> PartySourceTimelineDecision.KeepLocal

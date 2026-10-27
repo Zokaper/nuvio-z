@@ -158,29 +158,49 @@ private val realizerLog = Logger.withTag("PartySourceRealizer")
  * The physical run's member row carries exactly that pair - `ready`, `exact`, and a pill that never
  * cleared.
  *
- * One rule now: a launch of the party's current content completes its realization when it plays
- * the party's release at an exact tier, or when it plays an alternate the member chose by hand after
- * the matcher had already answered FallbackRequired (or Failed) for this very key. Either way the
- * member has a usable local source, which is the only thing "Matching" ever claimed they lacked.
+ * A launch of the current content completes realization when it matches the party release or when
+ * the guest explicitly chose their own source for this authority. The choice must be scoped by
+ * [PartyLocalSourceChoice], so an old manual launch cannot complete a later host source change.
  */
 fun partyRealizationCompletedByLaunch(
     party: WatchPartyState?,
     launchContentId: String,
     launchVideoId: String?,
     launchDescriptor: PartySourceDescriptorV2?,
-    realization: PartySourceRealizationState,
+    userSelectedSource: Boolean = false,
 ): PartyPlayerLaunchKey? {
     val live = party?.takeIf { it.matchesPlayback(launchContentId, launchVideoId) } ?: return null
     val key = live.partySourceKey() ?: return null
+    if (userSelectedSource) return key
     val local = launchDescriptor ?: return null
     if (partySourceMatchTier(key.descriptor, local) in PartyExactMatchTiers) return key
-    val alternateChosenAfterNoMatch = when (realization) {
-        is PartySourceRealizationState.FallbackRequired -> realization.key == key
-        is PartySourceRealizationState.Failed -> realization.key == key
-        is PartySourceRealizationState.Ready -> realization.key == key
-        else -> false
-    }
-    return key.takeIf { alternateChosenAfterNoMatch }
+    return null
+}
+
+/** A guest's explicit local choice belongs only to the source and episode they chose it for. */
+data class PartyLocalSourceChoice(
+    val key: PartyPlayerLaunchKey,
+    val descriptor: PartySourceDescriptorV2?,
+) {
+    fun appliesTo(party: WatchPartyState?, local: PartySourceDescriptorV2?): Boolean =
+        party?.partySourceKey() == key && descriptor == local
+
+    fun resolvedFor(
+        party: WatchPartyState?,
+        original: PartySourceDescriptorV2?,
+        resolved: PartySourceDescriptorV2?,
+    ): PartyLocalSourceChoice = if (appliesTo(party, original)) copy(descriptor = resolved) else this
+}
+
+fun partyLocalSourceChoiceForLaunch(
+    party: WatchPartyState?,
+    contentId: String,
+    videoId: String?,
+    descriptor: PartySourceDescriptorV2?,
+    userSelectedSource: Boolean,
+): PartyLocalSourceChoice? {
+    if (!userSelectedSource || party?.matchesPlayback(contentId, videoId) != true) return null
+    return party.partySourceKey()?.let { PartyLocalSourceChoice(it, descriptor) }
 }
 
 /** The status pill's reading of the realizer, for the party the player is showing. */

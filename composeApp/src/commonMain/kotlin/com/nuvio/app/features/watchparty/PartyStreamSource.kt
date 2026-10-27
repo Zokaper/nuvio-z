@@ -16,10 +16,13 @@ fun StreamItem.toPartySourceDescriptor(
     }
     val safeOrigin = partyOriginId?.takeIf(String::isSafePartyOriginId) ?: return null
     val releaseIdentity = listOfNotNull(
-        facts.filename,
+        // SourceFacts may use AIO parsedFile.title as a filename fallback. That is a parsed movie
+        // title, often missing the episode and release group, and varies with addon configuration.
+        // Prefer actual file identities so enhanced/renamed addons fingerprint the same file alike.
+        clientResolve?.filename,
         streamData?.filename,
         behaviorHints.filename,
-        clientResolve?.filename,
+        facts.filename,
         clientResolve?.torrentName,
         title,
         name,

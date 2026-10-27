@@ -193,7 +193,7 @@ class PartySourceRealizerTest {
             media = host.media.copy(sizeBytes = 4_000_100_000, languages = setOf("en", "ru")),
         )
         assertTrue(guest != host)
-        val completed = partyRealizationCompletedByLaunch(party, "tt1", "tt1", guest, PartySourceRealizer.state.value)
+        val completed = partyRealizationCompletedByLaunch(party, "tt1", "tt1", guest)
         assertEquals(key, completed)
         PartySourceRealizer.retain(completed!!, launch(guest))
 
@@ -208,7 +208,7 @@ class PartySourceRealizerTest {
         PartySourceRealizer.updateAuthority(key)
         PartySourceRealizer.resolving(key)
         val other = descriptor().copy(originId = "other", releaseFingerprint = partyReleaseFingerprint("Other Movie 720p"))
-        assertNull(partyRealizationCompletedByLaunch(party, "tt1", "tt1", other, PartySourceRealizer.state.value))
+        assertNull(partyRealizationCompletedByLaunch(party, "tt1", "tt1", other))
     }
 
     @Test fun anAlternateChosenAfterNoMatchCompletesTheRealization() {
@@ -217,14 +217,14 @@ class PartySourceRealizerTest {
         PartySourceRealizer.updateAuthority(key)
         PartySourceRealizer.fallbackRequired(key)
         val alternate = descriptor().copy(originId = "other", releaseFingerprint = partyReleaseFingerprint("Other Movie 720p"))
-        assertEquals(key, partyRealizationCompletedByLaunch(party, "tt1", "tt1", alternate, PartySourceRealizer.state.value))
+        assertEquals(key, partyRealizationCompletedByLaunch(party, "tt1", "tt1", alternate, userSelectedSource = true))
     }
 
     @Test fun aLaunchOfOtherContentCompletesNothing() {
         val party = partyState(descriptor = descriptor())
         PartySourceRealizer.updateAuthority(party.partySourceKey())
-        assertNull(partyRealizationCompletedByLaunch(party, "tt2", "tt2", descriptor(), PartySourceRealizer.state.value))
-        assertNull(partyRealizationCompletedByLaunch(null, "tt1", "tt1", descriptor(), PartySourceRealizer.state.value))
+        assertNull(partyRealizationCompletedByLaunch(party, "tt2", "tt2", descriptor()))
+        assertNull(partyRealizationCompletedByLaunch(null, "tt1", "tt1", descriptor()))
     }
 
     @Test fun aRealizationOfAnotherPartyIsNotThisPlayersLine() {

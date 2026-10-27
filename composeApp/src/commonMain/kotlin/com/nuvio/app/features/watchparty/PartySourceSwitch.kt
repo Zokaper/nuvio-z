@@ -34,9 +34,11 @@ fun decidePartySourceHandoff(
     party: WatchPartyState?,
     localDescriptor: PartySourceDescriptorV2?,
     handledSourceGeneration: Int?,
+    localSourceChoice: PartyLocalSourceChoice? = null,
 ): PartySourceHandoff {
     val target = party?.sourceFingerprint ?: return PartySourceHandoff.None
     if (handledSourceGeneration == party.sourceGeneration) return PartySourceHandoff.None
+    if (localSourceChoice?.appliesTo(party, localDescriptor) == true) return PartySourceHandoff.None
     if (localDescriptor != null && partySourceMatchTier(target, localDescriptor) in PartyExactMatchTiers) {
         return PartySourceHandoff.None
     }

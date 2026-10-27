@@ -735,14 +735,14 @@ fun partyMembersPresent(party: WatchPartyState): Set<String> =
 
 /**
  * The members a host's stall watch may hold the party for: [partyMembersPresent], less anyone who
- * has gone back to the lobby (2026-10-22). Backing out stops a guest's player, which reads as a
+ * is outside the player, including the source picker. Backing out stops a guest's player, which reads as a
  * stall, and the lobby kept that hold alive until [WatchPartyStallHoldMaxMs] - "Waiting for debug to
  * buffer" for thirty seconds over a guest who had simply left the film. Dropping them here drops
  * their window and any standing hold at once (`retainOnly`); coming back is a fresh start-up.
  */
 fun partyMembersWatching(party: WatchPartyState): Set<String> =
     partyMembersPresent(party) - party.members
-        .filter { it.clientLocation == WatchPartyClientLocation.lobby }
+        .filter { it.clientLocation != WatchPartyClientLocation.player }
         .map { it.profileId }
         .toSet()
 
