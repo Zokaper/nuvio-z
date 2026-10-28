@@ -38,11 +38,15 @@ Desktop 136's packaging run `40606695079` was cancelled before publication; its 
 Corrected candidates are desktop **137** and mobile **117**. No two-client/device acceptance or
 stable release is claimed; iOS WT remains deferred.
 
-Debug packaging in progress through the existing workflows, with immutable tags pinned to build SHAs:
+Debug delivery through the existing workflows, with immutable tags pinned to build SHAs:
 - Desktop `debug-v0.1.31-alpha-z1.137`, source `b4fc3944a`, run
   [40608684225](https://github.com/Zokaper/NuvioZDesktop/actions/runs/40608684225).
+  **Published successfully:** [Debug 137](https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.1.31-alpha-z1.137),
+  Windows MSI and macOS arm64 DMG; nonempty assets and SHA-256 digests checked (desktop STATUS has values).
 - Mobile `debug-v0.6.2-z1.117`, source `16fea2eb5`, run
   [40608701290](https://github.com/Zokaper/nuvio-z/actions/runs/40608701290).
+  Android package job passed; iOS archive/publication are still running. Follow the run before
+  claiming Mobile 117 published. The separate full CI jobs are not included in the focused counts above.
 
 Installed retest: join an already-playing host with the differently branded addon; explicitly pick
 another quality and confirm Playing/Ready with no retained source warning; advance an episode with
@@ -68,7 +72,7 @@ debug 16's scoped agent playback checks do not establish natural autoplay thresh
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `codex/watch-together-guest-sources` | 135 | Guest source recovery; debug 137 under verification |
+| Desktop | `codex/watch-together-guest-sources` | 137 | Guest source recovery published for a two-person retest |
 | Mobile | `codex/watch-together-guest-sources` | 116 | Same shared fix; debug 117 under verification |
 
 ## TV debug 16: coalesced native startup track refreshes (2026-10-27)
