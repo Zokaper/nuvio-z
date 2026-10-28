@@ -217,6 +217,10 @@
     {
       "build": 112,
       "text": "Language: subtitles no longer switch off when My language is saved with a region (such as English, Saudi Arabia); Attack on Titan now keeps its English subtitles. What's New has the Social V2 entry."
+    },
+    {
+      "build": 117,
+      "text": "Watch Together: guests can choose their own source without getting stuck resolving it. Matching prefers actual filenames across addon configurations; timing differences give a brief notice, and a guest choosing a source no longer enters the host's buffering hold."
     }
   ]
 }
