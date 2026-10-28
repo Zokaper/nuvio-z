@@ -26,9 +26,9 @@ Member addon IDs differ, but matching already supports cross-origin releases. Se
 guest catalogues/request bodies, so they cannot prove the original matching failure. A regression
 fixture reproduces the actual-filename/parsed-title bug. No backend mutation or deployment.
 
-Initial verification passed: desktop **461** tests and Android **473** tests, zero failures/errors/
-skips; Android app compilation also passed. The subsequent awaited-episode repair is under final
-verification: Choose source now opens the party's new episode, not the still-playing previous one;
+Final desktop verification passed **464** tests (47 suites, zero failures/errors/skips, Gradle exit 0).
+The earlier Android focus passed **473** tests and compiled the app; its final rerun is in progress.
+The awaited-episode repair makes Choose source open the party's new episode, not the still-playing previous one;
 the canonical video ID survives local metadata aliases, and manual episode choices survive both
 panels, link preparation and P2P consent. Shared follow-up `4dfea378a` carries this logic and the
 new ModalHosts intent flag; divergent SourceActions/RuntimeUi seams are ported by patch.
