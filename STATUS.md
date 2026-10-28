@@ -27,7 +27,9 @@ guest catalogues/request bodies, so they cannot prove the original matching fail
 fixture reproduces the actual-filename/parsed-title bug. No backend mutation or deployment.
 
 Final desktop verification passed **464** tests (47 suites, zero failures/errors/skips, Gradle exit 0).
-The earlier Android focus passed **473** tests and compiled the app; its final rerun is in progress.
+Final Android verification passed **475** tests (48 suites, zero failures/errors/skips, Gradle exit 0)
+and `:androidApp:compileFullDebugKotlin`; log `build/wt-guest-mobile-episode-final-tests.log` in the
+isolated mobile tree. Both global changelogs validate; the temporary empty local.properties was removed.
 The awaited-episode repair makes Choose source open the party's new episode, not the still-playing previous one;
 the canonical video ID survives local metadata aliases, and manual episode choices survive both
 panels, link preparation and P2P consent. Shared follow-up `4dfea378a` carries this logic and the
@@ -35,6 +37,18 @@ new ModalHosts intent flag; divergent SourceActions/RuntimeUi seams are ported b
 Desktop 136's packaging run `40606695079` was cancelled before publication; its tag stays put.
 Corrected candidates are desktop **137** and mobile **117**. No two-client/device acceptance or
 stable release is claimed; iOS WT remains deferred.
+
+Debug packaging in progress through the existing workflows, with immutable tags pinned to build SHAs:
+- Desktop `debug-v0.1.31-alpha-z1.137`, source `b4fc3944a`, run
+  [40608684225](https://github.com/Zokaper/NuvioZDesktop/actions/runs/40608684225).
+- Mobile `debug-v0.6.2-z1.117`, source `16fea2eb5`, run
+  [40608701290](https://github.com/Zokaper/nuvio-z/actions/runs/40608701290).
+
+Installed retest: join an already-playing host with the differently branded addon; explicitly pick
+another quality and confirm Playing/Ready with no retained source warning; advance an episode with
+no automatic match and confirm the picker offers the new episode, including P2P confirmation; check
+that a picker guest does not enter the host's mid-playback buffering hold. A material duration
+difference should give one brief notice. Backend code/schema/configuration were not changed.
 
 
 **TV/Web checkpoint (2026-10-27):** `nuviozweb` remains on `claude/phase-10-trunk`,
