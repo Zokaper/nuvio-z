@@ -220,7 +220,7 @@
     },
     {
       "build": 117,
-      "text": "Watch Together: guests can choose their own source without getting stuck resolving it. Matching prefers actual filenames across addon configurations; timing differences give a brief notice, and a guest choosing a source no longer enters the host's buffering hold."
+      "text": "Watch Together: guests can choose their own source without getting stuck resolving it. Matching prefers actual filenames across addon configurations; timing differences give a brief notice, and a guest choosing a source no longer enters the host's buffering hold. Episode recovery opens the episode the host moved to."
     }
   ]
 }

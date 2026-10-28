@@ -26,8 +26,15 @@ Member addon IDs differ, but matching already supports cross-origin releases. Se
 guest catalogues/request bodies, so they cannot prove the original matching failure. A regression
 fixture reproduces the actual-filename/parsed-title bug. No backend mutation or deployment.
 
-First desktop compile passed. Final focused desktop/mobile tests and debug publication are in
-progress. No two-client/device acceptance or stable release is claimed; iOS WT remains deferred.
+Initial verification passed: desktop **461** tests and Android **473** tests, zero failures/errors/
+skips; Android app compilation also passed. The subsequent awaited-episode repair is under final
+verification: Choose source now opens the party's new episode, not the still-playing previous one;
+the canonical video ID survives local metadata aliases, and manual episode choices survive both
+panels, link preparation and P2P consent. Shared follow-up `4dfea378a` carries this logic and the
+new ModalHosts intent flag; divergent SourceActions/RuntimeUi seams are ported by patch.
+Desktop 136's packaging run `40606695079` was cancelled before publication; its tag stays put.
+Corrected candidates are desktop **137** and mobile **117**. No two-client/device acceptance or
+stable release is claimed; iOS WT remains deferred.
 
 
 **TV/Web checkpoint (2026-10-27):** `nuviozweb` remains on `claude/phase-10-trunk`,
@@ -47,8 +54,8 @@ debug 16's scoped agent playback checks do not establish natural autoplay thresh
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `Dev` | 135 | Social V2 shipped as 0.1.31-alpha-z1+134; next is Phase 10 (TV / web) |
-| Mobile | `main` | 116 | Social V2 shipped as 0.6.2-z1+130; next is Phase 10 (TV / web) |
+| Desktop | `codex/watch-together-guest-sources` | 135 | Guest source recovery; debug 137 under verification |
+| Mobile | `codex/watch-together-guest-sources` | 116 | Same shared fix; debug 117 under verification |
 
 ## TV debug 16: coalesced native startup track refreshes (2026-10-27)
 

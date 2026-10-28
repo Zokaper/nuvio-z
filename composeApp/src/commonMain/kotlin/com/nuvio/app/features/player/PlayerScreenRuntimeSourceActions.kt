@@ -394,7 +394,7 @@ internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) 
  * hand an automatic retry of a dying source a fresh budget every attempt - which is the shape of
  * the loop this budget exists to stop.
  */
-private fun PlayerScreenRuntime.markSourceUserSelected() {
+internal fun PlayerScreenRuntime.markSourceUserSelected() {
     credentialRefreshesUsed = 0
     credentialRefreshAttemptedSourceUrl = null
     // An explicit pick retires the automatic chain. Without this the eight-second watchdog
@@ -624,10 +624,10 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(
     episode: MetaVideo,
     serverResumeMs: Long? = null,
 ) {
-    if (prepareServerForPlayer(stream) { switchToEpisodeStream(it, episode, serverResumeMs = newerServerResumeMs(it, episode)) }) return
+    if (prepareServerForPlayer(stream) { switchToResolvedEpisodeSource(stream, it, episode, serverResumeMs = newerServerResumeMs(it, episode)) }) return
     if (
         resolveYouTubeForPlayer(stream) { resolved ->
-            switchToEpisodeStream(resolved, episode)
+            switchToResolvedEpisodeSource(stream, resolved, episode)
         }
     ) return
     if (
@@ -635,7 +635,7 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(
             stream = stream,
             season = episode.season,
             episode = episode.episode,
-            onResolved = { resolvedStream -> switchToEpisodeStream(resolvedStream, episode) },
+            onResolved = { resolvedStream -> switchToResolvedEpisodeSource(stream, resolvedStream, episode) },
             onStale = {
                 PlayerStreamsRepository.loadEpisodeStreams(
                     type = contentType ?: parentMetaType,
@@ -1069,6 +1069,7 @@ internal fun PlayerScreenRuntime.resolveEpisodeQualityChoice(index: Int): Stream
 }
 
 internal fun PlayerScreenRuntime.openSourcesPanel() {
+    if (openPendingPartyEpisodeSources()) return
     val vid = activeVideoId ?: return
     PlayerStreamsRepository.loadSources(
         type = contentType ?: parentMetaType,

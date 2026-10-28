@@ -1865,7 +1865,8 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
                 episodeStreamsRepoState.groups.flatMap { it.streams }.getOrNull(value.toInt()) ?: return true
             }
             if (requestP2pConsentForPlayerControls(stream = stream, episode = episode)) return true
-            switchToEpisodeStream(stream, episode)
+            if (episodeStreamsPanelState.qualityChooser) switchToEpisodeStream(stream, episode)
+            else switchToUserSelectedEpisodeSource(stream, episode)
             playerControlsCloseModalsToken += 1
         }
         "backToEpisodes" -> {
@@ -2146,7 +2147,9 @@ private fun PlayerScreenRuntime.enableP2pForPlayerControls() {
     P2pSettingsRepository.setP2pEnabled(true)
     val episode = pending.episode
     if (episode != null) {
-        switchToP2pEpisodeStream(pending.stream, episode, pending.isAutoPlay)
+        if (pending.userSelected && !episodeStreamsPanelState.qualityChooser) {
+            switchToUserSelectedEpisodeSourceAfterP2pConsent(pending.stream, episode)
+        } else switchToP2pEpisodeStream(pending.stream, episode, pending.isAutoPlay)
     } else if (pending.userSelected) {
         switchToUserSelectedSourceAfterP2pConsent(pending.stream)
     } else {
@@ -2841,8 +2844,9 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
     PlayerScreenModalHosts(
         pendingP2pSwitch = pendingP2pSwitch,
         onPendingP2pSwitchChanged = { pendingP2pSwitch = it },
-        onP2pEpisodeStreamSelected = { stream, episode, isAutoPlay ->
-            switchToP2pEpisodeStream(stream, episode, isAutoPlay)
+        onP2pEpisodeStreamSelected = { stream, episode, isAutoPlay, userSelected ->
+            if (userSelected) switchToUserSelectedEpisodeSourceAfterP2pConsent(stream, episode)
+            else switchToP2pEpisodeStream(stream, episode, isAutoPlay)
         },
         onP2pSourceStreamSelected = { stream, userSelected ->
             if (userSelected) switchToUserSelectedSourceAfterP2pConsent(stream) else switchToP2pSourceStream(stream)
@@ -2975,7 +2979,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
         },
         onEpisodeStreamFilterSelected = PlayerStreamsRepository::selectEpisodeStreamsFilter,
-        onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
+        onEpisodeStreamSelected = { stream, episode -> switchToUserSelectedEpisodeSource(stream, episode) },
         onBackToEpisodes = {
             cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
             episodeStreamsPanelState = EpisodeStreamsPanelState()

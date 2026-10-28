@@ -5,7 +5,8 @@ their own source without changing the host's source, including collaborative par
 choice completes local realization and lobby readiness; material timing differences produce a
 brief player notice rather than a permanent banner. Actual filenames take precedence over AIO's
 parsed title when matching releases across addon configurations. Source-picker guests do not enter
-the host's buffering hold. Desktop/mobile share the fix; no platform acceptance cell is promoted.
+the host's buffering hold. Failed episode matching offers the party's new episode and preserves
+manual picks through P2P consent. Desktop/mobile share the fix; no platform acceptance cell is promoted.
 
 **2026-10-20 language port and upstream integration:** C25 records the new per-title language model;
 Advanced Setup (W12) now includes its three Language pages. Mobile and desktop implementations

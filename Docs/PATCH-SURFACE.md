@@ -15,6 +15,11 @@ state/source-action/credential-refresh seams retain that choice across resolutio
 The remaining matching/readiness/status/stall changes are in Z-owned Watch Together files.
 The timing notice is appended to the Z strings block. Mobile's divergent source-metadata fields
 and Infuse back flow are preserved; shared files move by merge. Preserve these calls at a sync.
+The awaited-episode follow-up extends `PlayerScreenModalHosts.kt`'s existing P2P episode callback
+with the manual-choice flag (matching its source callback), consumed by `PlayerScreenRuntimeUi.kt`.
+Both interfaces' manual episode rows call the Z helper. `openSourcesPanel` has one Z call to redirect
+guest recovery to the party's new episode. These seams are necessary to retain intent through the
+modal boundary; the episode/authority decisions remain in Z-owned code.
 
 ### Current named-base measurement ? 2026-10-20
 
