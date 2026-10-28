@@ -535,7 +535,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             }
             partyLocalSourceMatch = match
             retainCurrentPartySource(party)
-            if (decision != null && decision != partyReportedTimelineDecision) {
+            if (decision != partyReportedTimelineDecision) {
                 partyReportedTimelineDecision = decision
                 partyLog.i {
                     "source timeline $generationKey role=${if (isHost) "host" else "guest"} " +
@@ -2513,9 +2513,9 @@ internal fun partyEpisodeCatalogueFor(
     catalogue: StreamsUiState,
 ): StreamsUiState? = catalogue.takeIf { loadedVideoId == targetVideoId }
 
-private fun PartyContent.toPartyEpisodeVideo(known: List<MetaVideo>): MetaVideo =
+internal fun PartyContent.toPartyEpisodeVideo(known: List<MetaVideo>): MetaVideo =
     known.firstOrNull { it.id == videoId }
-        ?: season?.let { s -> episode?.let { e -> known.firstOrNull { it.season == s && it.episode == e } } }
+        ?: season?.let { s -> episode?.let { e -> known.firstOrNull { it.season == s && it.episode == e }?.copy(id = videoId) } }
         ?: MetaVideo(
             id = videoId,
             title = episodeTitle.orEmpty(),
