@@ -1,5 +1,10 @@
 # Nuvio Z release model
 
+**2026-10-29 one-release upstream-sync exception:** the maintainer explicitly waived the upstream
+sync for the tested Watch Together hotfix bundle. Mobile 0.6.2-z2 and desktop 0.1.31-alpha-z2
+retain their released vanilla bases. Newer upstream 0.6.5-beta / 0.1.33-alpha are deferred;
+the standing sync policy resumes after this hotfix.
+
 This is the authoritative release-policy document for `nuvio-z` and `NuvioZDesktop`. It records
 the compatibility decision made at the start of Phase 7. Operational commands and secret setup are
 expanded here as the release workflows are hardened.

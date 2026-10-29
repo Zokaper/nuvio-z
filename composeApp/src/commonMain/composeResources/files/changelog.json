@@ -13,6 +13,59 @@
   ],
   "events": [
     {
+      "seq": 6,
+      "summary": "Watch Together fixes for joining, sources and reconnecting.",
+      "ships": {
+        "android": {
+          "version": "0.6.2-z2",
+          "serial": 131,
+          "date": "2026-10-29"
+        },
+        "ios": {
+          "version": "0.6.2-z2",
+          "serial": 131,
+          "date": "2026-10-29"
+        },
+        "desktop": {
+          "version": "0.1.31-alpha-z2",
+          "serial": 135,
+          "date": "2026-10-29"
+        }
+      },
+      "entries": [
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Joining and playback",
+          "body": "Watch Together guests no longer get stuck resolving a chosen source or jump to the end when joining."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Source and episode recovery",
+          "body": "Next-episode recovery opens the right source list. Choosing a source no longer pauses the host."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Social reconnects",
+          "body": "Temporary outages show a connection error and retry automatically."
+        }
+      ]
+    },
+    {
       "seq": 5,
       "summary": "Social got better: recommend titles to friends, one Inbox for requests and invites, and notifications as they arrive.",
       "image": "social-v2-hero.jpg",

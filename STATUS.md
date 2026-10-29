@@ -1,5 +1,24 @@
 Last updated: 2026-10-29
 
+## Watch Together hotfix release authorized (2026-10-29)
+
+Maintainer explicitly requested bundling the current EOF / outage repairs with all Debug 137/117
+source/episode recovery fixes and publishing both families. Upstream sync is explicitly waived
+for this release: keep tested mobile 0.6.2-beta and desktop 0.1.31-alpha bases; newer upstream
+0.6.5-beta / 0.1.33-alpha remain deferred. Candidate mobile **0.6.2-z2**, build **130**, serial
+**131**; desktop **0.1.31-alpha-z2**, code **49**, serial **135**. What's New seq 6 has three short
+fix entries, byte-identical in both repos. The maintainer authorized publication on the automated
+validation already completed; no new physical two-client acceptance is claimed.
+
+Desktop focused tests **500 / 52 suites** and Android **496 / 52 suites** plus app compilation
+pass, zero failures/errors/skips. Native mpv video fixture reproduces held EOF under keep-open;
+phone/desktop Social outage renders inspected. Release merges bring only default-branch docs /
+feed updates in addition to this tested code. Dry-run of the complete stable platform families
+must pass before publication. Debug 138 / 118 builds were dispatched before the release bump.
+No backend change. New release worktrees: `.codex-worktrees/wt-release-desktop` and
+`.codex-worktrees/wt-release-mobile`, branch `release/wt-recovery-2026-10-29` in each repo.
+
+
 ## Watch Together EOF / connection outage investigation (2026-10-29)
 
 Two distinct release clients reported repeated guest EOF on entry and a Z RPC timeout followed
@@ -98,8 +117,8 @@ debug 16's scoped agent playback checks do not establish natural autoplay thresh
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `codex/watch-together-guest-sources` | 137 | EOF / Social recovery verified; debug 138 building |
-| Mobile | `codex/watch-together-guest-sources` | 117 | EOF / Social recovery follow-up verified; debug 118 being prepared |
+| Desktop | `Dev` | 137 | WT hotfix 0.1.31-alpha-z2 / serial 135 release rehearsal |
+| Mobile | `main` | 117 | WT hotfix 0.6.2-z2 / build 130 / serial 131 release rehearsal |
 
 ## TV debug 16: coalesced native startup track refreshes (2026-10-27)
 
