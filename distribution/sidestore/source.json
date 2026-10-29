@@ -21,6 +21,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.6.2-z2",
+          "buildVersion": "130",
+          "date": "2026-10-29T20:53:24Z",
+          "localizedDescription": "Nuvio Z mobile 0.6.2-z2 (build 130).\n\nAndroid: signed APKs. iPhone: use Nuvio Z iOS Installer for Windows or Mac. The unsigned IPA also remains compatible with SideStore.\n\n### What's new\n\nWatch Together fixes for joining, sources and reconnecting.\n\n_Desktop 0.1.31-alpha-z2 · Android 0.6.2-z2 · iOS 0.6.2-z2_\n\n#### Bug fixes\n- **Joining and playback** Watch Together guests no longer get stuck resolving a chosen source or jump to the end when joining.\n- **Source and episode recovery** Next-episode recovery opens the right source list. Choosing a source no longer pauses the host.\n- **Social reconnects** Temporary outages show a connection error and retry automatically.\n\n### Changes\n\n- 2e1c2b12 fix(player): port guarded guest startup to mobile and record outage trace @codex  \n- 0eaafcb9 fix(watchparty): defer guest resume and recover transient social outages @codex  \n- 3371f2c9 fix(watchparty): port manual episode-source routing and consent intent @codex  \n- 4dfea378 fix(watchparty): share awaited-episode source recovery @codex  \n- aef37c47 refactor(watchparty): share local-choice bookkeeping helper @codex  \n- e971706d fix(watchparty): port guest source choices through mobile player seams @codex  \n- 5fb6f8ea fix(watchparty): share guest realization and filename matching @codex  \n\n<!-- nuvio-ios:self-signing -->\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/0.6.2-z2%2B131/Nuvio-Z-iOS-0.6.2-z2-130-unsigned.ipa",
+          "size": 80006440,
+          "sha256": "aae587107df6b0e45c3b175158171cc5e33580c490ecd052682198042d21bbc6",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.6.2-z1",
           "buildVersion": "129",
           "date": "2026-10-24T22:41:50Z",
