@@ -12,6 +12,51 @@ import kotlin.test.assertTrue
 
 class PlayerScreenRuntimeStateTest {
 
+    @Test fun aGuestNeverSeedsMpvWithAHostPositionBeyondItsOwnFile() {
+        val party = resumeParty()
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs().copy(
+            initialPositionMs = 99_000_000L, initialProgressFraction = 0.99f,
+        ))
+        runtime.applyWatchPartyStartPosition(party, viewerProfileId = "guest")
+        // Host is 40 min in; this guest's source turns out to be only 30 min. The native
+        // load command runs before that duration is available, bypassing the sync seek guard.
+        assertEquals(0L, runtime.activeInitialPositionMs)
+        assertNull(runtime.activeInitialProgressFraction)
+        assertFalse(runtime.shouldPlay, "wait for the first duration-checked party alignment")
+        assertTrue(runtime.initialSeekApplied, "the generic bookmark effect must not seek afterwards")
+        assertNull(partyNativeStartPosition(runtime.activeInitialPositionMs, guestOwnsPosition = true))
+        runtime.updatePlaybackSnapshot(PlayerPlaybackSnapshot(isLoading = false, durationMs = 1_800_000L))
+        runtime.applyWatchPartyStartPosition(party, viewerProfileId = "guest")
+        assertEquals(0L, runtime.activeInitialPositionMs, "a later duration cannot restore the unsafe native seed")
+    }
+
+    @Test fun guestSourceHandoffsAlsoLeaveTheNativeStartToTheSynchronizer() {
+        assertNull(partyNativeStartPosition(2_400_000L, guestOwnsPosition = true))
+        assertEquals(2_400_000L, partyNativeStartPosition(2_400_000L, guestOwnsPosition = false))
+        val party = resumeParty()
+        assertTrue(partyGuestOwnsPosition(party, "guest", "tt1234567", "tt1234567"))
+        assertFalse(partyGuestOwnsPosition(party, "host", "tt1234567", "tt1234567"))
+        assertFalse(partyGuestOwnsPosition(party, "guest", "another-title", "another-title"))
+        assertFalse(partyGuestOwnsPosition(party.copy(status = com.nuvio.app.features.watchparty.WatchPartyStatus.ended), "guest", "tt1234567", "tt1234567"))
+        assertFalse(partyGuestOwnsPosition(party, null, "tt1234567", "tt1234567"))
+    }
+
+    @Test fun theHostStillStartsAtItsRecordedPartyPosition() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs().copy(initialPositionMs = 123L))
+        runtime.applyWatchPartyStartPosition(resumeParty(), viewerProfileId = "host")
+        assertEquals(2_400_000L, runtime.activeInitialPositionMs)
+        assertFalse(runtime.initialSeekApplied)
+    }
+
+    private fun resumeParty() = com.nuvio.app.features.watchparty.WatchPartyState(
+        id = "party", hostProfileId = "host", status = com.nuvio.app.features.watchparty.WatchPartyStatus.playing,
+        controlMode = com.nuvio.app.features.watchparty.WatchPartyControlMode.host_only,
+        contentGeneration = 1,
+        content = com.nuvio.app.features.watchparty.PartyContent("tt1234567", "movie", "tt1234567", "Title"),
+        positionMs = 2_400_000L, durationMs = 3_000_000L,
+        playbackSpeed = 1f, sequence = 1, stateUpdatedAt = "2026-10-29T00:00:00Z",
+    )
+
     @Test fun anInPlaceGuestChoiceCompletesRealizationAndRetainsTheCurrentEpisodeInsteadOfTheOldLaunch() {
         val descriptor = com.nuvio.app.features.watchparty.PartySourceDescriptorV2(
             originKind = com.nuvio.app.features.watchparty.PartySourceOriginKind.addon,

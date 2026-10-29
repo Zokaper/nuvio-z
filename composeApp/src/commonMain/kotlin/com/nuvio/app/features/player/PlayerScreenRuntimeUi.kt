@@ -515,7 +515,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             sourceResponseHeaders = activeSourceResponseHeaders,
             externalSubtitles = externalSubtitles,
             streamType = activeStreamType,
-            initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
+            initialPositionMs = partyNativeStartPosition(activeInitialPositionMs, partyGuestOwnsPosition()),
             initialPositionRequestKey = initialPositionRequestKey,
         )
     }

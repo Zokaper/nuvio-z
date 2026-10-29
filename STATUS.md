@@ -1,4 +1,30 @@
-Last updated: 2026-10-28
+Last updated: 2026-10-29
+
+## Watch Together EOF / connection outage investigation (2026-10-29)
+
+Two distinct release clients reported repeated guest EOF on entry and a Z RPC timeout followed
+by app-wide loading failures. The latter recovered without an app repair; speedtest.net also
+failed to resolve, supporting an external reachability/DNS fault. Exact historical triggers
+remain unproven without logs/file details. Full trace: `Docs/WATCH-TOGETHER-EOF-OUTAGE-2026-10-29.md`.
+
+Shared merge `92a3a1428` (desktop `a7d3e3d8a`, shared `0eaafcb9d`) defers guest native starts
+to duration-checked party synchronization, without changing host resume positions. The two
+divergent player seams and new runtime regressions are ported surgically. Social capability
+timeouts now show a retryable connection error; stale activation retries every 30 seconds,
+without requiring an account/connectivity event or a successful official-backend probe.
+No party mutation of the official server configuration/login or global proxy was found; addon
+HTTP remains independent. No backend/schema/configuration change or stable release.
+
+Desktop focused suite **500 tests / 52 suites**, zero failures/errors/skips, Gradle exit 0;
+real Social connection-error phone/desktop renders inspected. Actual Windows mpv DLL reproduction
+passes: a 2 s synthetic Y4M video with `start=5` reaches EOF, deferred parked load stays open
+(`scripts/test-watchparty-native-start.py` in desktop). Android focused tests **496 / 52 suites**, zero failures/errors/skips, plus
+`:androidApp:compileFullDebugKotlin` pass (`build/wt-eof-social-mobile-final.log`, Gradle exit 0).
+The empty temporary local.properties build input was removed.
+Desktop Debug **138**, source `b7aae3229`, is dispatched through the existing workflow:
+https://github.com/Zokaper/NuvioZDesktop/actions/runs/40898170480 . No physical two-client
+acceptance is claimed. Retest a mid-episode join with both peers updated, then local source
+switch/shorter-cut recovery; verify Social reconnects after a temporary outage without reopening it.
 
 ## Watch Together guest source recovery (2026-10-28)
 
@@ -72,8 +98,8 @@ debug 16's scoped agent playback checks do not establish natural autoplay thresh
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `codex/watch-together-guest-sources` | 137 | Guest source recovery published for a two-person retest |
-| Mobile | `codex/watch-together-guest-sources` | 116 | Same shared fix; debug 117 under verification |
+| Desktop | `codex/watch-together-guest-sources` | 137 | EOF / Social recovery verified; debug 138 building |
+| Mobile | `codex/watch-together-guest-sources` | 117 | EOF / Social recovery follow-up verified; debug 118 being prepared |
 
 ## TV debug 16: coalesced native startup track refreshes (2026-10-27)
 

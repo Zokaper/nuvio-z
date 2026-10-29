@@ -701,7 +701,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         val controller = playerController ?: return@LaunchedEffect
         if (playerControllerSourceUrl != activeSourceUrl) return@LaunchedEffect
         if (initialSeekApplied || playbackSnapshot.isLoading) return@LaunchedEffect
-        if (isPartySynced && PartyRepository.playback.value != null) {
+        if (partyGuestOwnsPosition() || (isPartySynced && PartyRepository.playback.value != null)) {
             initialSeekApplied = true
             return@LaunchedEffect
         }

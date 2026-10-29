@@ -1,5 +1,12 @@
 # Nuvio Z Feature Ledger
 
+**2026-10-29 S3 recovery follow-up:** guest native loads defer their initial position until
+the local duration is available to Watch Together's seek guard. Social capability timeouts
+remain retryable rather than reading as a confirmed server disable. Desktop's 500 focused
+tests and native mpv held-EOF reproduction pass; installed two-client acceptance remains
+open. [Trace and verification](WATCH-TOGETHER-EOF-OUTAGE-2026-10-29.md). No new feature or
+platform acceptance is claimed.
+
 **2026-10-28 S3/S6 guest-source repair (code; device retest pending):** guests may explicitly choose
 their own source without changing the host's source, including collaborative parties. A playable
 choice completes local realization and lobby readiness; material timing differences produce a
