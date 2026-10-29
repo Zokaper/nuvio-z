@@ -1,5 +1,16 @@
 Last updated: 2026-10-29
 
+## RELEASED 2026-10-29: Mobile 0.6.2-z2+131 and Desktop 0.1.31-alpha-z2+135
+
+- Mobile publish run `40939122944` from `5c1a66b61` (dry run `40900685577`, same commit), GitHub
+  Latest: four APKs, unsigned IPA (build 130), checksums, installer scripts. Feeds updated by the
+  run: `c250d1473` (ios-installer `nuvio.json`) and `d07409c83` (SideStore `source.json`,
+  0.6.2-z2 / 130).
+- Desktop `0.1.31-alpha-z2+135`: publish run `40937715006`, tag at `58dac1b84`; details in
+  `nuviozdesktop/STATUS.md`.
+- Mobile Debug 118 was never published (Debug release runs `40899233166` failed, `40899390114`
+  cancelled), despite the note below saying it was dispatched.
+
 ## Watch Together hotfix release authorized (2026-10-29)
 
 Maintainer explicitly requested bundling the current EOF / outage repairs with all Debug 137/117
