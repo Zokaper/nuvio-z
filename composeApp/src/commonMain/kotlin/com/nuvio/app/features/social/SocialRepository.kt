@@ -60,6 +60,8 @@ import com.nuvio.app.features.setup.SocialIdentityProbe
 private const val SocialChannelSubscribeTimeoutMs = 12_000L
 /** Inside the bridge's 2-minute renewal window, so a tick always lands before the token runs out. Cheap: an in-memory check until renewal is due. */
 private const val SocialRealtimeKeepAliveMs = 60_000L
+/** Reachability can recover without the OS reporting a new network or the account changing. */
+internal const val SocialRecoveryRetryMs = 30_000L
 private val realtimeLog = co.touchlab.kermit.Logger.withTag("SocialRealtime")
 
 /** How long to wait for it to be given up, over a socket that may be exactly what failed. */
@@ -281,6 +283,16 @@ object SocialRepository {
                     .distinctUntilChanged()
                     .collect { online -> if (online) recoverIfStale() }
             }
+            launch { retryStaleRecovery() }
+        }
+    }
+
+    internal suspend fun retryStaleRecovery() {
+        while (true) {
+            delay(SocialRecoveryRetryMs)
+            // The connectivity probe tests the official backend, not Z. Its stale or
+            // offline result must not prevent this independent backend from recovering.
+            recoverIfStale()
         }
     }
 
@@ -707,10 +719,14 @@ object SocialRepository {
 
     private suspend fun refreshCapabilities() {
         runCatching { socialRpc("get_social_capabilities").decodeAs<SocialCapabilities>() }
-            .onSuccess { capabilities -> publish { capabilitiesLoaded = true; it.copy(capabilities = capabilities) } }
+            .onSuccess { capabilities -> publish { capabilitiesLoaded = true; it.copy(capabilities = capabilities, errorMessage = null) } }
             .onFailure { error ->
                 if (error is CancellationException) throw error
-                publish { capabilitiesLoaded = false; it.copy(capabilities = SocialCapabilities(), isLoading = false) }
+                // A timeout says nothing about whether the server supports Social. Keep any known
+                // capabilities; a cold start shows a retryable connection error rather than Disabled.
+                realtimeLog.w { "capabilities unavailable: ${error::class.simpleName}" }
+                publish { capabilitiesLoaded = false; it.copy(isLoading = false,
+                    errorMessage = "Could not connect to Social. Retrying automatically.") }
             }
     }
 

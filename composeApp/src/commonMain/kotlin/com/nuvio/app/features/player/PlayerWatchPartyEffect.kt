@@ -2090,13 +2090,15 @@ private suspend fun PlayerScreenRuntime.reactToAwayMembers(holding: List<String>
 /**
  * Places the player at the party's position rather than at this profile's own resume point.
  *
- * A party has one position by definition. Continue Watching is per profile, so a guest who had
- * already seen half the film opened the player at their own bookmark and the correction policy then
- * had to drag them back - visibly, and through a seek that can cost the stream its buffer. Applied
- * during composition, before the surface reads the initial position, because on desktop that value
- * is handed to the engine at attach rather than seeked to afterwards.
+ * Continue Watching is per profile. Guests discard that bookmark and open without a native start
+ * offset: even the host's raw position may be beyond a shorter local file. The party synchronizer
+ * aligns them after the local duration is known, through its unreachable-position guard. Applied
+ * before the surface reads the initial position, because desktop hands it to mpv at attach.
  */
-internal fun PlayerScreenRuntime.applyWatchPartyStartPosition(party: WatchPartyState?) {
+internal fun PlayerScreenRuntime.applyWatchPartyStartPosition(
+    party: WatchPartyState?,
+    viewerProfileId: String? = WatchPartyRepository.uiState.value.activeProfileId,
+) {
     // Only ever a launch decision. Starting a party from inside a running player creates one at
     // position zero around the film already playing, and moving the host back to the beginning is
     // not what they asked for.
@@ -2105,9 +2107,10 @@ internal fun PlayerScreenRuntime.applyWatchPartyStartPosition(party: WatchPartyS
     val key = matching.generationKey()
     if (partyStartPositionAppliedKey == key) return
     partyStartPositionAppliedKey = key
-    val positionMs = matching.positionMs.coerceAtLeast(0L)
+    val guest = partyGuestOwnsPosition(matching, viewerProfileId, parentMetaId, playbackSession.videoId)
+    val positionMs = if (guest) 0L else matching.positionMs.coerceAtLeast(0L)
     partyLog.i {
-        "startPosition $key partyMs=$positionMs replacedResumeMs=$activeInitialPositionMs " +
+        "startPosition $key partyMs=${matching.positionMs} nativeMs=$positionMs deferred=$guest replacedResumeMs=$activeInitialPositionMs " +
             "resumeFraction=$activeInitialProgressFraction"
     }
     activeInitialPositionMs = positionMs
@@ -2117,7 +2120,7 @@ internal fun PlayerScreenRuntime.applyWatchPartyStartPosition(party: WatchPartyS
     // load and be paused a moment later by the gate or the host's tick - a visible start and stop on
     // the joiner, and a `playing` status the host could mistake for a member already running. The
     // party's own `play` barrier is what starts it, at the instant everyone else starts.
-    if (shouldStartParkedForParty(matching, WatchPartyRepository.uiState.value.activeProfileId)) {
+    if (guest || shouldStartParkedForParty(matching, viewerProfileId)) {
         partyLog.i { "startPosition $key guest opens parked status=${matching.status}" }
         shouldPlay = false
     }

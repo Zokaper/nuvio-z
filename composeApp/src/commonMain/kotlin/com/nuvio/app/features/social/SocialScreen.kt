@@ -147,6 +147,7 @@ import nuvio.composeapp.generated.resources.social_join_waiting
 import nuvio.composeapp.generated.resources.social_joining
 import nuvio.composeapp.generated.resources.social_no_friends
 import nuvio.composeapp.generated.resources.social_nothing_shared
+import nuvio.composeapp.generated.resources.social_try_again
 import nuvio.composeapp.generated.resources.social_notify_when
 import nuvio.composeapp.generated.resources.social_open
 import nuvio.composeapp.generated.resources.social_party_count
@@ -369,6 +370,7 @@ fun SocialScreen(
         ),
         actions = SocialFeedActions(
             onRefresh = { scope.launch { SocialRepository.refresh() } },
+            onRecover = { SocialRepository.recoverIfStale() },
             onHandleChange = { handle = normalizeSocialHandle(it).take(24) },
             onSaveHandle = {
                 scope.launch {
@@ -444,6 +446,7 @@ internal data class SocialFeedModel(
 /** The Social tab's callbacks, exactly as [SocialScreen] defines them. */
 internal class SocialFeedActions(
     val onRefresh: () -> Unit = {},
+    val onRecover: () -> Unit = {},
     val onHandleChange: (String) -> Unit = {},
     val onSaveHandle: () -> Unit = {},
     val onPartyCodeChange: (String) -> Unit = {},
@@ -561,6 +564,12 @@ internal fun SocialFeed(
                     onSettings = { overlay = SocialOverlay.Settings },
                 )
                 when {
+                    !state.capabilities.socialEnabled && (state.isLoading || state.errorMessage != null) -> SocialMessageColumn(horizontal) {
+                        if (state.isLoading) SocialSkeleton(SocialWatchingCardHeight) else {
+                            SocialNotice(state.errorMessage.orEmpty(), MaterialTheme.colorScheme.error)
+                            SocialPillButton(stringResource(Res.string.social_try_again), actions.onRecover)
+                        }
+                    }
                     !state.capabilities.socialEnabled -> SocialMessageColumn(horizontal) {
                         SocialNotice(stringResource(Res.string.social_disabled))
                     }
