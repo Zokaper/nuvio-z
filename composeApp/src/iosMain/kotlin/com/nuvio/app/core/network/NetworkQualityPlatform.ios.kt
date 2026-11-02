@@ -19,6 +19,7 @@ actual object NetworkQualityPlatform {
     private var latest = PlatformNetworkQuality(NetworkConnectionType.UNKNOWN, false, "ios:unknown")
     private val monitor = nw_path_monitor_create().also { monitor ->
         nw_path_monitor_set_update_handler(monitor) { path ->
+            PlatformLink.report(up = path != null && nw_path_get_status(path) == nw_path_status_satisfied)
             if (path == null || nw_path_get_status(path) != nw_path_status_satisfied) {
                 latest = PlatformNetworkQuality(NetworkConnectionType.OFFLINE, false, "ios:offline")
             } else {

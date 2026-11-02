@@ -9,6 +9,8 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.debug.isDebugBuild
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.PlatformLink
+import com.nuvio.app.core.network.PlatformLinkState
 import com.nuvio.app.features.downloads.LocalPlaybackPolicy
 import com.nuvio.app.features.playback.PlaybackStallMonitor
 import kotlin.time.TimeSource
@@ -116,6 +118,11 @@ internal fun PlayerScreenRuntime.BindStallMonitorShadow() {
                     snapshot.engineReadiness == PlayerEngineReadiness.Buffering,
                 isManifest = isManifest,
                 isLocal = isLocal,
+                link = when (PlatformLink.state.value) {
+                    PlatformLinkState.Up -> PlaybackStallMonitor.Link.Up
+                    PlatformLinkState.Down -> PlaybackStallMonitor.Link.Down
+                    PlatformLinkState.Unknown -> PlaybackStallMonitor.Link.Unknown
+                },
                 internet = when (condition) {
                     NetworkCondition.Online -> PlaybackStallMonitor.Internet.Online
                     NetworkCondition.NoInternet -> PlaybackStallMonitor.Internet.Offline

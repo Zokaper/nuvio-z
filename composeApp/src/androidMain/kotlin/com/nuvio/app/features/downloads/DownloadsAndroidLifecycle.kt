@@ -23,6 +23,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.nuvio.app.core.debug.isDebugBuild
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.PlatformLink
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
 import java.io.File
 import java.io.OutputStream
@@ -172,6 +173,8 @@ internal object DownloadsAndroidLifecycle {
             val unmetered = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
             "validated=$validated unmetered=$unmetered"
         }
+        // A capabilities callback is only ever delivered for a network that exists.
+        PlatformLink.report(up = kind != "lost")
         if (signature == lastNetworkSignature) return
         lastNetworkSignature = signature
         DownloadDiagnostics.note("network", signature)

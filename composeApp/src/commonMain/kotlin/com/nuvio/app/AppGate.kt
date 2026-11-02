@@ -40,6 +40,7 @@ import nuvio.composeapp.generated.resources.z_auth_signed_out_notice
 import org.jetbrains.compose.resources.getString
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.PlatformLink
 import com.nuvio.app.core.sync.SyncManager
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.CrossFamilyImportOutcome
@@ -216,6 +217,7 @@ internal fun AppGate(
     LaunchedEffect(Unit) {
         if (!ownsAppRuntime) return@LaunchedEffect
         NetworkStatusRepository.ensureStarted()
+        PlatformLink.ensureStarted()
         MemberAccessRepository.ensureStarted()
         ProfileRepository.loadCachedProfiles()
         AvatarRepository.fetchAvatars()
