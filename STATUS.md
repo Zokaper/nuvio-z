@@ -1,4 +1,52 @@
-Last updated: 2026-10-29
+Last updated: 2026-11-02
+
+## IN PROGRESS 2026-11-02: Unhappy paths (failure handling) - `claude/unhappy-paths`, both repos
+
+Plan (approved, maintainer UX decisions inside): `Nuvio Z/PLAN-unhappy-paths.md`. Stages S0-S4
+(solo playback) and W1-W5 (Watch Together); Part 2 (scenario-driven stability review) later.
+**Reopens the deleted P7** (auto source swap) by maintainer decision; S0 gates it.
+
+| Repository | Branch | Base | Commits so far |
+| --- | --- | --- | --- |
+| Mobile | `claude/unhappy-paths` | `main` 5fed8daf8 | S0 + S1 |
+| Desktop | `claude/unhappy-paths` | `Dev` fafa1b353 | S0 + S1 (cherry-picked `-x`), desktop link monitor, W1 recovery port |
+
+**Done (unpublished, not yet device-verified):**
+- **S0** `PlaybackStallMonitor` (pure, group 2): Chronic / Sustained / Dead starvation verdicts after
+  the first frame; never blames a source while offline or with connectivity unconfirmed; seeks,
+  pause, party holds, HLS/DASH and local files handled. **Shadow mode only** (debug builds): verdicts
+  go to log tag `PlaybackStall` and the diagnostics HUD ("Dump trace" writes the sample CSV).
+  Nothing acts on it until device traces show zero false verdicts.
+- **S1** a source that died mid-episode relaunched the next one at the launch's resume point;
+  `FailoverResume` now carries the position reached (keyed by video, 3 s rewind) through the chain.
+  `PlatformLink` takes the OS link state from Android (existing callback), iOS (existing
+  NWPathMonitor) and desktop (`DesktopLinkMonitor`, 3 s interface poll) and forces a
+  `NetworkStatusRepository` probe on every change. `NetworkStatusRepository` itself untouched.
+- **W1 (core)** desktop lacked mobile's realtime recovery entirely. Ported by cherry-pick
+  (`ac121af02`, `8aedfd9f5`, `8658c6576`): `PartyRealtimeRecovery`, `PartyRealtimeChannelHealth`,
+  `ZRealtimeHeartbeatRecovery`, diagnostics, and reconnects no longer wipe the stall watch
+  (`closeChannel(clearProtocol = !stillDesired)`). Desktop's transport, recovery, health, rules and
+  diagnostics files are now identical to mobile `main`.
+
+**Why cherry-pick, not merge:** a trial `git merge mobile/main` into desktop `Dev` conflicts in
+116 files (889 commits; workflows, updater, strings, every player runtime file). That is a full
+convergence job of its own, not a W1 step. Remaining non-recovery diffs in the network core:
+`ZSupabaseProvider` (in-memory session manager), `ZSessionBridge` (atomic vs @Volatile),
+`WatchPartyRepository` (one log detail).
+
+**Verification:** standalone kotlinc: PlaybackStallMonitorTest 21, PlaybackStartupWatchdogTest 34,
+FailoverResumeTest 6. `:androidApp:compileFullDebugKotlin` passes. Desktop `desktopTest`: watchparty
++ core.network + player party classes 570/570 (72 classes, fresh results dir), DesktopLinkMonitorTest
+3/3. iOS not compilable on Windows.
+
+**Next:** W1 remainder (emit `PartyClientPhase.Reconnecting`, desktop sleep/resume resync), then a
+debug build pair for S0 device traces; S2 (failure taxonomy + error screens, render first).
+
+| Repository | Active branch | Released debug | Current work |
+| --- | --- | --- | --- |
+| Desktop | `claude/unhappy-paths` (trunk `Dev`) | 137 | Unhappy paths S0/S1/W1, unpublished |
+| Mobile | `claude/unhappy-paths` (trunk `main`) | 117 | Unhappy paths S0/S1, unpublished |
+
 
 ## RELEASED 2026-10-29: Mobile 0.6.2-z2+131 and Desktop 0.1.31-alpha-z2+135
 
