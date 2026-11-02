@@ -224,7 +224,7 @@
     },
     {
       "build": 118,
-      "text": "Watch Together: guests wait for the local duration before aligning to the party, avoiding an unsafe start at the end of a shorter source. Social reports connection failures accurately and retries automatically after temporary outages."
+      "text": "Unhappy paths, first round. A source that fails mid-episode now continues where you were instead of going back to the start; going offline is noticed at once; Watch Together says \"Reconnected · back in sync\" after a dropped connection. Debug HUD: buffering verdicts (shadow only, nothing switches yet) and Dump trace. Also includes 0.6.2-z2's Watch Together fixes."
     }
   ]
 }
