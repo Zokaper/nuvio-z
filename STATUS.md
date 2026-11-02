@@ -8,8 +8,8 @@ Plan (approved, maintainer UX decisions inside): `Nuvio Z/PLAN-unhappy-paths.md`
 
 | Repository | Branch | Base | Commits so far |
 | --- | --- | --- | --- |
-| Mobile | `claude/unhappy-paths` | `main` 5fed8daf8 | S0 + S1 |
-| Desktop | `claude/unhappy-paths` | `Dev` fafa1b353 | S0 + S1 (cherry-picked `-x`), desktop link monitor, W1 recovery port |
+| Mobile | `claude/unhappy-paths` | `main` 5fed8daf8 | S0 + S1, W1 "Reconnected" |
+| Desktop | `claude/unhappy-paths` | `Dev` fafa1b353 | S0 + S1 + W1 "Reconnected" (cherry-picked `-x`), desktop link monitor, W1 recovery port, wake-from-sleep |
 
 **Done (unpublished, not yet device-verified):**
 - **S0** `PlaybackStallMonitor` (pure, group 2): Chronic / Sustained / Dead starvation verdicts after
@@ -27,6 +27,17 @@ Plan (approved, maintainer UX decisions inside): `Nuvio Z/PLAN-unhappy-paths.md`
   `ZRealtimeHeartbeatRecovery`, diagnostics, and reconnects no longer wipe the stall watch
   (`closeChannel(clearProtocol = !stillDesired)`). Desktop's transport, recovery, health, rules and
   diagnostics files are now identical to mobile `main`.
+- **W1 (done)** "Reconnected · back in sync" on the party status pill (row 11b, `trackPartyReconnect`):
+  only after trouble the viewer saw (>3 s), only once `FullSync` proves the link (a subscription is
+  not proof), dropped if no proof within 60 s, never for a guest whose *host* dropped. Desktop
+  `DesktopPartyLifecycle` detects waking from sleep (wall-clock gap >10 s between 2 s ticks), bumps
+  `resumeRevision` and refreshes the durable party; the socket stays the SDK's to recover.
+  **Deliberately not done:** emitting `PartyClientPhase.Reconnecting` (plan W1 bullet 2). The phase
+  is *where* the member is (Lobby / ActivePlayer / MatchingHostSource) and `lobbyLocationWaitsForPlayer`
+  and the coordinator key on `ActivePlayer`; overwriting it on a socket drop would regress them.
+  Connection state already lives on its own axis (`PartyHealthState`), which the chip and pill read,
+  and durable resync already runs on both recovery paths (`onRecovered` and a reopened channel).
+  `PartySessionEvent.SocketLost` stays unused.
 
 **Why cherry-pick, not merge:** a trial `git merge mobile/main` into desktop `Dev` conflicts in
 116 files (889 commits; workflows, updater, strings, every player runtime file). That is a full
@@ -35,12 +46,13 @@ convergence job of its own, not a W1 step. Remaining non-recovery diffs in the n
 `WatchPartyRepository` (one log detail).
 
 **Verification:** standalone kotlinc: PlaybackStallMonitorTest 21, PlaybackStartupWatchdogTest 34,
-FailoverResumeTest 6. `:androidApp:compileFullDebugKotlin` passes. Desktop `desktopTest`: watchparty
+FailoverResumeTest 6. Full `run-pure-suites.sh` (mobile, after W1): all nine groups green,
+284/292/188/17/29/221/81/3/17 - group 6 (Watch Together) compiles standalone again. `:androidApp:compileFullDebugKotlin` passes. Desktop `desktopTest`: watchparty
 + core.network + player party classes 570/570 (72 classes, fresh results dir), DesktopLinkMonitorTest
 3/3. iOS not compilable on Windows.
 
-**Next:** W1 remainder (emit `PartyClientPhase.Reconnecting`, desktop sleep/resume resync), then a
-debug build pair for S0 device traces; S2 (failure taxonomy + error screens, render first).
+**Next:** a debug build pair for S0 device traces (with a batched checklist), then S2 (failure
+taxonomy + error screens, render first).
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
