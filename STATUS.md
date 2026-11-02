@@ -51,13 +51,18 @@ FailoverResumeTest 6. Full `run-pure-suites.sh` (mobile, after W1): all nine gro
 + core.network + player party classes 570/570 (72 classes, fresh results dir), DesktopLinkMonitorTest
 3/3. iOS not compilable on Windows.
 
-**Next:** a debug build pair for S0 device traces (with a batched checklist), then S2 (failure
-taxonomy + error screens, render first).
+**Debug builds (round 1):** mobile **Debug 118** published 2026-11-02 (run `41506212836`, tag
+`debug-v0.6.2-z2.118` at `baab33f45`). Desktop **Debug 139** (run `41507330908`): Windows MSI built,
+the macOS job never got a runner and was cancelled; failed jobs re-run. Device checks:
+`Nuvio Z/CHECKLIST-unhappy-paths.md` (round 1: S0 gate, S1, W1). Every shadow starved verdict now
+logs its own CSV trace (desktop cannot show the Compose HUD).
+
+**Next:** S2 (failure taxonomy + error screens, render first); S3/S4 wait on round-1 traces.
 
 | Repository | Active branch | Released debug | Current work |
 | --- | --- | --- | --- |
-| Desktop | `claude/unhappy-paths` (trunk `Dev`) | 137 | Unhappy paths S0/S1/W1, unpublished |
-| Mobile | `claude/unhappy-paths` (trunk `main`) | 117 | Unhappy paths S0/S1, unpublished |
+| Desktop | `claude/unhappy-paths` (trunk `Dev`) | 138 (139 publishing) | Unhappy paths S0/S1/W1 |
+| Mobile | `claude/unhappy-paths` (trunk `main`) | 118 | Unhappy paths S0/S1/W1 |
 
 
 ## RELEASED 2026-10-29: Mobile 0.6.2-z2+131 and Desktop 0.1.31-alpha-z2+135
