@@ -17,8 +17,9 @@ import kotlin.time.TimeSource
 import kotlinx.coroutines.delay
 
 /**
- * `adb logcat -s PlaybackStall` / the desktop debug log. Every verdict transition, and on request
- * the whole sample trace as CSV - the evidence S0 of `PLAN-unhappy-paths.md` is gathered from.
+ * `adb logcat -s PlaybackStall` / the desktop debug log. Every verdict transition, and the whole
+ * sample trace as CSV on request and on every starved verdict - the evidence S0 of
+ * `PLAN-unhappy-paths.md` is gathered from.
  */
 private val stallLog = Logger.withTag("PlaybackStall")
 
@@ -150,6 +151,10 @@ internal fun PlayerScreenRuntime.BindStallMonitorShadow() {
                     "shadow: would act on ${state.reason} for $activeStreamTitle " +
                         "(not acting - S0 shadow mode)"
                 }
+                // Every verdict that would have acted brings its own evidence. Desktop cannot show
+                // this HUD at all (the native controls layer sits above Compose), and on a phone the
+                // moment has usually passed by the time anyone reaches for "Dump trace".
+                PlaybackStallTrace.dumpToLog(snapshot.engineName)
                 state = PlaybackStallMonitor.rearm(state, sample.elapsedMs)
                 lastVerdict = state.verdict
             }
