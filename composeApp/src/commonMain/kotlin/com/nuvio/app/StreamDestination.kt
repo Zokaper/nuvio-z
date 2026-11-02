@@ -56,6 +56,7 @@ import com.nuvio.app.features.playback.PlaybackLoadingBackdrop
 import com.nuvio.app.features.playback.PlaybackLoadingController
 import com.nuvio.app.features.playback.PlaybackLoadingState
 import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.FailoverResume
 import com.nuvio.app.features.playback.PlaybackModeRouter
 import com.nuvio.app.features.playback.PlaybackPreferencesDialog
 import com.nuvio.app.features.playback.PlaybackProgress
@@ -1116,6 +1117,8 @@ internal fun StreamDestination(
     // underneath the player.
     // Re-evaluated when an outstanding player launch ends: the player's disposal is what turns a deferred
     // wake-up below into a real return.
+    // The position a source in this chain died at, carried to every later relaunch in the chain.
+    var failoverResume by remember(route.launchId) { mutableStateOf<FailoverResume.Noted?>(null) }
     val playerLaunchRevision by StreamsRepository.playerLaunchRevision.collectAsStateWithLifecycle()
     LaunchedEffect(streamsUiState.autoPlayStream, navController.currentRoute, playerLaunchRevision) {
         if (navController.currentRoute != route) return@LaunchedEffect
@@ -1148,6 +1151,8 @@ internal fun StreamDestination(
             // The user came back on their own. Retire the chain first, so
             // nothing relaunches behind them.
             StreamsRepository.consumeAutoPlay()
+            FailoverResume.pending = null
+            failoverResume = null
             if (
                 playerSettings.playbackMode == PlaybackMode.CLASSIC ||
                 launch.manualSelection ||
@@ -1189,6 +1194,7 @@ internal fun StreamDestination(
                 "previousCandidate=$lastHandedOffLabel"
         }
         autoPickAttempt += 1
+        failoverResume = FailoverResume.takePending() ?: failoverResume
         // The third failure route, and the only one that used to say nothing.
         // The source opened, played, and died - the most visible failure there
         // is - and the overlay came back showing a bumped counter with no
@@ -1333,8 +1339,13 @@ internal fun StreamDestination(
             autoPlayHandled = true
             requestOrOpenP2pStream(
                 stream = stream,
-                resolvedResumePositionMs = launch.resumePositionMs,
-                resolvedResumeProgressFraction = launch.resumeProgressFraction,
+                resolvedResumePositionMs = FailoverResume.resumePosition(
+                    failoverResume,
+                    effectiveVideoId,
+                    launch.resumePositionMs,
+                ),
+                resolvedResumeProgressFraction = launch.resumeProgressFraction
+                    .takeIf { failoverResume?.videoId != effectiveVideoId },
                 forceExternal = false,
                 forceInternal = true,
                 isAutoPlay = true,
@@ -1381,8 +1392,12 @@ internal fun StreamDestination(
             videoId = effectiveVideoId,
             parentMetaId = launch.parentMetaId ?: effectiveVideoId,
             parentMetaType = launch.parentMetaType ?: launch.type,
-            initialPositionMs = serverResumeMs ?: launch.resumePositionMs ?: 0L,
-            initialProgressFraction = launch.resumeProgressFraction.takeIf { serverResumeMs == null },
+            initialPositionMs = serverResumeMs
+                ?: FailoverResume.resumePosition(failoverResume, effectiveVideoId, launch.resumePositionMs)
+                ?: 0L,
+            initialProgressFraction = launch.resumeProgressFraction.takeIf {
+                serverResumeMs == null && failoverResume?.videoId != effectiveVideoId
+            },
             contentLanguage = requestedContentLanguage,
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,

@@ -179,6 +179,8 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/core/ui/NuvioWindowClass.kt" \
   "$M/features/playback/ConnectionProbeSettlement.kt" \
   "$M/features/playback/PlaybackStartupWatchdog.kt" \
+  "$M/features/playback/PlaybackStallMonitor.kt" \
+  "$M/features/playback/FailoverResume.kt" \
   "$M/features/playback/PlaybackAttemptLog.kt" \
   "$M/features/playback/PlaybackPosition.kt" \
   "$M/features/playback/PlaybackSourceProbe.kt" \
@@ -195,6 +197,8 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$T/core/ui/NuvioWindowClassTest.kt" \
   "$T/features/playback/ConnectionProbeSettlementTest.kt" \
   "$T/features/playback/PlaybackStartupWatchdogTest.kt" \
+  "$T/features/playback/PlaybackStallMonitorTest.kt" \
+  "$T/features/playback/FailoverResumeTest.kt" \
   "$T/features/playback/PlaybackAttemptLogTest.kt" \
   "$T/features/playback/PlaybackPositionTest.kt" \
   "$T/features/playback/PlaybackSourceProbeTest.kt" \
@@ -214,6 +218,8 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.core.ui.NuvioWindowClassTest \
   com.nuvio.app.features.playback.ConnectionProbeSettlementTest \
   com.nuvio.app.features.playback.PlaybackStartupWatchdogTest \
+  com.nuvio.app.features.playback.PlaybackStallMonitorTest \
+  com.nuvio.app.features.playback.FailoverResumeTest \
   com.nuvio.app.features.playback.PlaybackAttemptLogTest \
   com.nuvio.app.features.playback.PlaybackPositionTest \
   com.nuvio.app.features.playback.PlaybackSourceProbeTest \

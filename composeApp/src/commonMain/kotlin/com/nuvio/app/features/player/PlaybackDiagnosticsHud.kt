@@ -99,6 +99,19 @@ internal fun PlayerScreenRuntime.RenderPlaybackDiagnosticsHud() {
                     HudLine("throttle=unavailable on ${playbackSnapshot.engineName}")
                 }
 
+                PlaybackStallTrace.latest?.let { stall ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HudLine(
+                            "stall=${stall.verdict} reason=${stall.reason ?: "-"} " +
+                                "episodes=${stall.episodeStartsMs.size} frozen=${formatDebugMs(stall.stallFrozenMs)} " +
+                                "wouldAct=${PlaybackStallTrace.starvedVerdicts}",
+                            if (PlaybackStallTrace.starvedVerdicts > 0) Color(0xFFFFD180) else Color.White,
+                        )
+                        TextButton(onClick = { PlaybackStallTrace.dumpToLog(playbackSnapshot.engineName) }) {
+                            Text("Dump trace", color = Color(0xFF80CBC4), fontSize = 11.sp)
+                        }
+                    }
+                }
                 partyDiagnosticsLine()?.let { HudLine(it, Color(0xFF80CBC4)) }
                 debugStatusMessage?.let { HudLine(it, Color(0xFFFFD180)) }
                 if (selectedThrottle > 0 && playbackSnapshot.engineName != "ExoPlayer") {

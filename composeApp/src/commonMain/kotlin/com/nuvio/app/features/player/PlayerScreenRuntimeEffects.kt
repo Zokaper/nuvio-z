@@ -33,6 +33,7 @@ import com.nuvio.app.features.playback.logKey
 import com.nuvio.app.features.playback.probePlaybackSource
 import com.nuvio.app.features.playback.PlaybackPosition
 import com.nuvio.app.features.playback.PlaybackStartupWatchdog
+import com.nuvio.app.features.playback.FailoverResume
 import com.nuvio.app.features.watchparty.toPartySourceDescriptor
 import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
@@ -96,6 +97,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         BindSocialPresenceEffect()
         BindWatchPartyEffect()
     }
+    BindStallMonitorShadow()
     val currentFeedback = liveGestureFeedback ?: gestureFeedback
     LaunchedEffect(currentFeedback) {
         if (currentFeedback != null) {
@@ -1307,6 +1309,13 @@ internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
     // bumped the attempt counter in silence, and it is the one that covers the most visible
     // failure there is - a source that opens, plays a second and dies.
     StreamsRepository.noteAutoPickFailureReason(message)
+    // Where this source got to, so the next one in the chain opens there rather than back at the
+    // launch's resume point (PLAN-unhappy-paths.md S1).
+    FailoverResume.pending = FailoverResume.note(
+        videoId = activeVideoId,
+        hasStarted = firstFrameReached,
+        lastPlayedMs = playbackSnapshot.positionMs,
+    )
     args.onFatalPlaybackError?.invoke()
 }
 
