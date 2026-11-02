@@ -134,6 +134,7 @@ class PartyPlaybackStatusTest {
             barrierHoldMs = 5_000,
             incomingRequester = debug,
             realtimeUnhealthyMs = 10_000,
+            justReconnected = true,
             hostOffline = true,
             capability = PartySyncCapability.OfflineLocalPlayback,
             pausedBy = seraph,
@@ -152,6 +153,7 @@ class PartyPlaybackStatusTest {
             { it.copy(capability = PartySyncCapability.FullSync) },
             { it.copy(hostOffline = false) },
             { it.copy(realtimeUnhealthyMs = 0) },
+            { it.copy(justReconnected = false) },
             { it.copy(pausedBy = null) },
             { it.copy(outgoingRequestTarget = null) },
         )
@@ -171,6 +173,7 @@ class PartyPlaybackStatusTest {
             PartyStatusKind.Offline,
             PartyStatusKind.HostOffline,
             PartyStatusKind.Reconnecting,
+            PartyStatusKind.Reconnected,
             PartyStatusKind.PausedBy,
             PartyStatusKind.OutgoingJoinRequest,
         )
@@ -355,5 +358,48 @@ class PartyPlaybackStatusTest {
         val empty = encodePartySyncMessage(peerStatus(starved = true))
         val full = encodePartySyncMessage(peerStatus(starved = false))
         assertEquals(JsonObject(empty - "st"), JsonObject(full - "st"))
+    }
+
+    // Unhappy paths W1 (2026-11-02): a visible reconnect is confirmed, but only once it is proved.
+    private fun track(steps: List<Triple<Long, Boolean, PartySyncCapability>>): PartyReconnectNotice =
+        steps.fold(PartyReconnectNotice()) { s, (at, troubled, cap) -> trackPartyReconnect(s, troubled, cap, at) }
+
+    private val full = PartySyncCapability.FullSync
+    private val durable = PartySyncCapability.DurableFallback
+
+    @Test fun aVisibleReconnectIsConfirmedOnProof() {
+        val n = track(listOf(Triple(0L, true, durable), Triple(4_000L, false, full)))
+        assertTrue(n.showsReconnected(4_000L))
+        assertTrue(n.showsReconnected(6_999L))
+        assertFalse(n.showsReconnected(7_000L))
+        assertEquals("Reconnected · back in sync", projectPartyPlaybackStatus(guest.copy(justReconnected = true))!!.text)
+    }
+
+    @Test fun aBlipNobodySawIsNotAnnounced() {
+        assertFalse(track(listOf(Triple(0L, true, durable), Triple(2_500L, false, full))).showsReconnected(2_500L))
+    }
+
+    @Test fun aSubscriptionIsNotProofButLaterTrafficIs() {
+        // Back from Connecting to SubscribedUnverified: not troubled, not proved.
+        val pending = track(listOf(Triple(0L, true, durable), Triple(5_000L, false, durable)))
+        assertFalse(pending.showsReconnected(5_000L))
+        val proved = trackPartyReconnect(pending, troubled = false, capability = full, nowMs = 9_000L)
+        assertTrue(proved.showsReconnected(9_000L))
+    }
+
+    @Test fun proofThatComesTooLateIsDropped() {
+        val pending = track(listOf(Triple(0L, true, durable), Triple(5_000L, false, durable)))
+        val late = trackPartyReconnect(pending, troubled = false, capability = durable, nowMs = 5_000L + PartyReconnectProofWindowMs + 1)
+        assertEquals(PartyReconnectNotice(), late)
+        assertFalse(trackPartyReconnect(late, troubled = false, capability = full, nowMs = 70_000L).showsReconnected(70_000L))
+    }
+
+    @Test fun newTroubleRetiresAnAnnouncementStillUp() {
+        val shown = track(listOf(Triple(0L, true, durable), Triple(4_000L, false, full)))
+        assertFalse(trackPartyReconnect(shown, troubled = true, capability = durable, nowMs = 5_000L).showsReconnected(5_000L))
+    }
+
+    @Test fun aSteadyHealthyPartyNeverAnnounces() {
+        assertFalse(track(listOf(Triple(0L, false, full), Triple(10_000L, false, full))).showsReconnected(10_000L))
     }
 }
