@@ -40,6 +40,8 @@ enum class PartyStatusKind {
     /** The host's connection is gone and this viewer's is fine. */
     HostOffline,
     Reconnecting,
+    /** A visible reconnect (or offline spell) just ended in verified sync; see [PartyReconnectNotice]. */
+    Reconnected,
     Offline,
     PausedBy,
     OutgoingJoinRequest,
@@ -145,6 +147,8 @@ data class PartyPlaybackStatusInputs(
     val panelOpen: Boolean = false,
     /** How long realtime has been Connecting or Degraded, 0 when not. */
     val realtimeUnhealthyMs: Long = 0L,
+    /** [PartyReconnectNotice.showsReconnected]: a reconnect the viewer saw has just been proved good. */
+    val justReconnected: Boolean = false,
     /** The durable snapshot has the host disconnected. Their broadcasts stopped with them, which is what
      *  makes this viewer's own realtime read unhealthy - so this outranks [realtimeUnhealthyMs]. */
     val hostOffline: Boolean = false,
@@ -164,6 +168,59 @@ data class PartyPlaybackStatusInputs(
 fun partyRealtimeReadsReconnecting(realtime: PartyRealtimeHealth, nobodyToHearFrom: Boolean): Boolean =
     realtime == PartyRealtimeHealth.Connecting ||
         (realtime == PartyRealtimeHealth.Degraded && !nobodyToHearFrom)
+
+/** How long "Reconnected · back in sync" is projected for; the debounce shows it for a little less. */
+const val PartyStatusReconnectedVisibleMs = 3_000L
+
+/** A recovery that has not been proved within this long of the trouble ending is not announced. */
+const val PartyReconnectProofWindowMs = 60_000L
+
+/**
+ * Whether to tell the viewer a reconnect worked (unhappy paths W1, 2026-11-02).
+ *
+ * "Reconnecting to the party…" used to simply vanish, which reads the same as the pill being hidden
+ * by the chrome, and the realignment that follows a recovery looked like a glitch. This confirms it,
+ * but only for trouble the viewer could have seen - longer than [PartyStatusReconnectVisibleMs] - and
+ * only once the transport is **proved** good ([PartySyncCapability.FullSync], which needs received
+ * traffic). A subscription alone is not proof: Stage 0 showed a subscribed channel delivering nothing.
+ * A proof that never comes within [PartyReconnectProofWindowMs] is dropped rather than announced late.
+ */
+data class PartyReconnectNotice(
+    val troubledSinceMs: Long? = null,
+    /** The visible trouble ended at this time and is waiting for proof. */
+    val awaitingProofSinceMs: Long? = null,
+    val reconnectedAtMs: Long? = null,
+) {
+    fun showsReconnected(nowMs: Long): Boolean =
+        reconnectedAtMs != null && nowMs - reconnectedAtMs < PartyStatusReconnectedVisibleMs
+}
+
+/**
+ * [troubled]: this viewer's own connection is what the pill blames - realtime reads as reconnecting,
+ * or the party is down to offline local playback. **Not** a dropped host: that guest was told the
+ * host lost connection, and "Reconnected" on the host's return would be about the wrong person.
+ */
+fun trackPartyReconnect(
+    state: PartyReconnectNotice,
+    troubled: Boolean,
+    capability: PartySyncCapability,
+    nowMs: Long,
+): PartyReconnectNotice {
+    if (troubled) {
+        // New trouble retires an announcement still up: it would be confirming the previous recovery.
+        return if (state.troubledSinceMs != null) state.copy(awaitingProofSinceMs = null)
+        else PartyReconnectNotice(troubledSinceMs = nowMs)
+    }
+    val awaiting = when (val since = state.troubledSinceMs) {
+        null -> state.awaitingProofSinceMs
+        else -> nowMs.takeIf { nowMs - since > PartyStatusReconnectVisibleMs }
+    }
+    if (awaiting == null || nowMs - awaiting > PartyReconnectProofWindowMs) {
+        return state.copy(troubledSinceMs = null, awaitingProofSinceMs = null)
+    }
+    if (capability == PartySyncCapability.FullSync) return PartyReconnectNotice(reconnectedAtMs = nowMs)
+    return state.copy(troubledSinceMs = null, awaitingProofSinceMs = awaiting)
+}
 
 /** An outgoing join request's answer, for the few seconds the player says so (2026-10-16). */
 enum class PartyStatusOutgoingOutcome { Declined, NoAnswer, Stopped }
@@ -314,6 +371,11 @@ fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLi
     // 11.
     if (inParty && realtimeUnhealthyMs > PartyStatusReconnectVisibleMs) {
         return PartyStatusLine(PartyStatusKind.Reconnecting, "Reconnecting to the party…", tone = PartyStatusTone.Warning)
+    }
+    // 11b (2026-11-02). Below every trouble row, so it can only show once none of them holds. It also
+    // says why the picture may just have jumped: a recovered member re-aligns to the party.
+    if (inParty && justReconnected) {
+        return PartyStatusLine(PartyStatusKind.Reconnected, "Reconnected · back in sync")
     }
     // 13.
     if (inParty && pausedBy != null) {

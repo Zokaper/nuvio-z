@@ -17,6 +17,9 @@ import com.nuvio.app.features.watchparty.PartySourceTimelineDecision
 import com.nuvio.app.features.watchparty.decidePartySourceHandoff
 import com.nuvio.app.features.watchparty.partySourceActivity
 import com.nuvio.app.features.watchparty.PartyPresentationProjector
+import com.nuvio.app.features.watchparty.PartyReconnectNotice
+import com.nuvio.app.features.watchparty.PartySyncCapability
+import com.nuvio.app.features.watchparty.trackPartyReconnect
 import com.nuvio.app.features.watchparty.partyRealizationPhaseFor
 import com.nuvio.app.features.watchparty.partyHasNobodyToHearFrom
 import com.nuvio.app.features.watchparty.partyRealtimeReadsReconnecting
@@ -107,6 +110,15 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
         nobodyToHearFrom = party != null && partyHasNobodyToHearFrom(party, viewerId),
     )
     LaunchedEffect(realtimeUnhealthy) { realtimeUnhealthySinceMs = if (realtimeUnhealthy) currentEpochMs() else 0L }
+    var reconnectNotice by remember { mutableStateOf(PartyReconnectNotice()) }
+    val capability = partyUi.health.capability()
+    val hostOffline = party != null && !isHost &&
+        party.members.firstOrNull { it.profileId == party.hostProfileId }?.connected == false
+    val selfTroubled = party != null &&
+        (capability == PartySyncCapability.OfflineLocalPlayback || (realtimeUnhealthy && !hostOffline))
+    LaunchedEffect(selfTroubled, capability, nowMs) {
+        reconnectNotice = trackPartyReconnect(reconnectNotice, selfTroubled, capability, currentEpochMs())
+    }
 
     val presentation = PartyPresentationProjector.project(
         party = party,
@@ -213,8 +225,9 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 incomingRequester = incomingRequester,
                 panelOpen = panelOpen,
                 realtimeUnhealthyMs = if (realtimeUnhealthy && realtimeUnhealthySinceMs > 0L) nowMs - realtimeUnhealthySinceMs else 0L,
+                justReconnected = reconnectNotice.showsReconnected(nowMs),
                 hostOffline = party.members.firstOrNull { it.profileId == party.hostProfileId }?.connected == false,
-                capability = partyUi.health.capability(),
+                capability = capability,
                 pausedBy = pausedBy,
                 outgoingRequestTarget = outgoingTarget,
                 outgoingRequestOutcome = outgoingOutcome,

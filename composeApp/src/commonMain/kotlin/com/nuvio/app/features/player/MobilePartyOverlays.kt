@@ -147,7 +147,7 @@ internal enum class PartyStatusGlyph { Sync, Waiting, Offline, Paused, JoinReque
 
 /** [PartyStatusBridgeState.kind] carries a `PartyStatusKind` name; unknown names fall back to [PartyStatusGlyph.Party]. */
 internal fun partyStatusGlyph(kind: String): PartyStatusGlyph = when (kind) {
-    "SourceActivity", "MatchingSource", "CatchingUp", "SwitchingEpisode" -> PartyStatusGlyph.Sync
+    "SourceActivity", "MatchingSource", "CatchingUp", "SwitchingEpisode", "Reconnected" -> PartyStatusGlyph.Sync
     "HostChoosingSource", "WaitingForSources", "WaitingForBuffering", "WaitingForAway",
     "EveryoneWaitingOnYou", "HostBuffering", "WaitingForHostStart" -> PartyStatusGlyph.Waiting
     "Reconnecting", "Offline", "HostOffline" -> PartyStatusGlyph.Offline
