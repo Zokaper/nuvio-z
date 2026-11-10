@@ -9,18 +9,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
-import coil3.compose.setSingletonImageLoaderFactory
-import coil3.request.CachePolicy
-import coil3.request.crossfade
-import coil3.svg.SvgDecoder
-import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
+import com.nuvio.app.core.ui.configureAppImageLoader
 import com.nuvio.app.core.ui.NuvioTheme
-import com.nuvio.app.core.ui.configurePlatformImageLoader
 import com.nuvio.app.core.ui.desktopUiScaleForWindow
-import com.nuvio.app.core.ui.platformProvidesImageLoader
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.TabsRoute
@@ -80,25 +73,7 @@ fun App(
 
 @Composable
 internal fun AppEnvironment(content: @Composable () -> Unit) {
-    if (!platformProvidesImageLoader) {
-        setSingletonImageLoaderFactory { context ->
-            ImageLoader.Builder(context)
-                .crossfade(true)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .components {
-                    add(CustomPosterFallbackInterceptor())
-                    add(SvgDecoder.Factory())
-                    add(
-                        coil3.network.ktor3.KtorNetworkFetcherFactory(
-                            cacheStrategy = { coil3.network.cachecontrol.CacheControlCacheStrategy() },
-                        ),
-                    )
-                }
-                .configurePlatformImageLoader()
-                .build()
-        }
-    }
+    configureAppImageLoader()
     val selectedTheme by remember {
         ThemeSettingsRepository.ensureLoaded()
         ThemeSettingsRepository.selectedTheme
