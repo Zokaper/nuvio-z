@@ -581,3 +581,11 @@ tests the actual pinned SDK parser against the replacement request path.
 Coordinator status handlers also defer duplicate revalidation while rejection confirmation
 is active, so clearSession's own notification cannot supersede the current rejection.
 No performance, Watch Together, release feed or version changes.
+
+### 2026-11-10 critical recovery hotfix
+
+Existing `App.kt` image-loader block is extracted to Z-owned `core/ui/AppImageLoader.kt`;
+`AppEnvironment` has one setup call. Desktop's existing `Main.kt` calls it before
+`DesktopTrayController.startHidden`, because the hidden trim can otherwise instantiate Coil's
+default singleton before composition and crash on the first window. Main also starts the Z-owned
+sleep/wake party monitor. No new upstream-owned file enters the surface.

@@ -13,6 +13,55 @@
   ],
   "events": [
     {
+      "seq": 7,
+      "summary": "Fixes for opening Nuvio Z and reconnecting to Watch Together.",
+      "ships": {
+        "android": {
+          "version": "0.6.2-z3",
+          "serial": 132,
+          "date": "2026-11-10"
+        },
+        "ios": {
+          "version": "0.6.2-z3",
+          "serial": 132,
+          "date": "2026-11-10"
+        },
+        "desktop": {
+          "version": "0.1.31-alpha-z3",
+          "serial": 136,
+          "date": "2026-11-10"
+        }
+      },
+      "entries": [
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Open from the tray",
+          "body": "Opening Nuvio Z after a background start no longer crashes during image loading."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Watch Together recovery",
+          "body": "Watch Together restores its connection after an outage and catches up after the computer wakes from sleep."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Reconnect status",
+          "body": "A recovered Watch Together connection briefly confirms that you are back in sync."
+        }
+      ]
+    },
+    {
       "seq": 6,
       "summary": "Watch Together fixes for joining, sources and reconnecting.",
       "ships": {

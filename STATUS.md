@@ -1,3 +1,38 @@
+## Critical bugfix release preparation (2026-11-10)
+
+The maintainer requested a stable bugfix-only update across Android, iOS, Windows and macOS,
+explicitly excluding the new player reliability/fallback work. No new device testing was reported.
+Release branches: `release/critical-recovery-2026-11-10` in isolated `critical-mobile` and
+`critical-desktop` worktrees. Keep existing named bases (mobile 0.6.2-beta, desktop 0.1.31-alpha)
+for this urgent scoped hotfix; the broader upstream sync remains separate. Local stored-ref drift:
+mobile 1235 ahead / 178 behind, desktop 1361 / 187; no upstream code is included.
+
+The desktop log from 2026-11-09 establishes a fatal Coil `setSafe` exception in
+`AppEnvironment(App.kt:84)`. Hidden tray startup can access/clear the singleton cache before
+any window exists, creating Coil's default loader; the first window's factory setup then throws.
+Shared `core/ui/AppImageLoader.kt` preserves the original configuration; desktop registers it
+before `startHidden`, and the composition uses the same setup. The shared helper arrives by
+merge from `shared/critical-image-loader`; platform seams are edited independently.
+
+Desktop also takes the existing mobile realtime recovery commits (scoped cherry-picks with
+provenance, following the documented W1 convergence exception), retains protocol/hold state
+across reconnects, and refreshes its party on waking. Both families confirm a proven reconnect.
+Excluded: S0 stall monitor/trace, S1 failover-position handling, PlatformLink/OS link monitoring,
+automatic source switching and all later unhappy-paths work. TV/web and Installer are outside
+these Kotlin fixes; no backend change.
+
+Candidate versions: mobile `0.6.2-z3`, build 131, serial 132; desktop
+`0.1.31-alpha-z3`, code 50, serial 136. Changelog event 7 is identical in both repositories.
+Local validation passed: Android focused tests 587 / 72 suites; desktop focused tests
+578 / 73 suites, both with zero failures/errors/skips, plus Android application and desktop
+compilation. The desktop regression reproduces the default-loader exception and verifies
+registration before hidden cache access followed by ten repeated opens. All nine mobile pure
+suite groups passed (284/265/188/17/29/221/81/3/17). Native bridge built successfully using
+Adoptium JDK 21; desktop tests use that bridge, skipping its repeat build under the headerless
+JBR. Initial mobile SDK lookup was fixed with ANDROID_HOME. Complete platform dry-runs must
+pass before publication. Hardware acceptance
+is still pending; automated checks do not establish a new device pass.
+
 Last updated: 2026-10-29
 
 ## RELEASED 2026-10-29: Mobile 0.6.2-z2+131 and Desktop 0.1.31-alpha-z2+135
