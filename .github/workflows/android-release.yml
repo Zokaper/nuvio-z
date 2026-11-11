@@ -210,7 +210,7 @@ jobs:
       GRADLE_OPTS: -Xmx512m -Dfile.encoding=UTF-8
       KOTLIN_DAEMON_JVMARGS: -Xmx2g
       NUVIO_GRADLE_JVMARGS: -Xmx2g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768m
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx5g
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx5g -XX:+PrintCommandLineFlags
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       # Official builds must bundle a working TMDB key; the build refuses a blank one.
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
@@ -235,7 +235,9 @@ jobs:
           {
             echo 'org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8'
             echo 'kotlin.daemon.jvmargs=-Xmx2g'
-            echo 'kotlin.native.jvmArgs=-Xmx5g'
+            echo 'kotlin.native.jvmArgs=-Xmx5g -XX:+PrintCommandLineFlags'
+            # Native otherwise runs inside the smaller Gradle daemon and ignores its own JVM args.
+            echo 'kotlin.native.disableCompilerDaemon=true'
             echo 'org.gradle.workers.max=1'
           } >> "${HOME}/.gradle/gradle.properties"
       - uses: actions/cache@v5
