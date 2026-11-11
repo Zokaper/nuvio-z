@@ -17,14 +17,14 @@
       "summary": "Fixes for opening Nuvio Z and reconnecting to Watch Together.",
       "ships": {
         "android": {
-          "version": "0.6.2-z3",
-          "serial": 132,
-          "date": "2026-11-10"
+          "version": "0.6.2-z4",
+          "serial": 133,
+          "date": "2026-11-11"
         },
         "ios": {
-          "version": "0.6.2-z3",
-          "serial": 132,
-          "date": "2026-11-10"
+          "version": "0.6.2-z4",
+          "serial": 133,
+          "date": "2026-11-11"
         },
         "desktop": {
           "version": "0.1.31-alpha-z3",
