@@ -1,3 +1,42 @@
+Last updated: 2026-11-11
+
+## Critical hotfix: desktop released, mobile linker retry
+
+| Family | Default branch | Published stable | Current candidate |
+| --- | --- | --- | --- |
+| Desktop | `Dev` | **0.1.31-alpha-z3+136** | None |
+| Mobile | `main` | 0.6.2-z2+131 | **0.6.2-z4**, build 132, serial 133 |
+
+Desktop published through the normal workflow on 2026-11-10, run `42822953761`, tag
+`0.1.31-alpha-z3+136` at `b74a34d03`. Windows MSI, both Mac DMGs and checksums are public,
+non-prerelease and Latest. Rehearsal `42816383501` passed the complete artifact family.
+Several Apple Silicon capacity timeouts delayed publication; the requested manual exception
+was never used and is no longer needed. No new physical acceptance was reported.
+
+Mobile **has not published**. Candidate z3 / build 131 / serial 132 is retired without a
+public tag or feed promotion. First rehearsal `42816385126`: Android runner shutdown during
+R8; iOS exceeded 120 minutes in compilation. CI correction `c79ac84fb` applies real hosted
+runner caps: the Gradle 9.4.1 probe measured the old environment-only setup at 12288 MiB
+Gradle / 8G Kotlin daemon, versus the intended 3072 MiB / 2G with user properties.
+Second rehearsal `42835933579`: signed Android APKs passed, iOS failed after 43 minutes with
+`OutOfMemoryError: Java heap space` in `linkReleaseFrameworkIosArm64` at Native 4G.
+
+The new candidate rebalances the same Gradle/Native heap allowance from 3G/4G to 2G/5G,
+caps the launcher at 512M, and uses one worker. The application fixes are unchanged. Its
+fresh version/build and 2026-11-11 date keep the final-bump rule and monotonic counters intact.
+Changelog event 7 is mirrored in both repositories; desktop's actual ship date remains 2026-11-10.
+Next: full mobile rehearsal, then coordinated Android + unsigned iOS publication and feeds.
+Never publish the waiting Android APKs independently.
+
+Validation of the application fixes: local Android 587 tests / 72 suites, desktop 578 / 73,
+zero failures/errors/skips; all nine pure groups passed. Automatic CI passed on both app
+release commits, including the separate iOS build check. The iOS issue is specific to the
+optimized release link. These automated results do not establish a device retest.
+
+Scope remains reopen-from-tray and social/Watch Together recovery. S0 stall monitoring,
+S1 failover position, OS link monitoring and automatic player fallback stay excluded.
+`claude/unhappy-paths` remains deferred; TV/web, Installer and backend are unchanged.
+
 ## Critical bugfix release preparation (2026-11-10)
 
 The maintainer requested a stable bugfix-only update across Android, iOS, Windows and macOS,

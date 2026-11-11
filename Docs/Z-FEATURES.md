@@ -1,3 +1,5 @@
+**2026-11-11 release follow-up:** desktop 0.1.31-alpha-z3 is published. Mobile packaging retries as 0.6.2-z4 after the unpublished z3 candidate failed its iOS release link; no additional runtime features are included. Physical retest remains pending.
+
 **2026-11-10 critical recovery hotfix:** desktop takes mobile's existing realtime recovery,
 retains protocol/hold state on reconnect, and refreshes the durable party after sleep. All Kotlin
 platforms show a brief confirmed reconnect status. No stall monitor, automatic player fallback,

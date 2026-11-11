@@ -204,14 +204,13 @@ jobs:
     timeout-minutes: 180
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      # Keep the proven hosted-macOS split from ios-build.yml. Giving Gradle and
-      # Kotlin/Native 4.5G each exceeds the runner's ~7G total and makes the Release
-      # framework spend the whole timeout in compileKotlinIosArm64.
+      # Release linking exhausted the prior 4G Native heap. Rebalance the same 7G
+      # Gradle/Native heap allowance to 2G/5G, with one worker and a small launcher.
       # Avoid the workstation-sized defaults in Xcode's Gradle shell phase too.
-      GRADLE_OPTS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
+      GRADLE_OPTS: -Xmx512m -Dfile.encoding=UTF-8
       KOTLIN_DAEMON_JVMARGS: -Xmx2g
-      NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4g
+      NUVIO_GRADLE_JVMARGS: -Xmx2g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768m
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx5g
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       # Official builds must bundle a working TMDB key; the build refuses a blank one.
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
@@ -231,12 +230,13 @@ jobs:
         run: |
           # org.gradle.jvmargs is a Gradle runtime option, not a project property.
           # ORG_GRADLE_PROJECT_org.gradle.jvmargs does not cap the daemon heap.
-          # Match the passing ios-build.yml configuration in the user properties.
+          # Apply the release linker split in user properties, ahead of workstation defaults.
           mkdir -p "${HOME}/.gradle"
           {
-            echo 'org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+            echo 'org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8'
             echo 'kotlin.daemon.jvmargs=-Xmx2g'
-            echo 'kotlin.native.jvmArgs=-Xmx4g'
+            echo 'kotlin.native.jvmArgs=-Xmx5g'
+            echo 'org.gradle.workers.max=1'
           } >> "${HOME}/.gradle/gradle.properties"
       - uses: actions/cache@v5
         with:
