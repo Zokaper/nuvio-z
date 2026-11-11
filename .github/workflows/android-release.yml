@@ -200,17 +200,17 @@ jobs:
   ios_unsigned:
     name: Build unsigned iOS IPA
     needs: prepare
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 180
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      # Release linking exhausted the prior 4G Native heap. Rebalance the same 7G
-      # Gradle/Native heap allowance to 2G/5G, with one worker and a small launcher.
+      # The full Release linker exceeds the 7G ARM runner's memory. Use the standard
+      # 14G Intel runner with the same Xcode, an isolated 8G compiler and one worker.
       # Avoid the workstation-sized defaults in Xcode's Gradle shell phase too.
       GRADLE_OPTS: -Xmx512m -Dfile.encoding=UTF-8
       KOTLIN_DAEMON_JVMARGS: -Xmx2g
-      NUVIO_GRADLE_JVMARGS: -Xmx2g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768m
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx5g -XX:+PrintCommandLineFlags
+      NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx8g -XX:+PrintCommandLineFlags
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       # Official builds must bundle a working TMDB key; the build refuses a blank one.
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
@@ -220,6 +220,11 @@ jobs:
     outputs:
       self_signing: ${{ steps.signer.outputs.linked }}
     steps:
+      - name: Report build host resources
+        run: |
+          uname -m
+          sysctl -n hw.memsize
+          xcodebuild -version
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
         with:
@@ -233,9 +238,9 @@ jobs:
           # Apply the release linker split in user properties, ahead of workstation defaults.
           mkdir -p "${HOME}/.gradle"
           {
-            echo 'org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8'
+            echo 'org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
             echo 'kotlin.daemon.jvmargs=-Xmx2g'
-            echo 'kotlin.native.jvmArgs=-Xmx5g -XX:+PrintCommandLineFlags'
+            echo 'kotlin.native.jvmArgs=-Xmx8g -XX:+PrintCommandLineFlags'
             # Native otherwise runs inside the smaller Gradle daemon and ignores its own JVM args.
             echo 'kotlin.native.disableCompilerDaemon=true'
             echo 'org.gradle.workers.max=1'
