@@ -21,6 +21,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.6.2-z5",
+          "buildVersion": "133",
+          "date": "2026-11-27T20:02:28Z",
+          "localizedDescription": "Nuvio Z mobile 0.6.2-z5 (build 133).\n\nAndroid: signed APKs. iPhone: use Nuvio Z iOS Installer for Windows or Mac. The unsigned IPA also remains compatible with SideStore.\n\n### What's new\n\nSocial connects through Nuvio Z's own server address.\n\n_Desktop 0.1.31-alpha-z4 · Android 0.6.2-z5 · iOS 0.6.2-z5_\n\n#### Bug fixes\n- **Social is back** Nuvio Z now connects to Social through its own server address, so friends, Watch Together and the Inbox work again. Older versions can't reach Social until they update.\n- **Reconnect status** A recovered Watch Together connection briefly confirms that you are back in sync.\n\n### Changes\n\n- c8256f44 fix(release): give the iOS release linker 12G on the 14G runner @codex  \n- f1108f59 feat(social): talk to the Z backend through api.zokaper.cc @codex  \n- 99b25bc1 fix(release): build the full iOS linker on a standard 14G Mac @codex  \n- 1cd2f3df fix(release): give Native linking its separate compiler heap @codex  \n\n<!-- nuvio-ios:self-signing -->\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/0.6.2-z5%2B134/Nuvio-Z-iOS-0.6.2-z5-133-unsigned.ipa",
+          "size": 80013333,
+          "sha256": "74d760b5cb9348dc0075410d8a29d7c9bd23067a9e05f8ecc52fee0927d7ba7c",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.6.2-z2",
           "buildVersion": "130",
           "date": "2026-10-29T20:53:24Z",
