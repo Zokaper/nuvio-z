@@ -13,19 +13,51 @@
   ],
   "events": [
     {
+      "seq": 8,
+      "summary": "Social connects through Nuvio Z's own server address.",
+      "ships": {
+        "android": {
+          "version": "0.6.2-z5",
+          "serial": 134,
+          "date": "2026-11-27"
+        },
+        "ios": {
+          "version": "0.6.2-z5",
+          "serial": 134,
+          "date": "2026-11-27"
+        },
+        "desktop": {
+          "version": "0.1.31-alpha-z4",
+          "serial": 137,
+          "date": "2026-11-27"
+        }
+      },
+      "entries": [
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios",
+            "desktop"
+          ],
+          "title": "Social is back",
+          "body": "Nuvio Z now connects to Social through its own server address, so friends, Watch Together and the Inbox work again. Older versions can't reach Social until they update."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Reconnect status",
+          "body": "A recovered Watch Together connection briefly confirms that you are back in sync."
+        }
+      ]
+    },
+    {
       "seq": 7,
       "summary": "Fixes for opening Nuvio Z and reconnecting to Watch Together.",
       "ships": {
-        "android": {
-          "version": "0.6.2-z4",
-          "serial": 133,
-          "date": "2026-11-11"
-        },
-        "ios": {
-          "version": "0.6.2-z4",
-          "serial": 133,
-          "date": "2026-11-11"
-        },
         "desktop": {
           "version": "0.1.31-alpha-z3",
           "serial": 136,
@@ -52,8 +84,6 @@
         {
           "category": "fix",
           "platforms": [
-            "android",
-            "ios",
             "desktop"
           ],
           "title": "Reconnect status",
