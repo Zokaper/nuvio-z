@@ -200,19 +200,18 @@ jobs:
   ios_unsigned:
     name: Build unsigned iOS IPA
     needs: prepare
-    runs-on: macos-26-intel
+    runs-on: macos-26
     timeout-minutes: 240
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      # HEDGE (build-only): 0.6.2-z2's proven setup, in-process link in the repo's 12G Gradle heap.
       # linkReleaseFrameworkIosArm64 needs more than 8G of heap: 4G, 5G and 8G all ended in
       # OutOfMemoryError (runs 42835933579, 42985635642, 42989206493). The last good release,
       # 0.6.2-z2 (run 40939122944), linked inside the 12G Gradle heap on the 7G ARM runner by
       # swapping, 92 minutes, and the next try timed out at 120. Give the isolated compiler 12G
       # on the 14G Intel runner and keep Gradle itself small; nothing else runs during the link.
-      GRADLE_OPTS: -Xmx512m -Dfile.encoding=UTF-8
-      KOTLIN_DAEMON_JVMARGS: -Xmx1g
-      NUVIO_GRADLE_JVMARGS: -Xmx1536m -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768m
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12g -XX:+PrintCommandLineFlags
+      NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4g
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       # Official builds must bundle a working TMDB key; the build refuses a blank one.
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
@@ -233,20 +232,6 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v6
-      - name: Cap Gradle memory for hosted runners
-        run: |
-          # org.gradle.jvmargs is a Gradle runtime option, not a project property.
-          # ORG_GRADLE_PROJECT_org.gradle.jvmargs does not cap the daemon heap.
-          # Apply the release linker split in user properties, ahead of workstation defaults.
-          mkdir -p "${HOME}/.gradle"
-          {
-            echo 'org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8'
-            echo 'kotlin.daemon.jvmargs=-Xmx1g'
-            echo 'kotlin.native.jvmArgs=-Xmx12g -XX:+PrintCommandLineFlags'
-            # Native otherwise runs inside the smaller Gradle daemon and ignores its own JVM args.
-            echo 'kotlin.native.disableCompilerDaemon=true'
-            echo 'org.gradle.workers.max=1'
-          } >> "${HOME}/.gradle/gradle.properties"
       - uses: actions/cache@v5
         with:
           path: ~/.konan
