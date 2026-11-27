@@ -416,7 +416,11 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
-    zSupabaseUrl.set(runtimeConfigValue("NUVIO_Z_SUPABASE_URL"))
+    // Every build talks to api.zokaper.cc, a Cloudflare Worker in front of the active Z backend
+    // (nuvio-z-backend/proxy), so the backend can move without an app release. The Worker swaps
+    // the publishable key below for the active backend's. NUVIO_Z_BACKEND_URL overrides it for
+    // local testing; the old NUVIO_Z_SUPABASE_URL is deliberately no longer read.
+    zSupabaseUrl.set(runtimeConfigValue("NUVIO_Z_BACKEND_URL", "https://api.zokaper.cc"))
     zSupabasePublishableKey.set(runtimeConfigValue("NUVIO_Z_SUPABASE_PUBLISHABLE_KEY"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))
     tmdbApiKey.set(runtimeConfigValue("TMDB_API_KEY"))

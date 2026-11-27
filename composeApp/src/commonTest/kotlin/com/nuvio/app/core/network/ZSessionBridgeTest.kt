@@ -25,7 +25,7 @@ class ZSessionBridgeTest {
         assertEquals(expectedConfigured, ZSupabaseProvider.isConfigured)
         if (!expectedConfigured) return
 
-        assertTrue(ZSupabaseConfig.URL.contains("pzbpghmmordvzcfbayoh"))
+        assertTrue(ZSupabaseConfig.URL.contains("api.zokaper.cc"))
         assertNotEquals(SupabaseConfig.URL, ZSupabaseConfig.URL)
         assertNotNull(ZSupabaseProvider.client)
     }
